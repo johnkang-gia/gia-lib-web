@@ -1,0 +1,87 @@
+@import "tailwindcss";
+
+/* GIA 브랜드 색 - 운영앱(gia-ops-web)의 팔레트를 그대로 가져와 두 앱의 톤을 맞춥니다.
+   로고가 남색+금색 조합이라 화면도 남색 바탕에 금색 강조로 씁니다. */
+@theme {
+  --color-gia-navy: #0f1b33;
+  --color-gia-navy-2: #172a4d;
+  --color-gia-navy-3: #223a66;
+  --color-gia-gold: #c6a15b;
+  --color-gia-gold-soft: #efe3c8;
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  background: #f4f6fb;
+  color: #10203a;
+  font-family: "Pretendard", "Pretendard Variable", -apple-system, BlinkMacSystemFont,
+    "Apple SD Gothic Neo", "Malgun Gothic", system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* 도서관 전용 단말 화면 - 학생이 실수로 글자를 끌어 선택하거나 확대하지 않도록 막습니다.
+   (입력칸과 관리 화면은 아래에서 다시 풀어줍니다.) */
+.kiosk {
+  user-select: none;
+  -webkit-user-select: none;
+  touch-action: manipulation;
+  overscroll-behavior: none;
+}
+
+.kiosk input,
+.kiosk textarea {
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+/* 스캔 입력칸은 항상 커서를 유지해야 해서 화면에는 거의 보이지 않게 둡니다. */
+.scan-input {
+  caret-color: transparent;
+}
+
+.gia-navy-panel {
+  background: linear-gradient(165deg, var(--color-gia-navy) 0%, var(--color-gia-navy-2) 55%, var(--color-gia-navy-3) 100%);
+}
+
+/* 처리 결과가 바뀔 때 한 번 크게 나타났다 자리를 잡습니다(멀리서도 바뀐 걸 알아채도록). */
+@keyframes gia-pop {
+  0% {
+    transform: scale(0.96);
+    opacity: 0.4;
+  }
+  60% {
+    transform: scale(1.012);
+  }
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+.gia-pop {
+  animation: gia-pop 0.22s ease-out;
+}
+
+/* ── 인쇄용(도서카드 / 라벨) ───────────────────────────────────────────────
+   화면에서는 안내문과 인쇄 버튼을 보여주고, 실제 인쇄물에는 카드만 나가도록 합니다. */
+@media print {
+  .no-print {
+    display: none !important;
+  }
+  body {
+    background: #fff;
+  }
+  .print-sheet {
+    margin: 0;
+    box-shadow: none;
+  }
+}
+
+@page {
+  size: A4;
+  margin: 8mm;
+}

@@ -1,0 +1,14 @@
+{
+  "name": "GIA 도서관",
+  "short_name": "GIA 도서관",
+  "description": "GIA 학생 도서카드 대출·반납 관리",
+  "start_url": "/scan",
+  "display": "standalone",
+  "orientation": "landscape",
+  "background_color": "#0f1b33",
+  "theme_color": "#0f1b33",
+  "icons": [
+    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

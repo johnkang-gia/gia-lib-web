@@ -1,0 +1,24 @@
+# 푸시할 때마다 타입검사와 빌드를 돌려, 깨진 코드가 배포되는 걸 막습니다.
+# (Vercel도 빌드를 하지만, 여기서 먼저 걸러야 배포 실패 알림을 덜 받습니다.)
+name: build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+        env:
+          # 빌드에는 실제 값이 필요 없습니다(실행할 때만 씁니다). 실제 값은 Vercel에 넣습니다.
+          NEXT_PUBLIC_SUPABASE_URL: https://placeholder.supabase.co
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: placeholder
