@@ -41,11 +41,14 @@ const EMPTY: Form = {
 export default function BookRegisterDialog({
   open,
   initialIsbn,
+  initialScanCode,
   onClose,
   onCreated,
 }: {
   open: boolean;
   initialIsbn?: string;
+  /** ISBN이 아닌 바코드를 찍어서 열린 경우 그 값(UPC 등) - 등록할 때 함께 저장합니다. */
+  initialScanCode?: string;
   onClose: () => void;
   onCreated?: (book: LibBook) => void;
 }) {
@@ -140,13 +143,18 @@ export default function BookRegisterDialog({
     setNoIsbn(false);
     setMessage(null);
     setSource(null);
-    setScanCode(null);
+    setScanCode(initialScanCode ?? null);
+    if (initialScanCode) {
+      setMessage(
+        `찍은 바코드(${initialScanCode})는 ISBN이 아닙니다. 표지의 ISBN을 입력하거나, ISBN이 없으면 아래를 켜고 제목만 적어주세요.`
+      );
+    }
     if (initialIsbn) {
       void runLookup(initialIsbn);
     } else {
       setTimeout(() => isbnRef.current?.focus(), 50);
     }
-  }, [open, initialIsbn, runLookup]);
+  }, [open, initialIsbn, initialScanCode, runLookup]);
 
   if (!open) return null;
 

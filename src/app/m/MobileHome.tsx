@@ -10,6 +10,7 @@ const MENU = [
     desc: "바코드 찍기 → 표지 찍기 → 등록",
     primary: true,
   },
+  { href: "/batch", icon: "⚡", label: "여러 권 한꺼번에", desc: "쭉 찍어서 한 구역으로 등록" },
   { href: "/find", icon: "🔎", label: "책 찾기", desc: "제목으로 찾고 구역 확인" },
   { href: "/scan", icon: "📕", label: "대출·반납 화면", desc: "노트북용 화면 열기" },
 ];

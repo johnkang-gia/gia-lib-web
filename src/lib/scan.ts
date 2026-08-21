@@ -137,7 +137,9 @@ export function isValidIsbn(raw: string) {
 /** 표시용으로 ISBN에 하이픈을 넣습니다(978-89-...). 실제 저장은 하이픈 없이 합니다. */
 export function formatIsbn(isbn: string | null) {
   if (!isbn) return "";
-  if (isbn.length === 13) {
+  // 하이픈 위치는 나라·출판사마다 규칙이 달라서, 한국 책(978-89 / 979-11)만 익숙한 모양으로
+  // 끊어 보여주고 나머지는 숫자 그대로 둡니다(엉뚱한 자리에 하이픈이 들어가면 오히려 헷갈립니다).
+  if (isbn.length === 13 && (isbn.startsWith("97889") || isbn.startsWith("97911"))) {
     return `${isbn.slice(0, 3)}-${isbn.slice(3, 5)}-${isbn.slice(5, 9)}-${isbn.slice(9, 12)}-${isbn.slice(12)}`;
   }
   return isbn;

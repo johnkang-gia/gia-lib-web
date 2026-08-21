@@ -57,6 +57,8 @@ export default function ScanClient({
   const [counts, setCounts] = useState({ borrowed: borrowedToday, returned: returnedToday });
   const [holdLeft, setHoldLeft] = useState(0);
   const [dialogIsbn, setDialogIsbn] = useState<string | null>(null);
+  // ISBN이 아닌 바코드(UPC 등)를 찍었을 때 등록창에 넘겨줄 값.
+  const [dialogCode, setDialogCode] = useState<string | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [unknownPending, setUnknownPending] = useState(false);
   // 이름으로 찾았을 때 나오는 동명이인 후보들.
@@ -244,6 +246,7 @@ export default function ScanClient({
             result.isIsbn ? formatIsbn(result.code) : result.code
           );
           setDialogIsbn(result.isIsbn ? result.code : null);
+          setDialogCode(result.isIsbn ? null : result.code);
           setUnknownPending(true);
           beep("warn");
         } else {
@@ -463,6 +466,7 @@ export default function ScanClient({
       <BookRegisterDialog
         open={dialogOpen}
         initialIsbn={dialogIsbn ?? undefined}
+        initialScanCode={dialogCode ?? undefined}
         onClose={() => {
           setDialogOpen(false);
           setTimeout(refocus, 50);
@@ -470,6 +474,7 @@ export default function ScanClient({
         onCreated={(book) => {
           show("ok", "책 등록 완료", `${book.title} — 이제 다시 찍으면 대출됩니다`);
           setDialogIsbn(null);
+          setDialogCode(null);
           setUnknownPending(false);
           beep("ok");
         }}

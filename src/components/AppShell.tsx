@@ -9,6 +9,7 @@ const MENU = [
   { href: "/shelve", label: "책 정리", icon: "🧺", desc: "반납 정리 · 구역 배정" },
   { href: "/loans", label: "대출현황", icon: "🕒", desc: "대출중 · 연체 · 전체 기록" },
   { href: "/books", label: "장서관리", icon: "📚", desc: "책 등록 · 수정 · 라벨 인쇄" },
+  { href: "/batch", label: "여러 권 등록", icon: "⚡", desc: "바코드 연속 스캔 → 한 구역에" },
   { href: "/students", label: "학생별 이력", icon: "🙋", desc: "학생이 빌린 책 기록" },
   { href: "/locations", label: "구역 관리", icon: "🗺️", desc: "책장 배치도 · 구역 라벨" },
   { href: "/cards", label: "도서카드 인쇄", icon: "🪪", desc: "학생 카드 만들기" },

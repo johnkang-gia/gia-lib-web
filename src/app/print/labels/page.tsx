@@ -84,16 +84,33 @@ export default async function PrintLabelsPage({
               <div
                 style={{
                   fontSize: "2.4mm",
+                  lineHeight: 1.15,
                   fontWeight: 700,
                   width: "100%",
                   textAlign: "center",
-                  whiteSpace: "nowrap",
+                  display: "-webkit-box",
+                  WebkitLineClamp: 2,
+                  WebkitBoxOrient: "vertical",
                   overflow: "hidden",
-                  textOverflow: "ellipsis",
                 }}
               >
                 {book.title}
               </div>
+              {book.author && (
+                <div
+                  style={{
+                    fontSize: "1.9mm",
+                    color: "#64748b",
+                    width: "100%",
+                    textAlign: "center",
+                    whiteSpace: "nowrap",
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                  }}
+                >
+                  {book.author}
+                </div>
+              )}
               <Barcode
                 value={book.item_code ?? book.isbn ?? ""}
                 moduleWidth={book.item_code ? 0.85 : 0.62}
