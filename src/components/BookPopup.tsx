@@ -1,7 +1,7 @@
 "use client";
 
 import { formatIsbn } from "@/lib/scan";
-import type { LibBookWithShelf, LibLoan } from "@/lib/types";
+import type { LibBookWithShelf, LibLoan, LibLocation } from "@/lib/types";
 
 export type BookPopupState =
   | {
@@ -10,7 +10,17 @@ export type BookPopupState =
       activeLoans: LibLoan[];
       available: number;
     }
-  | { kind: "unknown"; code: string; isIsbn: boolean };
+  | { kind: "unknown"; code: string; isIsbn: boolean }
+  | {
+      /** 대출·반납을 마친 뒤 잠깐 보여주는 결과 창. 메인 화면은 학생 정보만 두기 위해서입니다. */
+      kind: "result";
+      tone: "borrowed" | "returned" | "late";
+      title: string;
+      bookTitle: string;
+      sub: string;
+      coverUrl: string | null;
+      shelf: LibLocation | null;
+    };
 
 /**
  * 책 바코드를 찍었을 때 뜨는 큰 확인 창.
@@ -42,6 +52,61 @@ export default function BookPopup({
   const known = state.kind === "known" ? state : null;
   const book = known?.book;
   const onLoan = known ? known.activeLoans.length : 0;
+
+  // ── 처리 결과 창 ─────────────────────────────────────────────────────────
+  if (state.kind === "result") {
+    const tone =
+      state.tone === "borrowed"
+        ? "bg-emerald-500"
+        : state.tone === "late"
+          ? "bg-amber-500"
+          : "bg-blue-600";
+    return (
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 p-6">
+        <div className="gia-pop w-full max-w-2xl overflow-hidden rounded-3xl bg-white shadow-2xl">
+          <div className={`px-8 py-5 text-white ${tone}`}>
+            <p className="text-4xl font-black">{state.title}</p>
+          </div>
+          <div className="flex items-center gap-6 p-8">
+            {state.coverUrl ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={state.coverUrl}
+                alt=""
+                className="h-40 w-28 shrink-0 rounded-xl object-cover shadow ring-1 ring-slate-200"
+              />
+            ) : (
+              <div className="flex h-40 w-28 shrink-0 items-center justify-center rounded-xl bg-slate-100 text-5xl">
+                📘
+              </div>
+            )}
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-2xl font-bold">{state.bookTitle}</p>
+              <p className="mt-1 text-lg text-slate-500">{state.sub}</p>
+              {state.shelf && (
+                <p className="mt-4 inline-flex items-baseline gap-2 rounded-xl px-4 py-2 text-3xl font-black"
+                   style={{ background: `${state.shelf.color}1f`, color: state.shelf.color }}>
+                  📍 {state.shelf.code}
+                  {state.shelf.name && (
+                    <span className="text-base font-medium">{state.shelf.name}에 꽂아주세요</span>
+                  )}
+                </p>
+              )}
+            </div>
+          </div>
+          <div className="border-t border-slate-100 bg-slate-50 px-8 py-4 text-center">
+            <button
+              type="button"
+              onClick={onClose}
+              className="rounded-xl border border-slate-300 bg-white px-6 py-2.5 text-sm font-semibold text-slate-600"
+            >
+              닫기 (곧 자동으로 닫힙니다)
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 p-6">

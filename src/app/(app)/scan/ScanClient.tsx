@@ -6,12 +6,14 @@ import BookRegisterDialog from "@/components/BookRegisterDialog";
 import BookPopup, { type BookPopupState } from "@/components/BookPopup";
 import { formatDay, overdueDays, todayKst } from "@/lib/dates";
 import { formatIsbn } from "@/lib/scan";
+import { cheerFor, monthlyProgress, readingLevel } from "@/lib/reading";
 import type { LibLoanWithBook, LibLocation, LibSettings, LibStudent, ScanResult } from "@/lib/types";
 
 type StudentState = {
   student: LibStudent;
   activeLoans: LibLoanWithBook[];
   overdueCount: number;
+  stats: import("@/lib/types").ReadingStats;
 };
 
 type Tone = "ok" | "return" | "info" | "warn" | "error";
@@ -74,6 +76,7 @@ export default function ScanClient({
   const inputRef = useRef<HTMLInputElement>(null);
   const audioRef = useRef<AudioContext | null>(null);
   const seqRef = useRef(0);
+  const resultTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // ── 시계 ──────────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -165,6 +168,23 @@ export default function ScanClient({
     return () => clearInterval(timer);
   }, [student]);
 
+  /** 대출·반납 결과를 팝업으로 띄웁니다(메인 화면은 학생 정보만 두기 위해). 잠시 뒤 자동으로 닫힙니다. */
+  const showResult = useCallback(
+    (result: {
+      tone: "borrowed" | "returned" | "late";
+      title: string;
+      bookTitle: string;
+      sub: string;
+      coverUrl: string | null;
+      shelf: LibLocation | null;
+    }) => {
+      setPopup({ kind: "result", ...result });
+      if (resultTimerRef.current) clearTimeout(resultTimerRef.current);
+      resultTimerRef.current = setTimeout(() => setPopup(null), 6000);
+    },
+    []
+  );
+
   const show = useCallback((tone: Tone, title: string, sub: string, shelf?: LibLocation | null) => {
     seqRef.current += 1;
     setBanner({ tone, title, sub, seq: seqRef.current, shelf: shelf ?? null });
@@ -195,6 +215,7 @@ export default function ScanClient({
           student: result.student,
           activeLoans: result.activeLoans,
           overdueCount: result.overdueCount,
+          stats: result.stats,
         });
       }
     },
@@ -219,12 +240,20 @@ export default function ScanClient({
             student: result.student,
             activeLoans: result.activeLoans,
             overdueCount: result.overdueCount,
+            stats: result.stats,
           });
           const borrow = await send(waitingBook, result.student.student_no);
           setAwaitBookCode(null);
           setPopup(null);
           if (borrow && borrow.kind === "borrowed") {
-            show("ok", "대출 완료", `${borrow.book.title} · ${formatDay(borrow.loan.due_date)}까지 반납`);
+            showResult({
+              tone: "borrowed",
+              title: "대출 완료 🎉",
+              bookTitle: borrow.book.title,
+              sub: `${borrow.student.name} 학생 · ${formatDay(borrow.loan.due_date)}까지 반납`,
+              coverUrl: borrow.book.cover_url,
+              shelf: null,
+            });
             setCounts((c) => ({ ...c, borrowed: c.borrowed + 1 }));
             beep("ok");
             void refreshStudent(borrow.student.student_no);
@@ -246,6 +275,7 @@ export default function ScanClient({
         }
         if (result.kind !== "unknown_book") setUnknownPending(false);
         if (result.kind !== "book_info" && result.kind !== "unknown_book") setPopup(null);
+        if (resultTimerRef.current) clearTimeout(resultTimerRef.current);
         if (result.kind !== "student_choices") setChoices(null);
 
         if (result.kind === "student") {
@@ -253,27 +283,31 @@ export default function ScanClient({
             student: result.student,
             activeLoans: result.activeLoans,
             overdueCount: result.overdueCount,
+            stats: result.stats,
           });
-          const cls = [result.student.grade, result.student.class_name].filter(Boolean).join(" ");
-          if (result.overdueCount > 0) {
-            show("warn", `${result.student.name} 학생`, `${cls} · 연체 ${result.overdueCount}권 — 먼저 반납해 주세요`);
-            beep("warn");
-          } else {
-            show("info", `${result.student.name} 학생`, `${cls} · 이제 빌릴 책을 찍어주세요`);
-            beep("info");
-          }
+          setBanner(null);
+          beep(result.overdueCount > 0 ? "warn" : "info");
         } else if (result.kind === "borrowed") {
-          show("ok", "대출 완료", `${result.book.title} · ${formatDay(result.loan.due_date)}까지 반납`);
+          showResult({
+            tone: "borrowed",
+            title: "대출 완료 🎉",
+            bookTitle: result.book.title,
+            sub: `${result.student.name} 학생 · ${formatDay(result.loan.due_date)}까지 반납`,
+            coverUrl: result.book.cover_url,
+            shelf: null,
+          });
           setCounts((c) => ({ ...c, borrowed: c.borrowed + 1 }));
           beep("ok");
           void refreshStudent(result.student.student_no);
         } else if (result.kind === "returned") {
-          show(
-            result.overdueDays > 0 ? "warn" : "return",
-            result.message,
-            `${result.book.title} · ${result.loan.student_name}`,
-            result.location
-          );
+          showResult({
+            tone: result.overdueDays > 0 ? "late" : "returned",
+            title: result.message,
+            bookTitle: result.book.title,
+            sub: `${result.loan.student_name} 학생이 반납했습니다`,
+            coverUrl: result.book.cover_url,
+            shelf: result.location,
+          });
           setCounts((c) => ({ ...c, returned: c.returned + 1 }));
           beep(result.overdueDays > 0 ? "warn" : "return");
           if (currentNo && currentNo === result.loan.student_no) void refreshStudent(currentNo);
@@ -313,11 +347,23 @@ export default function ScanClient({
         setTimeout(refocus, 30);
       }
     },
-    [awaitBookCode, beep, busy, refocus, refreshStudent, send, show, student]
+    [awaitBookCode, beep, busy, refocus, refreshStudent, send, show, showResult, student]
   );
 
   const today = todayKst();
   const remaining = student ? Math.max(0, settings.max_books - student.activeLoans.length) : 0;
+  // 독서 단계·이번 달 목표·응원 문구 (요청: "독서를 더 하고싶고 재미있게 할 수 있는 요소")
+  const level = readingLevel(student?.stats.total ?? 0);
+  const goal = monthlyProgress(student?.stats.month ?? 0);
+  const cheer = student
+    ? cheerFor({
+        name: student.student.name,
+        monthCount: student.stats.month,
+        totalCount: student.stats.total,
+        activeCount: student.activeLoans.length,
+        overdueCount: student.overdueCount,
+      })
+    : "";
 
   return (
     <div className="mx-auto flex w-full max-w-5xl flex-1 flex-col gap-4 p-5">
@@ -340,7 +386,7 @@ export default function ScanClient({
       </div>
 
       {/* ── 처리 결과 ───────────────────────────────────────────────────── */}
-      {banner ? (
+      {student ? null : banner ? (
         <div key={banner.seq} className={`gia-pop rounded-3xl px-8 py-7 shadow-lg ${TONE[banner.tone].box}`}>
           <div className="flex items-start gap-4">
             <span
@@ -351,34 +397,6 @@ export default function ScanClient({
             <div className="min-w-0 flex-1">
               <p className="text-5xl leading-tight font-black">{banner.title}</p>
               {banner.sub && <p className="mt-2 text-xl opacity-90">{banner.sub}</p>}
-              {banner.shelf !== undefined && banner.tone !== "error" && (
-                <div className="mt-3">
-                  {banner.shelf ? (
-                    <span className="inline-flex items-baseline gap-3 rounded-2xl bg-white px-5 py-3 text-slate-900 shadow">
-                      <span className="text-base font-semibold text-slate-400">제자리</span>
-                      <span className="text-4xl font-black" style={{ color: banner.shelf.color }}>
-                        📍 {banner.shelf.code}
-                      </span>
-                      {banner.shelf.name && (
-                        <span className="text-base text-slate-500">{banner.shelf.name}</span>
-                      )}
-                    </span>
-                  ) : (
-                    <span className="inline-block rounded-2xl bg-white/95 px-4 py-2 text-base font-semibold text-slate-600">
-                      아직 자리가 정해지지 않은 책입니다 — 책 정리 화면에서 구역을 정해주세요
-                    </span>
-                  )}
-                </div>
-              )}
-              {unknownPending && (
-                <button
-                  type="button"
-                  onClick={() => setDialogOpen(true)}
-                  className="mt-4 rounded-xl bg-white px-5 py-2.5 text-base font-bold text-slate-900 shadow"
-                >
-                  이 책 등록하기
-                </button>
-              )}
             </div>
           </div>
         </div>
@@ -440,6 +458,7 @@ export default function ScanClient({
           </div>
         ) : (
           <>
+            {/* 이름 · 학년 반 */}
             <div className="flex flex-wrap items-end gap-x-4 gap-y-1 border-b border-slate-100 pb-4">
               <p className="text-6xl leading-none font-black text-gia-navy">{student.student.name}</p>
               <p className="text-2xl text-slate-400">
@@ -448,9 +467,67 @@ export default function ScanClient({
               <p className="ml-auto text-sm text-slate-300">{holdLeft}초 후 자동 해제 · Esc</p>
             </div>
 
-            <ul className="mt-4 space-y-2.5">
+            {/* 독서 단계 + 이번 달 목표 - 한 권 더 읽고 싶어지도록 진행 막대로 보여줍니다 */}
+            <div className="mt-4 grid gap-3 sm:grid-cols-2">
+              <div className="rounded-2xl bg-slate-50 px-5 py-4">
+                <div className="flex items-baseline gap-2">
+                  <span className="text-3xl">{level.current.icon}</span>
+                  <span className="text-2xl font-black" style={{ color: level.current.color }}>
+                    {level.current.name}
+                  </span>
+                  <span className="ml-auto text-sm text-slate-400">
+                    {level.next ? `다음까지 ${level.remain}권` : "최고 단계"}
+                  </span>
+                </div>
+                <div className="mt-2 h-3 overflow-hidden rounded-full bg-white">
+                  <div
+                    className="h-full rounded-full transition-all duration-700"
+                    style={{ width: `${Math.round(level.progress * 100)}%`, background: level.current.color }}
+                  />
+                </div>
+              </div>
+
+              <div className="rounded-2xl bg-slate-50 px-5 py-4">
+                <div className="flex items-baseline gap-2">
+                  <span className="text-sm font-semibold text-slate-500">이번 달 목표</span>
+                  <span className="text-2xl font-black text-gia-navy">
+                    {goal.done} / {goal.goal}권
+                  </span>
+                  {goal.achieved && <span className="ml-auto text-xl">🎉</span>}
+                </div>
+                <div className="mt-2 h-3 overflow-hidden rounded-full bg-white">
+                  <div
+                    className={`h-full rounded-full transition-all duration-700 ${
+                      goal.achieved ? "bg-emerald-500" : "bg-gia-gold"
+                    }`}
+                    style={{ width: `${Math.round(goal.progress * 100)}%` }}
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* 이번 달 · 올해 · 누적 */}
+            <div className="mt-3 grid grid-cols-3 gap-3">
+              {[
+                { label: "이번 달", value: student.stats.month },
+                { label: "올해", value: student.stats.year },
+                { label: "지금까지", value: student.stats.total },
+              ].map((tile) => (
+                <div key={tile.label} className="rounded-2xl bg-white px-4 py-3 text-center ring-1 ring-slate-200">
+                  <p className="text-xs font-semibold text-slate-400">{tile.label}</p>
+                  <p className="text-3xl font-black text-gia-navy">
+                    {tile.value}
+                    <span className="ml-0.5 text-base font-medium text-slate-400">권</span>
+                  </p>
+                </div>
+              ))}
+            </div>
+
+            {/* 지금 빌린 책 */}
+            <p className="mt-5 mb-2 text-sm font-bold text-slate-500">지금 빌린 책</p>
+            <ul className="space-y-2.5">
               {student.activeLoans.length === 0 && (
-                <li className="rounded-2xl bg-slate-50 px-5 py-8 text-center text-xl text-slate-300">
+                <li className="rounded-2xl bg-slate-50 px-5 py-6 text-center text-lg text-slate-300">
                   지금 빌린 책이 없습니다
                 </li>
               )}
@@ -459,15 +536,15 @@ export default function ScanClient({
                 return (
                   <li
                     key={loan.id}
-                    className={`flex items-center gap-4 rounded-2xl px-5 py-4 ${
+                    className={`flex items-center gap-4 rounded-2xl px-5 py-3.5 ${
                       late > 0 ? "bg-red-50 ring-1 ring-red-200" : "bg-slate-50"
                     }`}
                   >
-                    <span className="flex-1 truncate text-2xl font-bold">
+                    <span className="flex-1 truncate text-xl font-bold">
                       {loan.book?.title ?? "(삭제된 책)"}
                     </span>
                     <span
-                      className={`shrink-0 text-xl font-bold ${late > 0 ? "text-red-600" : "text-slate-500"}`}
+                      className={`shrink-0 text-lg font-bold ${late > 0 ? "text-red-600" : "text-slate-500"}`}
                     >
                       {late > 0 ? `${late}일 연체` : `${formatDay(loan.due_date)}까지`}
                     </span>
@@ -476,14 +553,13 @@ export default function ScanClient({
               })}
             </ul>
 
-            <p className="mt-5 text-center text-lg text-slate-400">
-              {remaining > 0 ? (
-                <>
-                  <b className="text-gia-navy">{remaining}권</b> 더 빌릴 수 있습니다
-                </>
-              ) : (
-                <span className="text-amber-600">최대 권수를 채웠습니다 — 반납 후 빌릴 수 있어요</span>
-              )}
+            {/* 응원 한마디 + 남은 권수 */}
+            <p className="mt-4 text-center text-lg font-semibold text-gia-navy">{cheer}</p>
+            <p className="mt-1 text-center text-sm text-slate-400">
+              {remaining > 0
+                ? `${remaining}권 더 빌릴 수 있어요`
+                : "최대 권수를 채웠습니다 — 반납 후 빌릴 수 있어요"}
+              {student.stats.lastTitle && ` · 지난번에 읽은 책: ${student.stats.lastTitle}`}
             </p>
             <div className="flex-1" />
           </>
@@ -540,17 +616,19 @@ export default function ScanClient({
               setBusy(true);
               const result = await send(code, null, "return");
               setBusy(false);
-              setPopup(null);
               if (result && result.kind === "returned") {
-                show(
-                  result.overdueDays > 0 ? "warn" : "return",
-                  result.message,
-                  `${result.book.title} · ${result.loan.student_name}`,
-                  result.location
-                );
+                showResult({
+                  tone: result.overdueDays > 0 ? "late" : "returned",
+                  title: result.message,
+                  bookTitle: result.book.title,
+                  sub: `${result.loan.student_name} 학생이 반납했습니다`,
+                  coverUrl: result.book.cover_url,
+                  shelf: result.location,
+                });
                 setCounts((c) => ({ ...c, returned: c.returned + 1 }));
                 beep(result.overdueDays > 0 ? "warn" : "return");
               } else if (result && result.kind === "error") {
+                setPopup(null);
                 show("error", result.message, result.detail ?? "");
                 beep("error");
               }

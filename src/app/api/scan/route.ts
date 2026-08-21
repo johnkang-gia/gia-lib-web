@@ -4,7 +4,7 @@ import { createClient } from "@/lib/supabase/server";
 import { addDaysKst, overdueDays, todayKst } from "@/lib/dates";
 import { isIsbn, isItemCode, isStudentCode, normalizeScan } from "@/lib/scan";
 import { findActiveLoans, findBook, findStudent, getSettings } from "@/lib/server/library";
-import type { LibBookWithShelf, LibLoan, LibStudent, ScanResult } from "@/lib/types";
+import type { LibBookWithShelf, LibLoan, LibStudent, ReadingStats, ScanResult } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
@@ -68,7 +68,10 @@ export async function POST(request: Request) {
       });
     }
 
-    const activeLoans = await findActiveLoans(supabase, student.student_no);
+    const [activeLoans, stats] = await Promise.all([
+      findActiveLoans(supabase, student.student_no),
+      readingStats(supabase, student.student_no),
+    ]);
     const today = todayKst();
     const overdue = activeLoans.filter((loan) => overdueDays(loan.due_date, today) > 0).length;
 
@@ -77,6 +80,7 @@ export async function POST(request: Request) {
       student,
       activeLoans,
       overdueCount: overdue,
+      stats,
       message: `${student.name} 학생 · 빌린 책 ${activeLoans.length}권`,
     });
   }
@@ -106,7 +110,10 @@ export async function POST(request: Request) {
     // 딱 한 명이면 바로 그 학생을 띄웁니다(카드를 찍은 것과 똑같이 동작).
     if (found.length === 1) {
       const student = found[0];
-      const activeLoans = await findActiveLoans(supabase, student.student_no);
+      const [activeLoans, stats] = await Promise.all([
+        findActiveLoans(supabase, student.student_no),
+        readingStats(supabase, student.student_no),
+      ]);
       const today = todayKst();
       const overdue = activeLoans.filter((loan) => overdueDays(loan.due_date, today) > 0).length;
       return NextResponse.json<ScanResult>({
@@ -114,6 +121,7 @@ export async function POST(request: Request) {
         student,
         activeLoans,
         overdueCount: overdue,
+        stats,
         message: `${student.name} 학생 · 빌린 책 ${activeLoans.length}권`,
       });
     }
@@ -249,6 +257,49 @@ export async function POST(request: Request) {
     available,
     message: book.title,
   });
+}
+
+
+/**
+ * 도서카드를 찍었을 때 보여줄 독서 기록(이번 달·올해·누적)을 셉니다.
+ * 대출 기록(lib_loans)만 세면 되므로 가볍습니다.
+ */
+async function readingStats(
+  supabase: SupabaseClient,
+  studentNo: string
+): Promise<ReadingStats> {
+  const today = todayKst();
+  const monthStart = `${today.slice(0, 7)}-01T00:00:00+09:00`;
+  const yearStart = `${today.slice(0, 4)}-01-01T00:00:00+09:00`;
+
+  const [total, month, year, last] = await Promise.all([
+    supabase.from("lib_loans").select("id", { count: "exact", head: true }).eq("student_no", studentNo),
+    supabase
+      .from("lib_loans")
+      .select("id", { count: "exact", head: true })
+      .eq("student_no", studentNo)
+      .gte("borrowed_at", monthStart),
+    supabase
+      .from("lib_loans")
+      .select("id", { count: "exact", head: true })
+      .eq("student_no", studentNo)
+      .gte("borrowed_at", yearStart),
+    supabase
+      .from("lib_loans")
+      .select("book:lib_books(title)")
+      .eq("student_no", studentNo)
+      .eq("status", "반납완료")
+      .order("returned_at", { ascending: false })
+      .limit(1),
+  ]);
+
+  const lastRow = (last.data ?? [])[0] as { book?: { title?: string } | null } | undefined;
+  return {
+    total: total.count ?? 0,
+    month: month.count ?? 0,
+    year: year.count ?? 0,
+    lastTitle: lastRow?.book?.title ?? null,
+  };
 }
 
 async function returnLoan(

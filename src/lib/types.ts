@@ -134,6 +134,18 @@ export const DEFAULT_SETTINGS: LibSettings = {
   updated_at: "",
 };
 
+/** 도서카드를 찍었을 때 화면에 띄우는 독서 기록. */
+export type ReadingStats = {
+  /** 이번 달 빌린 권수 */
+  month: number;
+  /** 올해 빌린 권수 */
+  year: number;
+  /** 지금까지 빌린 총 권수 */
+  total: number;
+  /** 가장 최근에 반납한 책 제목(없으면 null) */
+  lastTitle: string | null;
+};
+
 /** 학생별 이용 통계 - 지금 빌린 권수 / 그중 연체 / 누적 대출 횟수. */
 export type StudentStat = {
   active: number;
@@ -155,7 +167,15 @@ export type BookLookup = {
 
 /** 스캔 한 번의 처리 결과. 화면은 이 값만 보고 큰 글씨/색/소리를 정합니다. */
 export type ScanResult =
-  | { kind: "student"; student: LibStudent; activeLoans: LibLoanWithBook[]; overdueCount: number; message: string }
+  | {
+      kind: "student";
+      student: LibStudent;
+      activeLoans: LibLoanWithBook[];
+      overdueCount: number;
+      /** 이번 달·올해·누적 권수(카드를 찍으면 화면에 크게 보여줍니다). */
+      stats: ReadingStats;
+      message: string;
+    }
   | { kind: "borrowed"; message: string; book: LibBook; loan: LibLoan; student: LibStudent }
   | {
       kind: "returned";
