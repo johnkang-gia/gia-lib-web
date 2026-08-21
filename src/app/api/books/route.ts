@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
-import { normalizeIsbn, normalizeScan } from "@/lib/scan";
+import { canonicalIsbn, isValidIsbn, isbnVariants, normalizeIsbn, normalizeScan } from "@/lib/scan";
 import type { LibBook } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -15,6 +15,8 @@ type Payload = {
   category?: string | null;
   language?: "한국어" | "영어" | "기타";
   location_id?: string | null;
+  /** 책에 찍혀 있던 바코드가 ISBN이 아닌 경우(미국 옛날 책의 UPC 등) 그 값도 함께 저장합니다. */
+  scan_code?: string | null;
   total_copies?: number;
   note?: string | null;
 };
@@ -43,23 +45,36 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "책 제목은 반드시 입력해야 합니다." }, { status: 400 });
   }
 
-  const isbn = body.isbn ? normalizeIsbn(normalizeScan(body.isbn)) : "";
-  let itemCode: string | null = null;
+  const rawIsbn = body.isbn ? normalizeIsbn(normalizeScan(body.isbn)) : "";
+  if (rawIsbn && !isValidIsbn(rawIsbn)) {
+    return NextResponse.json(
+      { error: `ISBN 숫자가 맞지 않습니다(${rawIsbn}). 다시 확인해 주세요.` },
+      { status: 400 }
+    );
+  }
+  // 10자리로 들어와도 13자리 대표 번호로 저장합니다. 그래야 나중에 책 뒷면 바코드를 찍었을 때도
+  // 같은 책으로 찾힙니다.
+  const isbn = rawIsbn ? canonicalIsbn(rawIsbn) : "";
+  // 책에 찍힌 바코드가 ISBN이 아니면(UPC 등) 그 값을 식별번호로 함께 저장해 둡니다.
+  // 그래야 다음에 그 바코드를 찍었을 때도 같은 책으로 찾힙니다.
+  const scanCode = body.scan_code ? normalizeScan(body.scan_code).replace(/[^0-9A-Z-]/g, "") : "";
+  let itemCode: string | null = scanCode && scanCode !== isbn ? scanCode : null;
 
   if (isbn) {
-    const { data: existing } = await supabase
+    const { data: existingRows } = await supabase
       .from("lib_books")
       .select("id,title")
-      .eq("isbn", isbn)
-      .maybeSingle();
+      .in("isbn", isbnVariants(rawIsbn))
+      .limit(1);
+    const existing = (existingRows ?? [])[0];
     if (existing) {
       return NextResponse.json(
         { error: `이미 등록된 책입니다: ${existing.title}`, existingId: existing.id },
         { status: 409 }
       );
     }
-  } else {
-    // ISBN이 없는 책 - 자체 라벨 번호를 발급받아 라벨을 인쇄해 붙입니다.
+  } else if (!itemCode) {
+    // ISBN도 없고 찍을 바코드도 없는 책 - 자체 라벨 번호를 발급받아 인쇄해 붙입니다.
     const { data, error } = await supabase.rpc("lib_next_item_code");
     if (error || !data) {
       return NextResponse.json(

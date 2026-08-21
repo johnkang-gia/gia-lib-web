@@ -9,7 +9,7 @@ import {
   type LibSettings,
   type LibStudent,
 } from "@/lib/types";
-import { isItemCode, normalizeIsbn } from "@/lib/scan";
+import { isItemCode, isbnVariants, normalizeIsbn } from "@/lib/scan";
 
 /**
  * 목록 화면과 스캔 처리에서 공통으로 쓰는 책 컬럼.
@@ -95,10 +95,17 @@ export async function findBook(
     return (data as unknown as LibBookWithShelf | null) ?? null;
   }
 
-  const isbn = normalizeIsbn(code);
-  if (isbn) {
-    const { data } = await supabase.from("lib_books").select(select).eq("isbn", isbn).maybeSingle();
-    if (data) return data as unknown as LibBookWithShelf;
+  // 오래된 책은 표지에 10자리, 바코드에 13자리가 적혀 있어서 같은 책이 두 번호를 가집니다.
+  // 어느 쪽으로 찍든 찾히도록 둘 다 확인합니다.
+  const variants = isbnVariants(code);
+  if (variants.length > 0) {
+    const { data } = await supabase
+      .from("lib_books")
+      .select(select)
+      .in("isbn", variants)
+      .limit(1);
+    const rows = (data ?? []) as unknown as LibBookWithShelf[];
+    if (rows[0]) return rows[0];
   }
 
   // 라벨 형식이 아닌 자체 코드를 쓴 경우까지 한 번 더 확인합니다.

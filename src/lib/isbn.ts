@@ -1,4 +1,5 @@
 import type { BookLookup } from "@/lib/types";
+import { canonicalIsbn, isbnVariants } from "@/lib/scan";
 
 /**
  * ISBN으로 책 정보(제목·저자·출판사·표지)를 인터넷에서 찾아옵니다.
@@ -15,13 +16,21 @@ export async function lookupIsbn(isbn: string): Promise<BookLookup | null> {
   const clean = isbn.replace(/[^0-9X]/gi, "").toUpperCase();
   if (clean.length !== 10 && clean.length !== 13) return null;
 
+  // 오래된 책은 10자리로 적혀 있고 조회처마다 받아주는 형태가 달라서, 두 형태를 모두 시도합니다.
+  const forms = isbnVariants(clean);
   const steps = [fromAladin, fromNationalLibrary, fromGoogleBooks, fromOpenLibrary];
+
   for (const step of steps) {
-    try {
-      const found = await step(clean);
-      if (found && found.title) return found;
-    } catch {
-      // 한 곳이 응답하지 않아도 다음 곳으로 넘어갑니다.
+    for (const form of forms) {
+      try {
+        const found = await step(form);
+        if (found && found.title) {
+          // 저장은 언제나 13자리 대표 번호로 통일합니다.
+          return { ...found, isbn: canonicalIsbn(clean) };
+        }
+      } catch {
+        // 한 곳이 응답하지 않아도 다음 곳으로 넘어갑니다.
+      }
     }
   }
   return null;

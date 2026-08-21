@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import BarcodeScanner from "@/components/BarcodeScanner";
 import CoverCapture from "@/components/CoverCapture";
 import { createClient } from "@/lib/supabase/client";
-import { formatIsbn, isIsbn, normalizeIsbn } from "@/lib/scan";
+import { formatIsbn, isBookBarcode, normalizeIsbn } from "@/lib/scan";
 import type { BookLookup, LibBook, LibLocation } from "@/lib/types";
 
 type Step = "scan" | "form" | "cover" | "done";
@@ -56,6 +56,9 @@ export default function AddClient({ locations }: { locations: LibLocation[] }) {
   const [message, setMessage] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [savedTitle, setSavedTitle] = useState("");
+  // 책에 찍혀 있던 바코드가 ISBN이 아닐 때(미국 옛날 책의 UPC 등) 그 값을 기억해 두었다가
+  // 등록할 때 함께 저장합니다. 그래야 다음에 그 바코드를 찍어도 이 책으로 찾힙니다.
+  const [scanCode, setScanCode] = useState<string | null>(null);
 
   function reset() {
     setStep("scan");
@@ -64,12 +67,13 @@ export default function AddClient({ locations }: { locations: LibLocation[] }) {
     setManual("");
     setSource(null);
     setMessage(null);
+    setScanCode(null);
   }
 
   /** 바코드(또는 직접 입력한 ISBN)로 책 정보를 찾아옵니다. */
   async function lookup(rawIsbn: string) {
     const isbn = normalizeIsbn(rawIsbn);
-    if (isbn.length !== 10 && isbn.length !== 13) {
+    if (isbn.length !== 10 && isbn.length !== 12 && isbn.length !== 13) {
       setMessage("ISBN은 10자리 또는 13자리 숫자입니다.");
       return;
     }
@@ -80,16 +84,27 @@ export default function AddClient({ locations }: { locations: LibLocation[] }) {
       const json = (await res.json()) as {
         existing?: LibBook | null;
         found?: BookLookup | null;
+        canonicalIsbn?: string;
+        upc?: string;
+        message?: string;
         error?: string;
       };
+      // 표지에 10자리로 적힌 옛날 책도 뒷면 바코드(13자리)와 같은 번호로 저장합니다.
+      const saveIsbn = json.canonicalIsbn ?? isbn;
       if (json.error) {
         setMessage(json.error);
+        return;
+      }
+      // 찍힌 값이 ISBN이 아니라 상품코드(UPC)인 경우 - 그 값을 기억해두고 ISBN을 받습니다.
+      if (json.upc && !json.existing) {
+        setScanCode(json.upc);
+        setMessage(json.message ?? "이 바코드는 ISBN이 아닙니다. 표지의 ISBN을 입력해 주세요.");
         return;
       }
       if (json.existing) {
         // 이미 있는 책 - 표지만 새로 찍어 넣을 수 있게 합니다.
         setExisting(json.existing);
-        setForm({ ...EMPTY, isbn, title: json.existing.title, cover_url: json.existing.cover_url ?? "" });
+        setForm({ ...EMPTY, isbn: saveIsbn, title: json.existing.title, cover_url: json.existing.cover_url ?? "" });
         setStep("cover");
         return;
       }
@@ -97,7 +112,7 @@ export default function AddClient({ locations }: { locations: LibLocation[] }) {
       setSource(found?.source ?? null);
       setForm({
         ...EMPTY,
-        isbn,
+        isbn: saveIsbn,
         title: found?.title ?? "",
         author: found?.author ?? "",
         publisher: found?.publisher ?? "",
@@ -105,7 +120,11 @@ export default function AddClient({ locations }: { locations: LibLocation[] }) {
         cover_url: found?.cover_url ?? "",
         language: found?.language ?? "한국어",
       });
-      if (!found) setMessage("인터넷에서 책 정보를 못 찾았습니다. 제목만 직접 적어도 됩니다.");
+      if (!found) {
+        setMessage(
+          "인터넷 목록에 없는 책입니다(오래된 책이나 수입 원서는 흔합니다). 제목만 적으면 그대로 등록됩니다."
+        );
+      }
       setStep("form");
     } catch {
       setMessage("책 정보를 불러오지 못했습니다. 인터넷 연결을 확인해 주세요.");
@@ -145,7 +164,7 @@ export default function AddClient({ locations }: { locations: LibLocation[] }) {
         const res = await fetch("/api/books", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ ...form, cover_url: coverUrl || null }),
+          body: JSON.stringify({ ...form, cover_url: coverUrl || null, scan_code: scanCode }),
         });
         const json = (await res.json()) as { book?: LibBook; error?: string };
         if (!res.ok || !json.book) throw new Error(json.error ?? "등록하지 못했습니다.");
@@ -171,7 +190,7 @@ export default function AddClient({ locations }: { locations: LibLocation[] }) {
 
         <BarcodeScanner
           onDetect={(text) => void lookup(text)}
-          accept={(text) => isIsbn(text)}
+          accept={(text) => isBookBarcode(text)}
           hint="책 뒷면 ISBN 바코드를 네모 안에 맞춰주세요"
         />
 
@@ -181,13 +200,17 @@ export default function AddClient({ locations }: { locations: LibLocation[] }) {
         )}
 
         <div className="rounded-2xl bg-white p-4 shadow-sm ring-1 ring-slate-200">
-          <span className={label}>바코드가 없거나 안 읽히면 — ISBN 숫자를 직접 입력</span>
+          <span className={label}>
+            {scanCode
+              ? `찍힌 바코드(${scanCode})는 상품코드입니다 — 표지의 ISBN을 입력해 주세요`
+              : "바코드가 없거나 안 읽히면 — ISBN 숫자를 직접 입력"}
+          </span>
           <div className="flex gap-2">
             <input
               value={manual}
               onChange={(e) => setManual(e.target.value)}
               inputMode="numeric"
-              placeholder="9788901234567"
+              placeholder="9788901234567 또는 0-441-01083-0"
               className={`${field} font-mono`}
             />
             <button

@@ -56,6 +56,8 @@ export default function BookRegisterDialog({
   const [message, setMessage] = useState<string | null>(null);
   const [source, setSource] = useState<string | null>(null);
   const [locations, setLocations] = useState<LibLocation[]>([]);
+  // 찍힌 바코드가 ISBN이 아닌 경우(UPC 등) 함께 저장할 값입니다.
+  const [scanCode, setScanCode] = useState<string | null>(null);
   const isbnRef = useRef<HTMLInputElement>(null);
 
   // 구역 목록은 창을 열 때 한 번만 받아옵니다(등록하면서 바로 자리를 정할 수 있게).
@@ -72,7 +74,7 @@ export default function BookRegisterDialog({
 
   const runLookup = useCallback(async (rawIsbn: string) => {
     const isbn = normalizeIsbn(rawIsbn);
-    if (isbn.length !== 10 && isbn.length !== 13) {
+    if (isbn.length !== 10 && isbn.length !== 12 && isbn.length !== 13) {
       setMessage("ISBN은 10자리 또는 13자리 숫자입니다. 책 뒷면 바코드를 찍어보세요.");
       return;
     }
@@ -84,8 +86,13 @@ export default function BookRegisterDialog({
       const json = (await res.json()) as {
         existing?: LibBook | null;
         found?: BookLookup | null;
+        canonicalIsbn?: string;
+        upc?: string;
+        message?: string;
         error?: string;
       };
+      // 10자리로 적힌 옛날 책도 바코드(13자리)와 같은 번호로 저장되도록 대표 번호를 씁니다.
+      const saveIsbn = json.canonicalIsbn ?? isbn;
       if (json.error) {
         setMessage(json.error);
         return;
@@ -94,18 +101,25 @@ export default function BookRegisterDialog({
         setMessage(`이미 장서에 있는 책입니다: ${json.existing.title}`);
         return;
       }
+      if (json.upc) {
+        // 미국 옛날 페이퍼백 - 바코드가 ISBN이 아니라 상품코드(UPC)입니다.
+        setScanCode(json.upc);
+        setForm((prev) => ({ ...prev, isbn: "" }));
+        setMessage(json.message ?? "이 바코드는 ISBN이 아닙니다. 표지의 ISBN을 입력해 주세요.");
+        return;
+      }
       if (!json.found) {
         setMessage(
-          "인터넷에서 책 정보를 찾지 못했습니다. 제목만 직접 입력해도 등록할 수 있습니다."
+          "인터넷 목록에 없는 책입니다(오래된 책·수입 원서는 흔합니다). 제목만 입력하면 그대로 등록됩니다."
         );
-        setForm((prev) => ({ ...prev, isbn }));
+        setForm((prev) => ({ ...prev, isbn: saveIsbn }));
         return;
       }
       const found = json.found;
       setSource(found.source);
       setForm((prev) => ({
         ...prev,
-        isbn,
+        isbn: saveIsbn,
         title: found.title,
         author: found.author ?? "",
         publisher: found.publisher ?? "",
@@ -126,6 +140,7 @@ export default function BookRegisterDialog({
     setNoIsbn(false);
     setMessage(null);
     setSource(null);
+    setScanCode(null);
     if (initialIsbn) {
       void runLookup(initialIsbn);
     } else {
@@ -146,7 +161,7 @@ export default function BookRegisterDialog({
       const res = await fetch("/api/books", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...form, isbn: noIsbn ? null : form.isbn }),
+        body: JSON.stringify({ ...form, isbn: noIsbn ? null : form.isbn, scan_code: scanCode }),
       });
       const json = (await res.json()) as { book?: LibBook; error?: string };
       if (!res.ok || !json.book) {
