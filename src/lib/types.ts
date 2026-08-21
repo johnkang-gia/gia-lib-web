@@ -167,6 +167,19 @@ export type ScanResult =
     }
   | { kind: "unknown_book"; message: string; code: string; isIsbn: boolean }
   | {
+      /**
+       * 학생 없이 책만 찍었을 때 - 바로 처리하지 않고 "이 책이 맞는지" 먼저 보여줍니다
+       * (요청: "바코드로 책을 찍으면 큰 팝업창이 뜨고 책표지와 함께 등록된 책인지 아닌지 나오고").
+       */
+      kind: "book_info";
+      book: LibBookWithShelf;
+      /** 지금 대출중인 건들(반납할 대상). */
+      activeLoans: LibLoan[];
+      /** 지금 빌려줄 수 있는 권수. */
+      available: number;
+      message: string;
+    }
+  | {
       /** 카드를 안 가져온 학생을 이름으로 찾은 결과(여러 명이면 골라야 합니다). */
       kind: "student_choices";
       query: string;

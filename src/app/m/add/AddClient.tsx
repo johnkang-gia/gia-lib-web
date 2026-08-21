@@ -59,6 +59,8 @@ export default function AddClient({ locations }: { locations: LibLocation[] }) {
   // 책에 찍혀 있던 바코드가 ISBN이 아닐 때(미국 옛날 책의 UPC 등) 그 값을 기억해 두었다가
   // 등록할 때 함께 저장합니다. 그래야 다음에 그 바코드를 찍어도 이 책으로 찾힙니다.
   const [scanCode, setScanCode] = useState<string | null>(null);
+  // 책에 바코드가 인쇄되어 있지 않은 책 - 나중에 라벨을 뽑아 붙입니다.
+  const [needLabel, setNeedLabel] = useState(false);
 
   function reset() {
     setStep("scan");
@@ -68,6 +70,7 @@ export default function AddClient({ locations }: { locations: LibLocation[] }) {
     setSource(null);
     setMessage(null);
     setScanCode(null);
+    setNeedLabel(false);
   }
 
   /** 바코드(또는 직접 입력한 ISBN)로 책 정보를 찾아옵니다. */
@@ -164,7 +167,12 @@ export default function AddClient({ locations }: { locations: LibLocation[] }) {
         const res = await fetch("/api/books", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ ...form, cover_url: coverUrl || null, scan_code: scanCode }),
+          body: JSON.stringify({
+            ...form,
+            cover_url: coverUrl || null,
+            scan_code: scanCode,
+            need_label: needLabel,
+          }),
         });
         const json = (await res.json()) as { book?: LibBook; error?: string };
         if (!res.ok || !json.book) throw new Error(json.error ?? "등록하지 못했습니다.");
@@ -279,6 +287,16 @@ export default function AddClient({ locations }: { locations: LibLocation[] }) {
               className={field}
             />
           </div>
+          <label className="flex items-center gap-2 rounded-xl bg-slate-50 px-3 py-3 text-sm text-slate-600">
+            <input
+              type="checkbox"
+              checked={needLabel}
+              onChange={(e) => setNeedLabel(e.target.checked)}
+              className="h-5 w-5"
+            />
+            책에 바코드가 인쇄되어 있지 않음 — 라벨 뽑아 붙이기
+          </label>
+
           <div className="flex gap-3">
             <div className="flex-1">
               <span className={label}>구역 (책장 위치)</span>

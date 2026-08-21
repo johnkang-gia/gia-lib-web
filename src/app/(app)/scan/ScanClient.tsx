@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import BookRegisterDialog from "@/components/BookRegisterDialog";
+import BookPopup, { type BookPopupState } from "@/components/BookPopup";
 import { formatDay, overdueDays, todayKst } from "@/lib/dates";
 import { formatIsbn } from "@/lib/scan";
 import type { LibLoanWithBook, LibLocation, LibSettings, LibStudent, ScanResult } from "@/lib/types";
@@ -64,6 +65,10 @@ export default function ScanClient({
   // 이름으로 찾았을 때 나오는 동명이인 후보들.
   const [choices, setChoices] = useState<LibStudent[] | null>(null);
   const [clock, setClock] = useState("");
+  // 책부터 찍었을 때 뜨는 큰 확인 창(요청: "바코드로 책을 찍으면 큰 팝업창이 뜨고").
+  const [popup, setPopup] = useState<BookPopupState | null>(null);
+  // 팝업에서 '대출하기'를 누른 뒤 학생 카드를 기다리는 중이면 그 책의 바코드가 들어 있습니다.
+  const [awaitBookCode, setAwaitBookCode] = useState<string | null>(null);
 
   const router = useRouter();
   const inputRef = useRef<HTMLInputElement>(null);
@@ -166,11 +171,15 @@ export default function ScanClient({
   }, []);
 
   const send = useCallback(
-    async (code: string, studentNo: string | null): Promise<ScanResult | null> => {
+    async (
+      code: string,
+      studentNo: string | null,
+      action?: "return"
+    ): Promise<ScanResult | null> => {
       const res = await fetch("/api/scan", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ code, studentNo }),
+        body: JSON.stringify({ code, studentNo, action }),
       });
       return (await res.json()) as ScanResult;
     },
@@ -199,10 +208,44 @@ export default function ScanClient({
       setValue("");
       setBusy(true);
       try {
+        // 팝업에서 '대출하기'를 눌러 학생 카드를 기다리는 중이면, 찍힌 학생으로 바로 대출합니다.
+        const waitingBook = awaitBookCode;
         const currentNo = student?.student.student_no ?? null;
-        const result = await send(code, currentNo);
+        const result = await send(code, waitingBook ? null : currentNo);
         if (!result) return;
+
+        if (waitingBook && result.kind === "student") {
+          setStudent({
+            student: result.student,
+            activeLoans: result.activeLoans,
+            overdueCount: result.overdueCount,
+          });
+          const borrow = await send(waitingBook, result.student.student_no);
+          setAwaitBookCode(null);
+          setPopup(null);
+          if (borrow && borrow.kind === "borrowed") {
+            show("ok", "대출 완료", `${borrow.book.title} · ${formatDay(borrow.loan.due_date)}까지 반납`);
+            setCounts((c) => ({ ...c, borrowed: c.borrowed + 1 }));
+            beep("ok");
+            void refreshStudent(borrow.student.student_no);
+          } else if (borrow) {
+            show(
+              "error",
+              borrow.kind === "error" ? borrow.message : "대출하지 못했습니다",
+              borrow.kind === "error" ? (borrow.detail ?? "") : ""
+            );
+            beep("error");
+          }
+          return;
+        }
+        if (waitingBook && result.kind === "student_choices") {
+          setChoices(result.students);
+          show("info", "학생을 골라주세요", result.message);
+          beep("info");
+          return;
+        }
         if (result.kind !== "unknown_book") setUnknownPending(false);
+        if (result.kind !== "book_info" && result.kind !== "unknown_book") setPopup(null);
         if (result.kind !== "student_choices") setChoices(null);
 
         if (result.kind === "student") {
@@ -239,6 +282,14 @@ export default function ScanClient({
           setStudent(null);
           show("info", "학생을 골라주세요", result.message);
           beep("info");
+        } else if (result.kind === "book_info") {
+          setPopup({
+            kind: "known",
+            book: result.book,
+            activeLoans: result.activeLoans,
+            available: result.available,
+          });
+          beep("info");
         } else if (result.kind === "unknown_book") {
           show(
             "warn",
@@ -248,6 +299,7 @@ export default function ScanClient({
           setDialogIsbn(result.isIsbn ? result.code : null);
           setDialogCode(result.isIsbn ? null : result.code);
           setUnknownPending(true);
+          setPopup({ kind: "unknown", code: result.code, isIsbn: result.isIsbn });
           beep("warn");
         } else {
           show("error", result.message, result.detail ?? "");
@@ -261,7 +313,7 @@ export default function ScanClient({
         setTimeout(refocus, 30);
       }
     },
-    [beep, busy, refocus, refreshStudent, send, show, student]
+    [awaitBookCode, beep, busy, refocus, refreshStudent, send, show, student]
   );
 
   const today = todayKst();
@@ -453,6 +505,8 @@ export default function ScanClient({
             setBanner(null);
             setUnknownPending(false);
             setChoices(null);
+            setPopup(null);
+            setAwaitBookCode(null);
             setValue("");
           }
         }}
@@ -462,6 +516,55 @@ export default function ScanClient({
         autoComplete="off"
         spellCheck={false}
       />
+
+      {popup && (
+        <BookPopup
+          state={popup}
+          awaitingStudent={awaitBookCode !== null}
+          busy={busy}
+          onBorrow={() => {
+            if (popup.kind !== "known") return;
+            // 학생이 이미 화면에 떠 있으면 곧바로 대출합니다.
+            const code = popup.book.item_code ?? popup.book.isbn ?? "";
+            if (student) {
+              setPopup(null);
+              void handleScan(code);
+              return;
+            }
+            setAwaitBookCode(code);
+          }}
+          onReturn={() => {
+            if (popup.kind !== "known") return;
+            const code = popup.book.item_code ?? popup.book.isbn ?? "";
+            void (async () => {
+              setBusy(true);
+              const result = await send(code, null, "return");
+              setBusy(false);
+              setPopup(null);
+              if (result && result.kind === "returned") {
+                show(
+                  result.overdueDays > 0 ? "warn" : "return",
+                  result.message,
+                  `${result.book.title} · ${result.loan.student_name}`,
+                  result.location
+                );
+                setCounts((c) => ({ ...c, returned: c.returned + 1 }));
+                beep(result.overdueDays > 0 ? "warn" : "return");
+              } else if (result && result.kind === "error") {
+                show("error", result.message, result.detail ?? "");
+                beep("error");
+              }
+              setTimeout(refocus, 30);
+            })();
+          }}
+          onRegister={() => setDialogOpen(true)}
+          onClose={() => {
+            setPopup(null);
+            setAwaitBookCode(null);
+            setTimeout(refocus, 30);
+          }}
+        />
+      )}
 
       <BookRegisterDialog
         open={dialogOpen}

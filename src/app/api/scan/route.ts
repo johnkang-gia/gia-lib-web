@@ -30,7 +30,7 @@ export async function POST(request: Request) {
     );
   }
 
-  let body: { code?: string; studentNo?: string | null };
+  let body: { code?: string; studentNo?: string | null; action?: "return" };
   try {
     body = await request.json();
   } catch {
@@ -227,15 +227,27 @@ export async function POST(request: Request) {
     });
   }
 
-  // ── ②-2 학생 없이 책만 찍으면 반납 ──────────────────────────────────────
-  if (bookLoans.length > 0) {
+  // ── ②-2 학생 없이 책만 찍은 경우 ────────────────────────────────────────
+  // 화면에서 "반납" 버튼을 눌러 들어온 요청이면 그대로 반납 처리합니다.
+  if (body.action === "return") {
+    if (bookLoans.length === 0) {
+      return NextResponse.json<ScanResult>({
+        kind: "error",
+        message: "지금 대출중이 아닌 책입니다.",
+        detail: book.title,
+      });
+    }
     return NextResponse.json<ScanResult>(await returnLoan(supabase, bookLoans[0], book, email));
   }
 
+  // 그 밖에는 책 정보를 돌려주어, 화면에서 표지와 함께 보여주고 무엇을 할지 고르게 합니다.
+  const available = Math.max(0, book.total_copies - bookLoans.length);
   return NextResponse.json<ScanResult>({
-    kind: "error",
-    message: "학생 도서카드를 먼저 찍어주세요.",
-    detail: `${book.title} · 지금 대출중이 아닌 책입니다.`,
+    kind: "book_info",
+    book,
+    activeLoans: bookLoans,
+    available,
+    message: book.title,
   });
 }
 

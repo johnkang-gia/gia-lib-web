@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import BookRegisterDialog from "@/components/BookRegisterDialog";
 import MobileQrDialog from "@/components/MobileQrDialog";
 import { createClient } from "@/lib/supabase/client";
-import { formatIsbn } from "@/lib/scan";
+import { formatIsbn, needsLabel } from "@/lib/scan";
 import type { LibBook, LibBookWithShelf, LibLocation } from "@/lib/types";
 
 export default function BooksClient({
@@ -29,7 +29,7 @@ export default function BooksClient({
   const filtered = useMemo(() => {
     const kw = keyword.trim().toLowerCase();
     return books.filter((book) => {
-      if (onlyLabel && !book.item_code) return false;
+      if (onlyLabel && !needsLabel(book)) return false;
       if (onlyNoShelf && book.location_id) return false;
       if (!kw) return true;
       const hay = `${book.title} ${book.author ?? ""} ${book.publisher ?? ""} ${book.isbn ?? ""} ${
@@ -44,6 +44,8 @@ export default function BooksClient({
   const labelTargets = filtered.filter(
     (book) => (book.item_code || book.isbn) && selected.has(book.id)
   );
+  // 책에 바코드가 인쇄되어 있지 않아 라벨을 붙여야 하는 책들(자체 번호가 발급된 책).
+  const needLabelBooks = books.filter((book) => needsLabel(book));
 
   function toggle(id: string) {
     setSelected((prev) => {
@@ -70,7 +72,7 @@ export default function BooksClient({
             onChange={(e) => setOnlyLabel(e.target.checked)}
             className="h-4 w-4"
           />
-          자체 라벨 책만
+          라벨 필요한 책만
         </label>
         {filtered.length > 0 && (
           <button
@@ -100,6 +102,21 @@ export default function BooksClient({
         </span>
 
         <div className="ml-auto flex gap-2">
+          {needLabelBooks.length > 0 && (
+            <button
+              type="button"
+              onClick={() =>
+                window.open(
+                  `/print/labels?ids=${needLabelBooks.map((b) => b.id).join(",")}`,
+                  "_blank"
+                )
+              }
+              className="rounded-lg bg-amber-500 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-600"
+              title="책에 바코드가 인쇄되어 있지 않아 라벨을 붙여야 하는 책들입니다"
+            >
+              🏷 라벨 필요 {needLabelBooks.length}권 인쇄
+            </button>
+          )}
           {labelTargets.length > 0 && (
             <button
               type="button"
@@ -188,8 +205,15 @@ export default function BooksClient({
                     </div>
                   </td>
                   <td className="px-3 py-2 font-mono text-xs text-slate-500">
-                    {book.item_code ? (
-                      <span className="rounded bg-amber-50 px-1.5 py-0.5 text-amber-700">
+                    {needsLabel(book) ? (
+                      <span
+                        className="rounded bg-amber-100 px-1.5 py-0.5 font-semibold text-amber-800"
+                        title="라벨을 붙여야 하는 책"
+                      >
+                        🏷 {book.item_code}
+                      </span>
+                    ) : book.item_code ? (
+                      <span className="rounded bg-slate-100 px-1.5 py-0.5 text-slate-600">
                         {book.item_code}
                       </span>
                     ) : (

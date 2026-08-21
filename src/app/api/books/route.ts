@@ -17,6 +17,8 @@ type Payload = {
   location_id?: string | null;
   /** 책에 찍혀 있던 바코드가 ISBN이 아닌 경우(미국 옛날 책의 UPC 등) 그 값도 함께 저장합니다. */
   scan_code?: string | null;
+  /** 책에 바코드가 인쇄되어 있지 않아 라벨을 붙여야 하는 책인지. */
+  need_label?: boolean;
   total_copies?: number;
   note?: string | null;
 };
@@ -73,8 +75,11 @@ export async function POST(request: Request) {
         { status: 409 }
       );
     }
-  } else if (!itemCode) {
-    // ISBN도 없고 찍을 바코드도 없는 책 - 자체 라벨 번호를 발급받아 인쇄해 붙입니다.
+  }
+
+  // 라벨을 붙여야 하는 책(책에 바코드가 인쇄되어 있지 않음)이거나, ISBN도 찍을 바코드도 없는
+  // 책이면 자체 번호(GIA-B-00001)를 발급합니다. 이 번호가 있는 책이 곧 "라벨 인쇄 대상"입니다.
+  if (body.need_label || (!isbn && !itemCode)) {
     const { data, error } = await supabase.rpc("lib_next_item_code");
     if (error || !data) {
       return NextResponse.json(

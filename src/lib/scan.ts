@@ -4,6 +4,11 @@
 /** 학생 고유번호(운영앱 wr_students.student_no) - 예: GIA-2026-0001 */
 export const STUDENT_CODE_RE = /^GIA-\d{4}-\d+$/i;
 
+/** 이 책이 라벨을 붙여야 하는 책인지(자체 번호가 발급된 책). */
+export function needsLabel(book: { item_code: string | null }) {
+  return Boolean(book.item_code && ITEM_CODE_RE.test(book.item_code));
+}
+
 /** ISBN이 없는 책에 붙이는 자체 라벨 - 예: GIA-B-00001 */
 export const ITEM_CODE_RE = /^GIA-B-\d+$/i;
 

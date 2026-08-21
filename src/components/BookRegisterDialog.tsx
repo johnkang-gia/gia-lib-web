@@ -54,6 +54,8 @@ export default function BookRegisterDialog({
 }) {
   const [form, setForm] = useState<Form>(EMPTY);
   const [noIsbn, setNoIsbn] = useState(false);
+  // 책에 바코드가 인쇄되어 있지 않아 라벨을 붙여야 하는 책인지.
+  const [needLabel, setNeedLabel] = useState(false);
   const [looking, setLooking] = useState(false);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
@@ -141,6 +143,7 @@ export default function BookRegisterDialog({
     if (!open) return;
     setForm({ ...EMPTY, isbn: initialIsbn ? normalizeIsbn(initialIsbn) : "" });
     setNoIsbn(false);
+    setNeedLabel(false);
     setMessage(null);
     setSource(null);
     setScanCode(initialScanCode ?? null);
@@ -169,7 +172,12 @@ export default function BookRegisterDialog({
       const res = await fetch("/api/books", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...form, isbn: noIsbn ? null : form.isbn, scan_code: scanCode }),
+        body: JSON.stringify({
+          ...form,
+          isbn: noIsbn ? null : form.isbn,
+          scan_code: scanCode,
+          need_label: noIsbn || needLabel,
+        }),
       });
       const json = (await res.json()) as { book?: LibBook; error?: string };
       if (!res.ok || !json.book) {
@@ -205,7 +213,18 @@ export default function BookRegisterDialog({
             onChange={(e) => setNoIsbn(e.target.checked)}
             className="h-4 w-4"
           />
-          ISBN 바코드가 없는 책입니다 (자체 라벨 번호를 발급받습니다)
+          ISBN이 아예 없는 책입니다 (자체 번호를 발급받습니다)
+        </label>
+
+        <label className="mb-4 flex items-center gap-2 text-sm text-slate-600">
+          <input
+            type="checkbox"
+            checked={noIsbn || needLabel}
+            disabled={noIsbn}
+            onChange={(e) => setNeedLabel(e.target.checked)}
+            className="h-4 w-4"
+          />
+          책에 바코드가 인쇄되어 있지 않습니다 — 라벨을 뽑아 붙일 예정
         </label>
 
         {!noIsbn && (

@@ -45,6 +45,8 @@ export default function BatchClient({ locations }: { locations: LibLocation[] })
   const [items, setItems] = useState<Item[]>([]);
   const [value, setValue] = useState("");
   const [camera, setCamera] = useState(false);
+  // 이번에 담는 책들이 모두 "바코드가 인쇄되어 있지 않은 책"인 경우(라벨을 뽑아 붙일 예정).
+  const [needLabel, setNeedLabel] = useState(false);
   const [saving, setSaving] = useState(false);
   const [done, setDone] = useState<{ added: number; moved: number; failed: number; ids: string[] } | null>(
     null
@@ -241,6 +243,7 @@ export default function BatchClient({ locations }: { locations: LibLocation[] })
             cover_url: item.cover_url,
             language: item.language,
             location_id: locationId || null,
+            need_label: needLabel,
             total_copies: 1,
           }),
         });
@@ -361,6 +364,16 @@ export default function BatchClient({ locations }: { locations: LibLocation[] })
               📍 {location.code}
             </span>
           )}
+
+          <label className="flex items-center gap-2 text-sm text-slate-600">
+            <input
+              type="checkbox"
+              checked={needLabel}
+              onChange={(e) => setNeedLabel(e.target.checked)}
+              className="h-4 w-4"
+            />
+            바코드가 인쇄 안 된 책들 (라벨 발급)
+          </label>
 
           <button
             type="button"
