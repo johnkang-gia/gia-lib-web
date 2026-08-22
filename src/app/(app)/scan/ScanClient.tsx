@@ -7,6 +7,7 @@ import BookPopup, { type BookPopupState } from "@/components/BookPopup";
 import { formatDay, overdueDays, todayKst } from "@/lib/dates";
 import { formatIsbn } from "@/lib/scan";
 import { cheerFor, monthlyProgress, readingLevel } from "@/lib/reading";
+import { CATEGORIES } from "@/lib/categories";
 import type { LibLoanWithBook, LibLocation, LibSettings, LibStudent, ScanResult } from "@/lib/types";
 
 type StudentState = {
@@ -355,6 +356,9 @@ export default function ScanClient({
   // 독서 단계·이번 달 목표·응원 문구 (요청: "독서를 더 하고싶고 재미있게 할 수 있는 요소")
   const level = readingLevel(student?.stats.total ?? 0);
   const goal = monthlyProgress(student?.stats.month ?? 0);
+  const filledCategories = student
+    ? CATEGORIES.filter((cat) => (student.stats.byCategory[cat.key] ?? 0) > 0).length
+    : 0;
   const cheer = student
     ? cheerFor({
         name: student.student.name,
@@ -521,6 +525,38 @@ export default function ScanClient({
                   </p>
                 </div>
               ))}
+            </div>
+
+            {/* 독서 도감 - 분류별로 몇 권 읽었는지. 안 읽은 칸은 흐리게 보여서
+                "비어 있는 칸을 채우고 싶은" 마음이 들도록 했습니다. */}
+            <div className="mt-4">
+              <div className="mb-1.5 flex items-baseline gap-2">
+                <p className="text-sm font-bold text-slate-500">독서 도감</p>
+                <p className="text-xs text-slate-400">
+                  {filledCategories}/{CATEGORIES.length}칸 채움
+                  {student.stats.englishCount > 0 && ` · 영어책 ${student.stats.englishCount}권`}
+                </p>
+              </div>
+              <div className="flex flex-wrap gap-1.5">
+                {CATEGORIES.map((cat) => {
+                  const count = student.stats.byCategory[cat.key] ?? 0;
+                  const filled = count > 0;
+                  return (
+                    <span
+                      key={cat.key}
+                      className={`flex items-center gap-1 rounded-xl px-2.5 py-1.5 text-sm font-semibold ${
+                        filled ? "" : "bg-slate-50 text-slate-300"
+                      }`}
+                      style={filled ? { background: `${cat.color}1f`, color: cat.color } : undefined}
+                      title={filled ? `${cat.key} ${count}권` : `${cat.key} — 아직 안 읽었어요`}
+                    >
+                      <span className={filled ? "" : "opacity-40 grayscale"}>{cat.icon}</span>
+                      {cat.key}
+                      {filled && <span className="font-black">{count}</span>}
+                    </span>
+                  );
+                })}
+              </div>
             </div>
 
             {/* 지금 빌린 책 */}

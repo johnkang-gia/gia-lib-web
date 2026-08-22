@@ -272,7 +272,7 @@ async function readingStats(
   const monthStart = `${today.slice(0, 7)}-01T00:00:00+09:00`;
   const yearStart = `${today.slice(0, 4)}-01-01T00:00:00+09:00`;
 
-  const [total, month, year, last] = await Promise.all([
+  const [total, month, year, last, read] = await Promise.all([
     supabase.from("lib_loans").select("id", { count: "exact", head: true }).eq("student_no", studentNo),
     supabase
       .from("lib_loans")
@@ -291,7 +291,21 @@ async function readingStats(
       .eq("status", "반납완료")
       .order("returned_at", { ascending: false })
       .limit(1),
+    // 독서 도감 - 지금까지 빌린 책들의 분류·언어를 모아 셉니다.
+    supabase
+      .from("lib_loans")
+      .select("book:lib_books(category,language)")
+      .eq("student_no", studentNo)
+      .limit(1000),
   ]);
+
+  const byCategory: Record<string, number> = {};
+  let englishCount = 0;
+  for (const row of (read.data ?? []) as { book?: { category?: string | null; language?: string | null } | null }[]) {
+    const cat = row.book?.category;
+    if (cat) byCategory[cat] = (byCategory[cat] ?? 0) + 1;
+    if (row.book?.language === "영어") englishCount += 1;
+  }
 
   const lastRow = (last.data ?? [])[0] as { book?: { title?: string } | null } | undefined;
   return {
@@ -299,6 +313,8 @@ async function readingStats(
     month: month.count ?? 0,
     year: year.count ?? 0,
     lastTitle: lastRow?.book?.title ?? null,
+    byCategory,
+    englishCount,
   };
 }
 

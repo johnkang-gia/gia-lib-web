@@ -6,6 +6,7 @@ import BookRegisterDialog from "@/components/BookRegisterDialog";
 import MobileQrDialog from "@/components/MobileQrDialog";
 import { createClient } from "@/lib/supabase/client";
 import { formatIsbn, needsLabel } from "@/lib/scan";
+import { CATEGORIES, categoryOf } from "@/lib/categories";
 import type { LibBook, LibBookWithShelf, LibLocation } from "@/lib/types";
 
 export default function BooksClient({
@@ -21,6 +22,7 @@ export default function BooksClient({
   const [keyword, setKeyword] = useState("");
   const [onlyLabel, setOnlyLabel] = useState(false);
   const [onlyNoShelf, setOnlyNoShelf] = useState(false);
+  const [category, setCategory] = useState("전체");
   const [dialogOpen, setDialogOpen] = useState(false);
   const [qrOpen, setQrOpen] = useState(false);
   const [editing, setEditing] = useState<LibBook | null>(null);
@@ -31,13 +33,15 @@ export default function BooksClient({
     return books.filter((book) => {
       if (onlyLabel && !needsLabel(book)) return false;
       if (onlyNoShelf && book.location_id) return false;
+      if (category === "미분류" && book.category) return false;
+      if (category !== "전체" && category !== "미분류" && book.category !== category) return false;
       if (!kw) return true;
       const hay = `${book.title} ${book.author ?? ""} ${book.publisher ?? ""} ${book.isbn ?? ""} ${
         book.item_code ?? ""
       } ${book.category ?? ""} ${book.shelf?.code ?? ""} ${book.shelf?.name ?? ""}`.toLowerCase();
       return hay.includes(kw);
     });
-  }, [books, keyword, onlyLabel, onlyNoShelf]);
+  }, [books, keyword, onlyLabel, onlyNoShelf, category]);
 
   // 자체 라벨 번호가 있는 책은 그 번호로, ISBN만 있는 책은 ISBN으로 바코드를 만들어 인쇄합니다
   // (요청: "isbn 번호만 있고 바코드는 없는 경우도 있어, 이경우에도 바코드 생성할 수 있게").
@@ -65,6 +69,20 @@ export default function BooksClient({
           placeholder="제목 · 저자 · ISBN · 서가 위치 검색"
           className="w-72 rounded-lg border border-slate-300 px-3 py-2 text-sm"
         />
+        <select
+          value={category}
+          onChange={(e) => setCategory(e.target.value)}
+          className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
+        >
+          <option>전체</option>
+          <option>미분류</option>
+          {CATEGORIES.map((cat) => (
+            <option key={cat.key} value={cat.key}>
+              {cat.icon} {cat.key}
+            </option>
+          ))}
+        </select>
+
         <label className="flex items-center gap-1.5 text-sm text-slate-600">
           <input
             type="checkbox"
@@ -220,7 +238,21 @@ export default function BooksClient({
                       formatIsbn(book.isbn)
                     )}
                   </td>
-                  <td className="px-3 py-2 text-slate-500">{book.category || "-"}</td>
+                  <td className="px-3 py-2">
+                    {book.category ? (
+                      <span
+                        className="rounded px-2 py-0.5 text-xs font-semibold"
+                        style={{
+                          background: `${categoryOf(book.category)?.color ?? "#94a3b8"}1f`,
+                          color: categoryOf(book.category)?.color ?? "#475569",
+                        }}
+                      >
+                        {categoryOf(book.category)?.icon} {book.category}
+                      </span>
+                    ) : (
+                      <span className="text-xs text-slate-300">미분류</span>
+                    )}
+                  </td>
                   <td className="px-3 py-2">
                     {book.shelf ? (
                       <span
@@ -376,12 +408,19 @@ function EditDialog({
             />
           </div>
           <div>
-            <span className={label}>분류</span>
-            <input
+            <span className={label}>분류 (독서 도감)</span>
+            <select
               value={form.category}
               onChange={(e) => setForm({ ...form, category: e.target.value })}
               className={field}
-            />
+            >
+              <option value="">미분류</option>
+              {CATEGORIES.map((cat) => (
+                <option key={cat.key} value={cat.key}>
+                  {cat.icon} {cat.key}
+                </option>
+              ))}
+            </select>
           </div>
           <div>
             <span className={label}>구역 (책장 위치)</span>

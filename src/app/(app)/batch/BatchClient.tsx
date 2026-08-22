@@ -22,6 +22,7 @@ type Item = {
   pub_year: string;
   cover_url: string;
   language: "한국어" | "영어" | "기타";
+  category: string;
   status: Status;
   note: string;
   /** 이미 등록된 책이면 그 id - 등록 대신 구역만 바꿉니다. */
@@ -90,6 +91,7 @@ export default function BatchClient({ locations }: { locations: LibLocation[] })
             pub_year: "",
             cover_url: "",
             language: "한국어",
+            category: "",
             status: "찾는중",
             note: "",
             existingId: null,
@@ -146,6 +148,7 @@ export default function BatchClient({ locations }: { locations: LibLocation[] })
           pub_year: found?.pub_year ?? "",
           cover_url: found?.cover_url ?? "",
           language: found?.language ?? "한국어",
+          category: found?.category ?? "",
           status: found ? "준비" : "제목필요",
           note: found ? (found.source ?? "") : "인터넷 목록에 없는 책 — 제목만 적으면 등록됩니다",
         });
@@ -190,6 +193,7 @@ export default function BatchClient({ locations }: { locations: LibLocation[] })
         pub_year: found?.pub_year ?? "",
         cover_url: found?.cover_url ?? "",
         language: found?.language ?? "한국어",
+        category: found?.category ?? "",
         status: found ? "준비" : "제목필요",
         note: found ? (found.source ?? "") : "인터넷 목록에 없는 책 — 제목만 적으면 등록됩니다",
       });
@@ -242,6 +246,7 @@ export default function BatchClient({ locations }: { locations: LibLocation[] })
             pub_year: item.pub_year,
             cover_url: item.cover_url,
             language: item.language,
+            category: item.category || null,
             location_id: locationId || null,
             need_label: needLabel,
             total_copies: 1,

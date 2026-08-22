@@ -1,5 +1,6 @@
 import type { BookLookup } from "@/lib/types";
 import { canonicalIsbn, isbnVariants } from "@/lib/scan";
+import { guessCategory } from "@/lib/categories";
 
 /**
  * ISBN으로 책 정보(제목·저자·출판사·표지)를 인터넷에서 찾아옵니다.
@@ -79,6 +80,9 @@ async function fromAladin(isbn: string): Promise<BookLookup | null> {
     pub_year: yearOf(item.pubDate),
     cover_url: item.cover ? String(item.cover) : null,
     language: guessLanguage(`${item.title} ${item.author ?? ""}`),
+    // 알라딘은 "국내도서>어린이>동화" 처럼 분류를 자세히 줍니다 - 도감 칸으로 옮깁니다.
+    rawCategory: item.categoryName ? String(item.categoryName) : null,
+    category: guessCategory(item.categoryName ? String(item.categoryName) : null),
     source: "알라딘",
   };
 }
@@ -100,6 +104,9 @@ async function fromNationalLibrary(isbn: string): Promise<BookLookup | null> {
     pub_year: yearOf(doc.PUBLISH_PREDATE),
     cover_url: doc.TITLE_URL ? String(doc.TITLE_URL) : null,
     language: guessLanguage(`${doc.TITLE} ${doc.AUTHOR ?? ""}`),
+    // 국립중앙도서관은 한국십진분류(KDC) 번호를 줍니다.
+    rawCategory: doc.KDC ? `KDC ${doc.KDC}` : null,
+    category: guessCategory(null, doc.KDC ? String(doc.KDC) : null),
     source: "국립중앙도서관",
   };
 }
@@ -122,6 +129,8 @@ async function fromGoogleBooks(isbn: string): Promise<BookLookup | null> {
     cover_url: cover ? cover.replace(/^http:/, "https:") : null,
     language:
       info.language === "ko" ? "한국어" : info.language === "en" ? "영어" : guessLanguage(title),
+    rawCategory: Array.isArray(info.categories) ? info.categories.join(", ") : null,
+    category: guessCategory(Array.isArray(info.categories) ? info.categories.join(", ") : null),
     source: "구글 북스",
   };
 }
@@ -146,6 +155,14 @@ async function fromOpenLibrary(isbn: string): Promise<BookLookup | null> {
     pub_year: yearOf(item.publish_date),
     cover_url: item.cover?.medium ?? item.cover?.large ?? null,
     language: guessLanguage(String(item.title)),
+    rawCategory: Array.isArray(item.subjects)
+      ? item.subjects.map((s: { name?: string }) => s.name).filter(Boolean).slice(0, 5).join(", ")
+      : null,
+    category: guessCategory(
+      Array.isArray(item.subjects)
+        ? item.subjects.map((s: { name?: string }) => s.name).filter(Boolean).join(", ")
+        : null
+    ),
     source: "오픈라이브러리",
   };
 }

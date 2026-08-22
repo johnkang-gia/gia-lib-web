@@ -144,6 +144,10 @@ export type ReadingStats = {
   total: number;
   /** 가장 최근에 반납한 책 제목(없으면 null) */
   lastTitle: string | null;
+  /** 독서 도감 - 분류별로 몇 권 읽었는지. */
+  byCategory: Record<string, number>;
+  /** 영어책을 몇 권 읽었는지(국제학교라 따로 셉니다). */
+  englishCount: number;
 };
 
 /** 학생별 이용 통계 - 지금 빌린 권수 / 그중 연체 / 누적 대출 횟수. */
@@ -162,6 +166,10 @@ export type BookLookup = {
   pub_year: string | null;
   cover_url: string | null;
   language: "한국어" | "영어" | "기타";
+  /** 우리 도감 분류로 옮긴 값(자동 분류 결과). 못 정하면 null입니다. */
+  category: string | null;
+  /** 조회처가 준 원본 분류 글자 - 자동 분류가 틀렸을 때 참고용입니다. */
+  rawCategory: string | null;
   source: string;
 };
 

@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { BookLookup, LibBook, LibLocation } from "@/lib/types";
 import { createClient } from "@/lib/supabase/client";
 import { normalizeIsbn } from "@/lib/scan";
+import { CATEGORIES } from "@/lib/categories";
 
 type Form = {
   isbn: string;
@@ -131,6 +132,8 @@ export default function BookRegisterDialog({
         pub_year: found.pub_year ?? "",
         cover_url: found.cover_url ?? "",
         language: found.language,
+        // 조회처가 준 분류를 도감 칸으로 옮겨 미리 채워둡니다(틀리면 바로 고칠 수 있습니다).
+        category: found.category ?? prev.category,
       }));
     } catch {
       setMessage("책 정보를 불러오지 못했습니다. 인터넷 연결을 확인해 주세요.");
@@ -324,12 +327,19 @@ export default function BookRegisterDialog({
               </select>
             </div>
             <div>
-              <span className={label}>분류 (예: 그림책, 과학)</span>
-              <input
+              <span className={label}>분류 (독서 도감)</span>
+              <select
                 value={form.category}
                 onChange={(e) => setForm({ ...form, category: e.target.value })}
                 className={field}
-              />
+              >
+                <option value="">정하지 않음</option>
+                {CATEGORIES.map((cat) => (
+                  <option key={cat.key} value={cat.key}>
+                    {cat.icon} {cat.key}
+                  </option>
+                ))}
+              </select>
             </div>
             <div>
               <span className={label}>구역 (책장 위치)</span>

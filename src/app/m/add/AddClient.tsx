@@ -7,11 +7,13 @@ import CoverCapture from "@/components/CoverCapture";
 import { createClient } from "@/lib/supabase/client";
 import { formatIsbn, isBookBarcode, normalizeIsbn } from "@/lib/scan";
 import type { BookLookup, LibBook, LibLocation } from "@/lib/types";
+import { CATEGORIES } from "@/lib/categories";
 
 type Step = "scan" | "form" | "cover" | "done";
 
 type Form = {
   isbn: string;
+  category: string;
   title: string;
   author: string;
   publisher: string;
@@ -24,6 +26,7 @@ type Form = {
 
 const EMPTY: Form = {
   isbn: "",
+  category: "",
   title: "",
   author: "",
   publisher: "",
@@ -122,6 +125,7 @@ export default function AddClient({ locations }: { locations: LibLocation[] }) {
         pub_year: found?.pub_year ?? "",
         cover_url: found?.cover_url ?? "",
         language: found?.language ?? "한국어",
+        category: found?.category ?? "",
       });
       if (!found) {
         setMessage(
@@ -287,6 +291,22 @@ export default function AddClient({ locations }: { locations: LibLocation[] }) {
               className={field}
             />
           </div>
+          <div>
+            <span className={label}>분류 (독서 도감)</span>
+            <select
+              value={form.category}
+              onChange={(e) => setForm({ ...form, category: e.target.value })}
+              className={field}
+            >
+              <option value="">정하지 않음</option>
+              {CATEGORIES.map((cat) => (
+                <option key={cat.key} value={cat.key}>
+                  {cat.icon} {cat.key}
+                </option>
+              ))}
+            </select>
+          </div>
+
           <label className="flex items-center gap-2 rounded-xl bg-slate-50 px-3 py-3 text-sm text-slate-600">
             <input
               type="checkbox"
