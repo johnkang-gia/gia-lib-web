@@ -16,6 +16,8 @@ type Form = {
   cover_url: string;
   category: string;
   audience: string;
+  series: string;
+  series_no: string;
   language: "한국어" | "영어" | "기타";
   location_id: string;
   total_copies: number;
@@ -31,6 +33,8 @@ const EMPTY: Form = {
   cover_url: "",
   category: "",
   audience: "",
+  series: "",
+  series_no: "",
   language: "한국어",
   location_id: "",
   total_copies: 1,
@@ -138,6 +142,8 @@ export default function BookRegisterDialog({
         // 조회처가 준 분류를 도감 칸으로 옮겨 미리 채워둡니다(틀리면 바로 고칠 수 있습니다).
         category: found.category ?? prev.category,
         audience: found.audience ?? prev.audience,
+        series: found.series ?? prev.series,
+        series_no: found.seriesNo != null ? String(found.seriesNo) : prev.series_no,
       }));
     } catch {
       setMessage("책 정보를 불러오지 못했습니다. 인터넷 연결을 확인해 주세요.");
@@ -344,6 +350,26 @@ export default function BookRegisterDialog({
                   </option>
                 ))}
               </select>
+            </div>
+            <div className="grid grid-cols-3 gap-2">
+              <div className="col-span-2">
+                <span className={label}>시리즈</span>
+                <input
+                  value={form.series}
+                  onChange={(e) => setForm({ ...form, series: e.target.value })}
+                  placeholder="예: 마법천자문"
+                  className={field}
+                />
+              </div>
+              <div>
+                <span className={label}>몇 권째</span>
+                <input
+                  value={form.series_no}
+                  onChange={(e) => setForm({ ...form, series_no: e.target.value })}
+                  placeholder="예: 12"
+                  className={field}
+                />
+              </div>
             </div>
             <div>
               <span className={label}>대상 연령</span>

@@ -334,6 +334,8 @@ function EditDialog({
     publisher: book.publisher ?? "",
     category: book.category ?? "",
     audience: book.audience ?? "",
+    series: book.series ?? "",
+    series_no: book.series_no != null ? String(book.series_no) : "",
     location_id: book.location_id ?? "",
     total_copies: book.total_copies,
     status: book.status,
@@ -354,6 +356,8 @@ function EditDialog({
         publisher: form.publisher.trim() || null,
         category: form.category.trim() || null,
         audience: form.audience || null,
+        series: form.series.trim() || null,
+        series_no: form.series_no.trim() ? Number(form.series_no) : null,
         location_id: form.location_id || null,
         total_copies: Math.max(0, Number(form.total_copies) || 0),
         status: form.status,
@@ -424,6 +428,26 @@ function EditDialog({
                 </option>
               ))}
             </select>
+          </div>
+          <div className="grid grid-cols-3 gap-2">
+            <div className="col-span-2">
+              <span className={label}>시리즈</span>
+              <input
+                value={form.series}
+                onChange={(e) => setForm({ ...form, series: e.target.value })}
+                placeholder="예: 마법천자문"
+                className={field}
+              />
+            </div>
+            <div>
+              <span className={label}>몇 권째</span>
+              <input
+                value={form.series_no}
+                onChange={(e) => setForm({ ...form, series_no: e.target.value })}
+                placeholder="예: 12"
+                className={field}
+              />
+            </div>
           </div>
           <div>
             <span className={label}>대상 연령</span>

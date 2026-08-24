@@ -85,6 +85,7 @@ export default async function MoveListPage({
                     <th className="w-8 py-1">✓</th>
                     <th className="py-1">제목</th>
                     <th className="w-40 py-1">지은이</th>
+                    <th className="w-24 py-1">지금 라벨</th>
                     <th className="w-28 py-1">분류</th>
                     <th className="w-24 py-1 text-right">옮길 칸</th>
                   </tr>
@@ -95,8 +96,24 @@ export default async function MoveListPage({
                       <td className="py-1.5">
                         <span className="inline-block h-3.5 w-3.5 border border-slate-400" />
                       </td>
-                      <td className="py-1.5 pr-2 font-medium">{row.title}</td>
+                      <td className="py-1.5 pr-2 font-medium">
+                        {row.series && (
+                          <span className="mr-1 rounded bg-violet-100 px-1 py-0.5 text-[10px] font-bold text-violet-800">
+                            {row.series}
+                            {row.series_no != null ? ` ${row.series_no}` : ""}
+                          </span>
+                        )}
+                        {row.title}
+                        {(row.total_copies ?? 1) > 1 && (
+                          <span className="ml-1 text-[11px] text-slate-500">
+                            ({row.total_copies}권)
+                          </span>
+                        )}
+                      </td>
                       <td className="py-1.5 pr-2 text-slate-500">{row.author ?? ""}</td>
+                      <td className="py-1.5 pr-2 font-mono text-xs text-slate-500">
+                        {row.label_level ? `${row.label_level}-${row.label_no ?? "?"}` : ""}
+                      </td>
                       <td className="py-1.5 pr-2 text-slate-500">
                         {[row.audience, row.category].filter(Boolean).join(" · ")}
                       </td>

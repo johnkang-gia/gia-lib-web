@@ -53,6 +53,14 @@ export type LibBook = {
   category: string | null;
   /** 대상 연령 - 도서정리의 첫 번째 기준(유치부/초등부/중고등부/전체). */
   audience: "유치부" | "초등부" | "중고등부" | "전체" | null;
+  /** 시리즈 이름 - 같은 시리즈는 서가에서 반드시 붙여 놓습니다. */
+  series: string | null;
+  /** 시리즈 안에서 몇 권째인지. */
+  series_no: number | null;
+  /** 지금 책에 붙어 있는 색 라벨의 숫자(2~6). 새 체계와 별개로 원래 값을 남겨둡니다. */
+  label_level: number | null;
+  /** 그 라벨의 일련번호. '007'처럼 앞의 0이 뜻을 가질 수 있어 글자로 담습니다. */
+  label_no: string | null;
   language: "한국어" | "영어" | "기타";
   /** 예전 자유 입력 위치(더 이상 쓰지 않음). 지금은 location_id로 구역을 연결합니다. */
   location: string | null;
@@ -191,6 +199,10 @@ export type BookLookup = {
   category: string | null;
   /** 자동 추정한 대상 연령. 못 정하면 null - 사람이 고릅니다. */
   audience: "유치부" | "초등부" | "중고등부" | "전체" | null;
+  /** 자동으로 알아낸 시리즈 이름(알라딘 seriesInfo 또는 제목에서). */
+  series: string | null;
+  /** 시리즈 안에서 몇 권째인지. */
+  seriesNo: number | null;
   /** 조회처가 준 원본 분류 글자 - 자동 분류가 틀렸을 때 참고용입니다. */
   rawCategory: string | null;
   source: string;
@@ -210,6 +222,11 @@ export type MovePlanRow = {
   category: string | null;
   audience: string | null;
   language: string | null;
+  series: string | null;
+  series_no: number | null;
+  label_level: number | null;
+  label_no: string | null;
+  total_copies: number | null;
   from_id: string | null;
   from_code: string | null;
   from_name: string | null;
@@ -285,3 +302,13 @@ export type ShelveResult =
   | { kind: "location"; location: LibLocation; bookCount: number; message: string }
   | { kind: "assigned"; book: LibBook; location: LibLocation; moved: boolean; message: string }
   | { kind: "error"; message: string; detail?: string };
+
+/** 예전 색 라벨의 등급 하나(2~6). 색과 이름, 그리고 대상 연령과의 짝을 담습니다. */
+export type LibLabelLevel = {
+  level: number;
+  color: string;
+  name: string | null;
+  audience: "유치부" | "초등부" | "중고등부" | "전체" | null;
+  sort_order: number;
+  updated_at: string;
+};

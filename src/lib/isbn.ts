@@ -2,6 +2,7 @@ import type { BookLookup } from "@/lib/types";
 import { canonicalIsbn, isbnVariants } from "@/lib/scan";
 import { guessCategory } from "@/lib/categories";
 import { guessAudience } from "@/lib/audience";
+import { guessSeries } from "@/lib/series";
 
 /**
  * ISBN으로 책 정보(제목·저자·출판사·표지)를 인터넷에서 찾아옵니다.
@@ -68,8 +69,17 @@ async function fetchJson(url: string, timeoutMs = 6000) {
  * 원본 분류 글자("국내도서>어린이>초등 3-4학년")에 대상이 들어 있는 경우가 많아서,
  * 조회처마다 따로 처리하지 않고 여기서 한 번에 처리합니다.
  */
-function withAudience(found: Omit<BookLookup, "audience">): BookLookup {
-  return { ...found, audience: guessAudience(found.rawCategory, found.category) };
+function withAudience(
+  found: Omit<BookLookup, "audience" | "series" | "seriesNo">,
+  seriesName?: string | null
+): BookLookup {
+  const series = guessSeries(found.title, seriesName);
+  return {
+    ...found,
+    audience: guessAudience(found.rawCategory, found.category),
+    series: series.series,
+    seriesNo: series.seriesNo,
+  };
 }
 
 async function fromAladin(isbn: string): Promise<BookLookup | null> {
@@ -94,7 +104,7 @@ async function fromAladin(isbn: string): Promise<BookLookup | null> {
     rawCategory: item.categoryName ? String(item.categoryName) : null,
     category: guessCategory(item.categoryName ? String(item.categoryName) : null),
     source: "알라딘",
-  });
+  }, item.seriesInfo?.seriesName ? String(item.seriesInfo.seriesName) : null);
 }
 
 async function fromNationalLibrary(isbn: string): Promise<BookLookup | null> {

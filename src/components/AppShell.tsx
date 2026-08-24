@@ -14,6 +14,7 @@ const MENU = [
   { href: "/batch", label: "여러 권 등록", icon: "⚡", desc: "바코드 연속 스캔 → 한 구역에" },
   { href: "/students", label: "학생별 이력", icon: "🙋", desc: "학생이 빌린 책 기록" },
   { href: "/locations", label: "구역 관리", icon: "🗺️", desc: "책장 배치도 · 구역 라벨" },
+  { href: "/labels", label: "지금 라벨 점검", icon: "🏷️", desc: "색 라벨 등급 · 빠진 번호" },
   { href: "/cards", label: "도서카드 인쇄", icon: "🪪", desc: "학생 카드 만들기" },
   { href: "/settings", label: "설정", icon: "⚙️", desc: "대출 기간 · 권수 규칙" },
 ];

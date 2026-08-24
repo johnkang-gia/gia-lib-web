@@ -16,6 +16,8 @@ type Form = {
   isbn: string;
   category: string;
   audience: string;
+  series: string;
+  series_no: string;
   title: string;
   author: string;
   publisher: string;
@@ -30,6 +32,8 @@ const EMPTY: Form = {
   isbn: "",
   category: "",
   audience: "",
+  series: "",
+  series_no: "",
   title: "",
   author: "",
   publisher: "",
@@ -130,6 +134,8 @@ export default function AddClient({ locations }: { locations: LibLocation[] }) {
         language: found?.language ?? "한국어",
         category: found?.category ?? "",
         audience: found?.audience ?? "",
+        series: found?.series ?? "",
+        series_no: found?.seriesNo != null ? String(found.seriesNo) : "",
       });
       if (!found) {
         setMessage(
@@ -311,6 +317,26 @@ export default function AddClient({ locations }: { locations: LibLocation[] }) {
             </select>
           </div>
 
+          <div className="grid grid-cols-3 gap-2">
+            <div className="col-span-2">
+              <span className={label}>시리즈</span>
+              <input
+                value={form.series}
+                onChange={(e) => setForm({ ...form, series: e.target.value })}
+                placeholder="예: 마법천자문"
+                className={field}
+              />
+            </div>
+            <div>
+              <span className={label}>몇 권째</span>
+              <input
+                value={form.series_no}
+                onChange={(e) => setForm({ ...form, series_no: e.target.value })}
+                placeholder="예: 12"
+                className={field}
+              />
+            </div>
+          </div>
           <div>
             <span className={label}>대상 연령</span>
             <select

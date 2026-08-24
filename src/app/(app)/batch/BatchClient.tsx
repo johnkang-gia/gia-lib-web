@@ -8,7 +8,7 @@ import { formatIsbn, isBookBarcode, normalizeScan } from "@/lib/scan";
 import { AUDIENCES, type Audience } from "@/lib/audience";
 import type { BookLookup, LibBook, LibLocation } from "@/lib/types";
 
-type Status = "찾는중" | "준비" | "제목필요" | "ISBN필요" | "이미등록" | "실패";
+type Status = "찾는중" | "준비" | "제목필요" | "ISBN필요" | "복본" | "실패";
 
 type Item = {
   key: string;
@@ -25,6 +25,10 @@ type Item = {
   language: "한국어" | "영어" | "기타";
   category: string;
   audience: Audience | "";
+  series: string;
+  seriesNo: string;
+  /** 이 책에 붙어 있는 라벨 일련번호(자동으로 하나씩 올라갑니다). */
+  labelNo: string;
   status: Status;
   note: string;
   /** 이미 등록된 책이면 그 id - 등록 대신 구역만 바꿉니다. */
@@ -52,6 +56,12 @@ export default function BatchClient({ locations }: { locations: LibLocation[] })
   const [needLabel, setNeedLabel] = useState(false);
   // 이 칸의 책들이 대체로 한 연령대일 때, 자동 추정이 비어 있는 책에 채워 넣을 기본값입니다.
   const [defaultAudience, setDefaultAudience] = useState<Audience | "">("");
+  // 지금 책에 붙어 있는 색 라벨. 한 칸을 통째로 등록하는 동안에는 등급이 같으므로 위에서 한 번만
+  // 고르고, 일련번호는 찍을 때마다 하나씩 올라갑니다(요청: 번호를 넣는 게 나을지 고민).
+  const [labelLevel, setLabelLevel] = useState<string>("");
+  const [labelNext, setLabelNext] = useState<string>("");
+  const labelNextRef = useRef<string>("");
+  labelNextRef.current = labelNext;
   const [saving, setSaving] = useState(false);
   const [done, setDone] = useState<{ added: number; moved: number; failed: number; ids: string[] } | null>(
     null
@@ -70,6 +80,22 @@ export default function BatchClient({ locations }: { locations: LibLocation[] })
     const timer = setInterval(refocus, 900);
     return () => clearInterval(timer);
   }, [refocus]);
+
+  /**
+   * 다음 라벨 번호를 하나 꺼내고, 칸을 하나 올려둡니다.
+   * '007' 처럼 앞자리 0이 있으면 자릿수를 지켜서 '008'로 올립니다.
+   */
+  const nextLabelNo = useCallback(() => {
+    const cur = labelNextRef.current.trim();
+    if (!cur) return "";
+    const digits = cur.replace(/[^0-9]/g, "");
+    if (!digits) return cur;
+    const width = digits.length;
+    const next = String(Number(digits) + 1).padStart(width, "0");
+    labelNextRef.current = next;
+    setLabelNext(next);
+    return cur;
+  }, []);
 
   /** 찍힌 값 하나를 목록에 추가하고, 뒤이어 책 정보를 채웁니다. */
   const add = useCallback(
@@ -97,6 +123,9 @@ export default function BatchClient({ locations }: { locations: LibLocation[] })
             language: "한국어",
             category: "",
             audience: "",
+            series: "",
+            seriesNo: "",
+            labelNo: nextLabelNo(),
             status: "찾는중",
             note: "",
             existingId: null,
@@ -122,12 +151,12 @@ export default function BatchClient({ locations }: { locations: LibLocation[] })
 
         if (json.existing) {
           patch({
-            status: "이미등록",
+            status: "복본",
             title: json.existing.title,
             author: json.existing.author ?? "",
             isbn: json.existing.isbn ?? "",
             existingId: json.existing.id,
-            note: "이미 등록된 책 — 구역만 바꿉니다",
+            note: `이미 있는 책 — 보유 ${json.existing.total_copies}권에서 한 권 늘립니다`,
           });
           return;
         }
@@ -155,6 +184,8 @@ export default function BatchClient({ locations }: { locations: LibLocation[] })
           language: found?.language ?? "한국어",
           category: found?.category ?? "",
           audience: found?.audience ?? "",
+          series: found?.series ?? "",
+          seriesNo: found?.seriesNo != null ? String(found.seriesNo) : "",
           status: found ? "준비" : "제목필요",
           note: found ? (found.source ?? "") : "인터넷 목록에 없는 책 — 제목만 적으면 등록됩니다",
         });
@@ -162,7 +193,7 @@ export default function BatchClient({ locations }: { locations: LibLocation[] })
         patch({ status: "실패", note: "조회 중 오류" });
       }
     },
-    []
+    [nextLabelNo]
   );
 
   function patchItem(key: string, changes: Partial<Item>) {
@@ -182,11 +213,11 @@ export default function BatchClient({ locations }: { locations: LibLocation[] })
       };
       if (json.existing) {
         patchItem(key, {
-          status: "이미등록",
+          status: "복본",
           title: json.existing.title,
           existingId: json.existing.id,
           isbn: json.existing.isbn ?? isbn,
-          note: "이미 등록된 책 — 구역만 바꿉니다",
+          note: `이미 있는 책 — 보유 ${json.existing.total_copies}권에서 한 권 늘립니다`,
         });
         return;
       }
@@ -201,6 +232,8 @@ export default function BatchClient({ locations }: { locations: LibLocation[] })
         language: found?.language ?? "한국어",
         category: found?.category ?? "",
         audience: found?.audience ?? "",
+        series: found?.series ?? "",
+        seriesNo: found?.seriesNo != null ? String(found.seriesNo) : "",
         status: found ? "준비" : "제목필요",
         note: found ? (found.source ?? "") : "인터넷 목록에 없는 책 — 제목만 적으면 등록됩니다",
       });
@@ -226,21 +259,6 @@ export default function BatchClient({ locations }: { locations: LibLocation[] })
       }
 
       try {
-        if (item.existingId) {
-          // 이미 있는 책 - 구역만 옮깁니다.
-          if (locationId) {
-            const { error } = await supabase
-              .from("lib_books")
-              .update({ location_id: locationId })
-              .eq("id", item.existingId);
-            if (error) throw new Error(error.message);
-          }
-          moved += 1;
-          ids.push(item.existingId);
-          patchItem(item.key, { note: "구역 변경 완료" });
-          continue;
-        }
-
         const res = await fetch("/api/books", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -255,16 +273,30 @@ export default function BatchClient({ locations }: { locations: LibLocation[] })
             language: item.language,
             category: item.category || null,
             audience: item.audience || defaultAudience || null,
+            series: item.series || null,
+            series_no: item.seriesNo || null,
+            label_level: labelLevel || null,
+            label_no: item.labelNo || null,
             location_id: locationId || null,
             need_label: needLabel,
             total_copies: 1,
           }),
         });
-        const json = (await res.json()) as { book?: LibBook; error?: string };
+        const json = (await res.json()) as {
+          book?: LibBook;
+          incremented?: boolean;
+          totalCopies?: number;
+          error?: string;
+        };
         if (!res.ok || !json.book) throw new Error(json.error ?? "등록 실패");
-        added += 1;
-        ids.push(json.book.id);
-        patchItem(item.key, { note: "등록 완료" });
+        if (json.incremented) {
+          moved += 1;
+          patchItem(item.key, { note: `보유 ${json.totalCopies ?? "?"}권으로 늘림` });
+        } else {
+          added += 1;
+          ids.push(json.book.id);
+          patchItem(item.key, { note: "등록 완료" });
+        }
       } catch (e) {
         failed += 1;
         patchItem(item.key, { status: "실패", note: e instanceof Error ? e.message : "등록 실패" });
@@ -284,7 +316,7 @@ export default function BatchClient({ locations }: { locations: LibLocation[] })
     준비: "bg-emerald-100 text-emerald-700",
     제목필요: "bg-amber-100 text-amber-800",
     ISBN필요: "bg-amber-100 text-amber-800",
-    이미등록: "bg-blue-100 text-blue-700",
+    복본: "bg-blue-100 text-blue-700",
     실패: "bg-red-100 text-red-700",
   };
 
@@ -295,7 +327,7 @@ export default function BatchClient({ locations }: { locations: LibLocation[] })
         <p className="text-5xl">✅</p>
         <p className="text-2xl font-bold">
           새로 등록 {done.added}권
-          {done.moved > 0 && ` · 구역 변경 ${done.moved}권`}
+          {done.moved > 0 && ` · 복본 추가 ${done.moved}권`}
         </p>
         {location && (
           <p className="text-lg" style={{ color: location.color }}>
@@ -351,7 +383,8 @@ export default function BatchClient({ locations }: { locations: LibLocation[] })
         <h1 className="text-lg font-bold">여러 권 한꺼번에 등록</h1>
         <p className="mt-1 text-sm leading-relaxed text-slate-500">
           구역을 먼저 고르고 바코드를 주르륵 찍으세요. 책 정보는 찍는 즉시 자동으로 채워지고,
-          마지막에 한 번만 누르면 전부 그 구역으로 등록됩니다.
+          마지막에 한 번만 누르면 전부 그 구역으로 등록됩니다. <b>같은 책을 또 찍으면</b> 새로
+          만들지 않고 <b>보유 권수를 한 권 올립니다</b>.
         </p>
 
         <div className="mt-4 flex flex-wrap items-center gap-2">
@@ -392,6 +425,28 @@ export default function BatchClient({ locations }: { locations: LibLocation[] })
               </option>
             ))}
           </select>
+
+          <span className="text-sm font-semibold text-slate-500">지금 라벨</span>
+          <select
+            value={labelLevel}
+            onChange={(e) => setLabelLevel(e.target.value)}
+            className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
+            title="지금 책에 붙어 있는 색 라벨의 숫자입니다"
+          >
+            <option value="">없음</option>
+            {[2, 3, 4, 5, 6].map((n) => (
+              <option key={n} value={n}>
+                {n}등급
+              </option>
+            ))}
+          </select>
+          <input
+            value={labelNext}
+            onChange={(e) => setLabelNext(e.target.value)}
+            placeholder="시작 번호 (예: 001)"
+            className="w-32 rounded-lg border border-slate-300 px-3 py-2 text-sm"
+            title="이 칸 첫 책의 라벨 번호. 한 권 찍을 때마다 자동으로 하나씩 올라갑니다"
+          />
 
           <label className="flex items-center gap-2 text-sm text-slate-600">
             <input
@@ -526,7 +581,7 @@ export default function BatchClient({ locations }: { locations: LibLocation[] })
                     {item.author && (
                       <span className="truncate text-xs text-slate-400">{item.author}</span>
                     )}
-                    {item.status !== "이미등록" && (
+                    {item.status !== "복본" && (
                       <select
                         value={item.audience}
                         onChange={(e) =>
@@ -545,6 +600,23 @@ export default function BatchClient({ locations }: { locations: LibLocation[] })
                     {item.category && (
                       <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[11px] text-slate-500">
                         {item.category}
+                      </span>
+                    )}
+                    {item.series && (
+                      <span className="rounded bg-violet-50 px-1.5 py-0.5 text-[11px] text-violet-700">
+                        📚 {item.series}
+                        {item.seriesNo ? ` ${item.seriesNo}권` : ""}
+                      </span>
+                    )}
+                    {labelLevel && item.status !== "복본" && (
+                      <span className="flex items-center gap-1 text-[11px] text-slate-400">
+                        라벨 {labelLevel}-
+                        <input
+                          value={item.labelNo}
+                          onChange={(e) => patchItem(item.key, { labelNo: e.target.value })}
+                          placeholder="번호"
+                          className="w-16 rounded border border-slate-200 px-1 py-0.5 text-center"
+                        />
                       </span>
                     )}
                   </div>

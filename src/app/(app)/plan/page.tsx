@@ -20,7 +20,7 @@ export default async function PlanPage() {
     getSettings(supabase),
     supabase
       .from("lib_books")
-      .select("id,title,author,audience,category,language,location_id")
+      .select("id,title,author,audience,category,language,location_id,series,series_no,label_level")
       .eq("status", "보유")
       .limit(5000),
   ]);

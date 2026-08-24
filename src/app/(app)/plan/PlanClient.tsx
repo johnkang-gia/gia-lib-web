@@ -155,7 +155,7 @@ export default function PlanClient({
       {/* ── ① 기준 고르기 ─────────────────────────────────────────────── */}
       <section className={card}>
         <h2 className="text-sm font-bold text-slate-500">① 어떤 순서로 분류할까요</h2>
-        <div className="mt-3 grid gap-2 sm:grid-cols-3">
+        <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
           {PLAN_RULES.map((r) => (
             <button
               key={r.key}
@@ -204,6 +204,13 @@ export default function PlanClient({
             suffix="권"
           />
         </div>
+
+        {plan.seriesCount > 0 && (
+          <p className="mt-3 rounded-xl bg-slate-50 px-4 py-3 text-sm leading-relaxed text-slate-600">
+            시리즈 <b>{plan.seriesCount}종 {plan.seriesBooks}권</b>은 같은 칸에 1권부터 차례로
+            붙여서 놓습니다. 시리즈에 속하지 않는 낱권은 그 뒤에 작가순으로 놓입니다.
+          </p>
+        )}
 
         {(plan.noAudience > 0 || plan.uncategorized > 0) && (
           <div className="mt-3 rounded-xl bg-amber-50 px-4 py-3 text-sm leading-relaxed text-amber-900">

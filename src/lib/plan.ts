@@ -25,6 +25,12 @@ export type PlanBook = {
   category: string | null;
   language: string | null;
   location_id: string | null;
+  /** 시리즈 이름 - 있으면 같은 시리즈끼리 반드시 붙여 놓습니다. */
+  series?: string | null;
+  /** 시리즈 안에서 몇 권째인지 - 1, 2, 3… 순으로 꽂습니다. */
+  series_no?: number | null;
+  /** 지금 붙어 있는 색 라벨의 등급(2~6). '라벨 등급' 기준으로 나눌 때 씁니다. */
+  label_level?: number | null;
 };
 
 /** 계획을 세울 때 쓰는 최소한의 구역 정보. */
@@ -39,7 +45,7 @@ export type PlanZone = {
 };
 
 /** 분류 기준 순서. 앞에 온 것이 큰 덩어리입니다. */
-export type PlanRule = "대상-분류-작가" | "분류-작가" | "언어-분류-작가";
+export type PlanRule = "대상-분류-작가" | "분류-작가" | "언어-분류-작가" | "라벨-분류-작가";
 
 export const PLAN_RULES: { key: PlanRule; label: string; desc: string }[] = [
   {
@@ -57,7 +63,25 @@ export const PLAN_RULES: { key: PlanRule; label: string; desc: string }[] = [
     label: "언어 → 분류 → 작가",
     desc: "한국어책·영어책을 먼저 나누고, 그 안에서 도감 분류, 같은 분류 안에서는 작가순",
   },
+  {
+    key: "라벨-분류-작가",
+    label: "지금 라벨 등급 → 분류 → 작가",
+    desc: "지금 책에 붙어 있는 색 라벨(2~6)을 그대로 큰 덩어리로 씁니다. 라벨 체계를 유지하면서 그 안만 정리하고 싶을 때",
+  },
 ];
+
+/**
+ * 어느 기준이든 마지막 정렬은 이 순서입니다 - 시리즈가 먼저, 그다음 낱권.
+ *
+ * 요청: "정렬할때 시리즈가 있다면 시리즈 우선으로 분류해줘".
+ * 시리즈는 이름으로 묶어 1권부터 차례로 놓고, 시리즈에 속하지 않는 낱권은 그 뒤에 작가순으로
+ * 놓습니다. 아이가 다음 권을 바로 옆에서 집을 수 있어야 시리즈 독서가 이어집니다.
+ */
+function shelfKey(book: PlanBook) {
+  const series = (book.series ?? "").trim();
+  if (series) return { block: 0, name: series, no: book.series_no ?? 0 };
+  return { block: 1, name: authorKey(book), no: 0 };
+}
 
 /** 한 덩어리(같은 칸 구역에 모일 책들). */
 export type PlanGroup = {
@@ -98,6 +122,9 @@ export type PlanResult = {
   uncategorized: number;
   /** 대상 연령이 비어 있는 권수. */
   noAudience: number;
+  /** 시리즈로 묶인 권수와 시리즈 개수. */
+  seriesBooks: number;
+  seriesCount: number;
 };
 
 /** 작가 이름 정렬용 열쇠. 빈 값은 맨 뒤로 보냅니다. */
@@ -128,12 +155,18 @@ function languageRank(value: string | null) {
 function primaryOf(book: PlanBook, rule: PlanRule): string | null {
   if (rule === "대상-분류-작가") return book.audience ?? "미정";
   if (rule === "언어-분류-작가") return book.language ?? "기타";
+  if (rule === "라벨-분류-작가") return book.label_level ? `${book.label_level}등급` : "라벨없음";
   return null;
 }
 
 function primaryRank(value: string | null, rule: PlanRule) {
   if (rule === "대상-분류-작가") return audienceRank(value === "미정" ? null : value);
   if (rule === "언어-분류-작가") return languageRank(value);
+  if (rule === "라벨-분류-작가") {
+    // '4등급' → 4. 라벨이 없는 책은 맨 뒤로 모읍니다.
+    const n = Number((value ?? "").replace(/[^0-9]/g, ""));
+    return Number.isFinite(n) && n > 0 ? n : 999;
+  }
   return 0;
 }
 
@@ -185,8 +218,16 @@ export function buildPlan(
 
   for (const group of groups) {
     group.books.sort((a, b) => {
-      const byAuthor = authorKey(a).localeCompare(authorKey(b), "ko");
-      if (byAuthor !== 0) return byAuthor;
+      const ka = shelfKey(a);
+      const kb = shelfKey(b);
+      // ① 시리즈 묶음이 낱권보다 앞
+      if (ka.block !== kb.block) return ka.block - kb.block;
+      // ② 시리즈 이름순(낱권이면 작가순)
+      const byName = ka.name.localeCompare(kb.name, "ko");
+      if (byName !== 0) return byName;
+      // ③ 같은 시리즈 안에서는 권 번호순
+      if (ka.no !== kb.no) return ka.no - kb.no;
+      // ④ 그래도 같으면 제목순
       return (a.title ?? "").localeCompare(b.title ?? "", "ko");
     });
   }
@@ -263,5 +304,9 @@ export function buildPlan(
     stayCount,
     uncategorized: books.filter((b) => !b.category || b.category === OTHER_CATEGORY).length,
     noAudience: books.filter((b) => !b.audience).length,
+    seriesBooks: books.filter((b) => (b.series ?? "").trim()).length,
+    seriesCount: new Set(
+      books.map((b) => (b.series ?? "").trim()).filter((x) => x !== "")
+    ).size,
   };
 }
