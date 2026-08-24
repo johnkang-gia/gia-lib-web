@@ -1,6 +1,7 @@
 import type { BookLookup } from "@/lib/types";
 import { canonicalIsbn, isbnVariants } from "@/lib/scan";
 import { guessCategory } from "@/lib/categories";
+import { guessAudience } from "@/lib/audience";
 
 /**
  * ISBN으로 책 정보(제목·저자·출판사·표지)를 인터넷에서 찾아옵니다.
@@ -62,6 +63,15 @@ async function fetchJson(url: string, timeoutMs = 6000) {
   }
 }
 
+/**
+ * 조회 결과에 대상 연령 추정을 덧붙입니다.
+ * 원본 분류 글자("국내도서>어린이>초등 3-4학년")에 대상이 들어 있는 경우가 많아서,
+ * 조회처마다 따로 처리하지 않고 여기서 한 번에 처리합니다.
+ */
+function withAudience(found: Omit<BookLookup, "audience">): BookLookup {
+  return { ...found, audience: guessAudience(found.rawCategory, found.category) };
+}
+
 async function fromAladin(isbn: string): Promise<BookLookup | null> {
   const key = process.env.ALADIN_TTB_KEY;
   if (!key) return null;
@@ -72,7 +82,7 @@ async function fromAladin(isbn: string): Promise<BookLookup | null> {
   const json = await fetchJson(url);
   const item = json?.item?.[0];
   if (!item?.title) return null;
-  return {
+  return withAudience({
     isbn,
     title: String(item.title).trim(),
     author: item.author ? String(item.author).trim() : null,
@@ -84,7 +94,7 @@ async function fromAladin(isbn: string): Promise<BookLookup | null> {
     rawCategory: item.categoryName ? String(item.categoryName) : null,
     category: guessCategory(item.categoryName ? String(item.categoryName) : null),
     source: "알라딘",
-  };
+  });
 }
 
 async function fromNationalLibrary(isbn: string): Promise<BookLookup | null> {
@@ -96,7 +106,7 @@ async function fromNationalLibrary(isbn: string): Promise<BookLookup | null> {
   const json = await fetchJson(url);
   const doc = json?.docs?.[0];
   if (!doc?.TITLE) return null;
-  return {
+  return withAudience({
     isbn,
     title: String(doc.TITLE).trim(),
     author: doc.AUTHOR ? String(doc.AUTHOR).trim() : null,
@@ -108,7 +118,7 @@ async function fromNationalLibrary(isbn: string): Promise<BookLookup | null> {
     rawCategory: doc.KDC ? `KDC ${doc.KDC}` : null,
     category: guessCategory(null, doc.KDC ? String(doc.KDC) : null),
     source: "국립중앙도서관",
-  };
+  });
 }
 
 async function fromGoogleBooks(isbn: string): Promise<BookLookup | null> {
@@ -119,7 +129,7 @@ async function fromGoogleBooks(isbn: string): Promise<BookLookup | null> {
   const authors = Array.isArray(info.authors) ? info.authors.join(", ") : null;
   const cover: string | null =
     info.imageLinks?.thumbnail ?? info.imageLinks?.smallThumbnail ?? null;
-  return {
+  return withAudience({
     isbn,
     title: String(title).trim(),
     author: authors,
@@ -132,7 +142,7 @@ async function fromGoogleBooks(isbn: string): Promise<BookLookup | null> {
     rawCategory: Array.isArray(info.categories) ? info.categories.join(", ") : null,
     category: guessCategory(Array.isArray(info.categories) ? info.categories.join(", ") : null),
     source: "구글 북스",
-  };
+  });
 }
 
 async function fromOpenLibrary(isbn: string): Promise<BookLookup | null> {
@@ -147,7 +157,7 @@ async function fromOpenLibrary(isbn: string): Promise<BookLookup | null> {
   const publishers = Array.isArray(item.publishers)
     ? item.publishers.map((p: { name?: string }) => p.name).filter(Boolean).join(", ")
     : null;
-  return {
+  return withAudience({
     isbn,
     title: String(item.title).trim(),
     author: authors || null,
@@ -164,5 +174,5 @@ async function fromOpenLibrary(isbn: string): Promise<BookLookup | null> {
         : null
     ),
     source: "오픈라이브러리",
-  };
+  });
 }

@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import BarcodeScanner from "@/components/BarcodeScanner";
 import { createClient } from "@/lib/supabase/client";
 import { formatIsbn, isBookBarcode, normalizeScan } from "@/lib/scan";
+import { AUDIENCES, type Audience } from "@/lib/audience";
 import type { BookLookup, LibBook, LibLocation } from "@/lib/types";
 
 type Status = "찾는중" | "준비" | "제목필요" | "ISBN필요" | "이미등록" | "실패";
@@ -23,6 +24,7 @@ type Item = {
   cover_url: string;
   language: "한국어" | "영어" | "기타";
   category: string;
+  audience: Audience | "";
   status: Status;
   note: string;
   /** 이미 등록된 책이면 그 id - 등록 대신 구역만 바꿉니다. */
@@ -48,6 +50,8 @@ export default function BatchClient({ locations }: { locations: LibLocation[] })
   const [camera, setCamera] = useState(false);
   // 이번에 담는 책들이 모두 "바코드가 인쇄되어 있지 않은 책"인 경우(라벨을 뽑아 붙일 예정).
   const [needLabel, setNeedLabel] = useState(false);
+  // 이 칸의 책들이 대체로 한 연령대일 때, 자동 추정이 비어 있는 책에 채워 넣을 기본값입니다.
+  const [defaultAudience, setDefaultAudience] = useState<Audience | "">("");
   const [saving, setSaving] = useState(false);
   const [done, setDone] = useState<{ added: number; moved: number; failed: number; ids: string[] } | null>(
     null
@@ -92,6 +96,7 @@ export default function BatchClient({ locations }: { locations: LibLocation[] })
             cover_url: "",
             language: "한국어",
             category: "",
+            audience: "",
             status: "찾는중",
             note: "",
             existingId: null,
@@ -149,6 +154,7 @@ export default function BatchClient({ locations }: { locations: LibLocation[] })
           cover_url: found?.cover_url ?? "",
           language: found?.language ?? "한국어",
           category: found?.category ?? "",
+          audience: found?.audience ?? "",
           status: found ? "준비" : "제목필요",
           note: found ? (found.source ?? "") : "인터넷 목록에 없는 책 — 제목만 적으면 등록됩니다",
         });
@@ -194,6 +200,7 @@ export default function BatchClient({ locations }: { locations: LibLocation[] })
         cover_url: found?.cover_url ?? "",
         language: found?.language ?? "한국어",
         category: found?.category ?? "",
+        audience: found?.audience ?? "",
         status: found ? "준비" : "제목필요",
         note: found ? (found.source ?? "") : "인터넷 목록에 없는 책 — 제목만 적으면 등록됩니다",
       });
@@ -247,6 +254,7 @@ export default function BatchClient({ locations }: { locations: LibLocation[] })
             cover_url: item.cover_url,
             language: item.language,
             category: item.category || null,
+            audience: item.audience || defaultAudience || null,
             location_id: locationId || null,
             need_label: needLabel,
             total_copies: 1,
@@ -369,6 +377,21 @@ export default function BatchClient({ locations }: { locations: LibLocation[] })
               📍 {location.code}
             </span>
           )}
+
+          <span className="text-sm font-semibold text-slate-500">대상</span>
+          <select
+            value={defaultAudience}
+            onChange={(e) => setDefaultAudience(e.target.value as Audience | "")}
+            className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
+            title="자동 추정이 비어 있는 책에 채워 넣을 기본값입니다"
+          >
+            <option value="">자동 추정에 맡기기</option>
+            {AUDIENCES.map((a) => (
+              <option key={a} value={a}>
+                {a}
+              </option>
+            ))}
+          </select>
 
           <label className="flex items-center gap-2 text-sm text-slate-600">
             <input
@@ -499,7 +522,32 @@ export default function BatchClient({ locations }: { locations: LibLocation[] })
                     />
                   )}
 
-                  {item.author && <p className="truncate text-xs text-slate-400">{item.author}</p>}
+                  <div className="mt-1 flex flex-wrap items-center gap-2">
+                    {item.author && (
+                      <span className="truncate text-xs text-slate-400">{item.author}</span>
+                    )}
+                    {item.status !== "이미등록" && (
+                      <select
+                        value={item.audience}
+                        onChange={(e) =>
+                          patchItem(item.key, { audience: e.target.value as Audience | "" })
+                        }
+                        className="rounded border border-slate-200 px-1.5 py-0.5 text-[11px] text-slate-500"
+                      >
+                        <option value="">대상 미정</option>
+                        {AUDIENCES.map((a) => (
+                          <option key={a} value={a}>
+                            {a}
+                          </option>
+                        ))}
+                      </select>
+                    )}
+                    {item.category && (
+                      <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[11px] text-slate-500">
+                        {item.category}
+                      </span>
+                    )}
+                  </div>
                 </div>
 
                 <button

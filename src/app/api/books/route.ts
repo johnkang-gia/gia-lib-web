@@ -13,6 +13,8 @@ type Payload = {
   pub_year?: string | null;
   cover_url?: string | null;
   category?: string | null;
+  /** 대상 연령(도서정리의 첫 기준). 비워두면 나중에 장서관리에서 고칩니다. */
+  audience?: "유치부" | "초등부" | "중고등부" | "전체" | null;
   language?: "한국어" | "영어" | "기타";
   location_id?: string | null;
   /** 책에 찍혀 있던 바코드가 ISBN이 아닌 경우(미국 옛날 책의 UPC 등) 그 값도 함께 저장합니다. */
@@ -101,6 +103,8 @@ export async function POST(request: Request) {
       pub_year: body.pub_year?.trim() || null,
       cover_url: body.cover_url?.trim() || null,
       category: body.category?.trim() || null,
+      // 화면에서 "정하지 않음"을 고르면 빈 글자로 오는데, DB 검사 규칙에 걸리므로 null로 바꿉니다.
+      audience: body.audience ? body.audience : null,
       language: body.language ?? "한국어",
       location_id: body.location_id || null,
       total_copies: Math.max(1, Number(body.total_copies) || 1),

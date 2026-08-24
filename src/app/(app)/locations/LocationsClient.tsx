@@ -31,6 +31,7 @@ export default function LocationsClient({
   const [grid, setGrid] = useState({ cols: map.cols, rows: map.rows });
   const [newCode, setNewCode] = useState("");
   const [newName, setNewName] = useState("");
+  const [newKind, setNewKind] = useState<"임시" | "정식">("정식");
   const [selected, setSelected] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -57,6 +58,7 @@ export default function LocationsClient({
       .insert({
         code,
         name: newName.trim() || null,
+        kind: newKind,
         color: COLORS[rows.length % COLORS.length],
         sort_order: rows.length,
       })
@@ -135,6 +137,12 @@ export default function LocationsClient({
           구역 이름은 자유롭게 정하세요 — <b>A-1</b>처럼 책장·칸 번호도 되고 <b>그림책</b>처럼
           분류 이름도 됩니다. 아래 배치도에서 네모를 <b>끌어서</b> 실제 도서관 모양대로 놓으면,
           책을 찾을 때와 반납한 책을 제자리에 꽂을 때 그 자리가 반짝입니다.
+        </p>
+        <p className="mt-2 rounded-xl bg-slate-50 px-4 py-3 text-sm leading-relaxed text-slate-500">
+          <b>임시</b>는 지금 무작정 꽂아둔 칸이고, <b>정식</b>은 정리를 마친 뒤에 쓸 칸입니다.
+          도서정리 계획은 정식 칸에만 책을 배정하고 임시 칸은 비웁니다. 임시 칸에 책을 다
+          등록했으면 <b>&lsquo;등록된 권수를 용량으로&rsquo;</b>를 눌러 두세요 — 그 칸에 실제로
+          몇 권이 들어가는지가 기록되어, 정리할 때 넘치지 않게 나눠 담습니다.
         </p>
       </div>
 
@@ -218,6 +226,14 @@ export default function LocationsClient({
               placeholder="설명 (예: 그림책)"
               className={`${field} w-48`}
             />
+            <select
+              value={newKind}
+              onChange={(e) => setNewKind(e.target.value as "임시" | "정식")}
+              className={field}
+            >
+              <option value="정식">정식 (정리 후에 쓸 칸)</option>
+              <option value="임시">임시 (지금 꽂아둔 칸)</option>
+            </select>
             <button
               type="button"
               onClick={() => void addLocation()}
@@ -264,7 +280,51 @@ export default function LocationsClient({
                   className="w-52 rounded-lg border border-transparent px-2 py-1 text-sm text-slate-500 hover:border-slate-200 focus:border-slate-300"
                 />
 
+                <select
+                  value={loc.kind}
+                  onChange={(e) => void save(loc.id, { kind: e.target.value as "임시" | "정식" })}
+                  className={`rounded-lg border px-1.5 py-1 text-xs font-semibold ${
+                    loc.kind === "임시"
+                      ? "border-amber-300 bg-amber-50 text-amber-800"
+                      : "border-slate-200 text-slate-500"
+                  }`}
+                >
+                  <option value="정식">정식</option>
+                  <option value="임시">임시</option>
+                </select>
+
                 <span className="text-xs text-slate-400">{counts[loc.id] ?? 0}종</span>
+
+                <span className="flex items-center gap-1 text-xs text-slate-400">
+                  용량
+                  <input
+                    type="number"
+                    min={0}
+                    value={loc.capacity ?? ""}
+                    onChange={(e) =>
+                      patch(loc.id, {
+                        capacity: e.target.value === "" ? null : Number(e.target.value),
+                      })
+                    }
+                    onBlur={(e) =>
+                      void save(loc.id, {
+                        capacity: e.target.value === "" ? null : Number(e.target.value),
+                      })
+                    }
+                    placeholder="—"
+                    className="w-16 rounded border border-slate-200 px-1.5 py-1 text-center"
+                  />
+                  {(counts[loc.id] ?? 0) > 0 && counts[loc.id] !== loc.capacity && (
+                    <button
+                      type="button"
+                      onClick={() => void save(loc.id, { capacity: counts[loc.id] ?? 0 })}
+                      className="rounded border border-slate-300 px-1.5 py-1 text-[11px] font-semibold text-slate-600 hover:bg-slate-50"
+                      title="이 칸에 지금 들어 있는 권수를 이 칸의 수용량으로 기록합니다"
+                    >
+                      ← {counts[loc.id]}권으로
+                    </button>
+                  )}
+                </span>
 
                 <div className="ml-auto flex items-center gap-1">
                   {COLORS.map((c) => (

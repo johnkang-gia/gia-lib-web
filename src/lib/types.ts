@@ -13,6 +13,17 @@ export type LibLocation = {
   map_y: number | null;
   map_w: number;
   map_h: number;
+  /**
+   * '임시'는 지금 무작정 꽂아둔 칸(정리 전), '정식'은 정리 후에 쓸 칸입니다.
+   * 정리 계획은 '정식' 칸에만 책을 배정하고 '임시' 칸은 비우는 것이 목표입니다.
+   */
+  kind: "임시" | "정식";
+  /** 이 칸에 실제로 몇 권이 들어가는지(임시구역 등록 결과로 파악한 실측값). */
+  capacity: number | null;
+  /** 계획을 확정하면 이 칸이 담기로 한 대상 연령. */
+  plan_audience: string | null;
+  /** 계획을 확정하면 이 칸이 담기로 한 분류. */
+  plan_category: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -40,10 +51,14 @@ export type LibBook = {
   pub_year: string | null;
   cover_url: string | null;
   category: string | null;
+  /** 대상 연령 - 도서정리의 첫 번째 기준(유치부/초등부/중고등부/전체). */
+  audience: "유치부" | "초등부" | "중고등부" | "전체" | null;
   language: "한국어" | "영어" | "기타";
   /** 예전 자유 입력 위치(더 이상 쓰지 않음). 지금은 location_id로 구역을 연결합니다. */
   location: string | null;
   location_id: string | null;
+  /** 정리 후에 가야 할 자리. location_id와 다르면 '옮겨야 할 책'입니다. */
+  target_location_id: string | null;
   total_copies: number;
   status: "보유" | "폐기" | "분실";
   note: string | null;
@@ -109,6 +124,10 @@ export type LibSettings = {
   card_text_color: string;
   /** 도서카드에 학생 사진을 넣을지. */
   card_show_photo: boolean;
+  /** 마지막으로 확정한 도서정리 기준(예: '대상-분류-작가'). */
+  plan_rule: string | null;
+  /** 그 계획을 확정한 시각. */
+  plan_made_at: string | null;
   updated_at: string;
 };
 
@@ -131,6 +150,8 @@ export const DEFAULT_SETTINGS: LibSettings = {
   card_bg_url: null,
   card_text_color: "#10203a",
   card_show_photo: false,
+  plan_rule: null,
+  plan_made_at: null,
   updated_at: "",
 };
 
@@ -168,10 +189,53 @@ export type BookLookup = {
   language: "한국어" | "영어" | "기타";
   /** 우리 도감 분류로 옮긴 값(자동 분류 결과). 못 정하면 null입니다. */
   category: string | null;
+  /** 자동 추정한 대상 연령. 못 정하면 null - 사람이 고릅니다. */
+  audience: "유치부" | "초등부" | "중고등부" | "전체" | null;
   /** 조회처가 준 원본 분류 글자 - 자동 분류가 틀렸을 때 참고용입니다. */
   rawCategory: string | null;
   source: string;
 };
+
+/**
+ * 정리 이동 목록 한 줄(DB의 lib_move_plan 뷰와 같은 모양).
+ * "지금 어디 있고 어디로 가야 하는지"만 담습니다.
+ */
+export type MovePlanRow = {
+  book_id: string;
+  title: string;
+  author: string | null;
+  isbn: string | null;
+  item_code: string | null;
+  cover_url: string | null;
+  category: string | null;
+  audience: string | null;
+  language: string | null;
+  from_id: string | null;
+  from_code: string | null;
+  from_name: string | null;
+  from_color: string | null;
+  from_kind: string | null;
+  to_id: string | null;
+  to_code: string | null;
+  to_name: string | null;
+  to_color: string | null;
+  to_sort: number | null;
+  needs_move: boolean;
+};
+
+/** 정리 실행 화면에서 책 한 권을 찍은 결과. */
+export type MoveResult =
+  | {
+      /** 갈 곳이 정해져 있고, 실제로 옮겨야 하는 책. */
+      kind: "move";
+      book: LibBook;
+      from: LibLocation | null;
+      to: LibLocation;
+      message: string;
+    }
+  | { kind: "stay"; book: LibBook; to: LibLocation; message: string }
+  | { kind: "no_target"; book: LibBook; message: string }
+  | { kind: "error"; message: string; detail?: string };
 
 /** 스캔 한 번의 처리 결과. 화면은 이 값만 보고 큰 글씨/색/소리를 정합니다. */
 export type ScanResult =

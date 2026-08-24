@@ -7,6 +7,8 @@ import { createClient } from "@/lib/supabase/client";
 const MENU = [
   { href: "/find", label: "책 찾기", icon: "🔎", desc: "제목으로 찾고 위치 보기" },
   { href: "/shelve", label: "책 정리", icon: "🧺", desc: "반납 정리 · 구역 배정" },
+  { href: "/plan", label: "도서정리 계획", icon: "🗂️", desc: "분류해서 옮길 자리 정하기" },
+  { href: "/move", label: "정리 실행", icon: "🚚", desc: "찍으면 갈 칸 알려주기" },
   { href: "/loans", label: "대출현황", icon: "🕒", desc: "대출중 · 연체 · 전체 기록" },
   { href: "/books", label: "장서관리", icon: "📚", desc: "책 등록 · 수정 · 라벨 인쇄" },
   { href: "/batch", label: "여러 권 등록", icon: "⚡", desc: "바코드 연속 스캔 → 한 구역에" },

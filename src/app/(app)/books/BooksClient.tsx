@@ -6,6 +6,7 @@ import BookRegisterDialog from "@/components/BookRegisterDialog";
 import MobileQrDialog from "@/components/MobileQrDialog";
 import { createClient } from "@/lib/supabase/client";
 import { formatIsbn, needsLabel } from "@/lib/scan";
+import { AUDIENCES } from "@/lib/audience";
 import { CATEGORIES, categoryOf } from "@/lib/categories";
 import type { LibBook, LibBookWithShelf, LibLocation } from "@/lib/types";
 
@@ -332,6 +333,7 @@ function EditDialog({
     author: book.author ?? "",
     publisher: book.publisher ?? "",
     category: book.category ?? "",
+    audience: book.audience ?? "",
     location_id: book.location_id ?? "",
     total_copies: book.total_copies,
     status: book.status,
@@ -351,6 +353,7 @@ function EditDialog({
         author: form.author.trim() || null,
         publisher: form.publisher.trim() || null,
         category: form.category.trim() || null,
+        audience: form.audience || null,
         location_id: form.location_id || null,
         total_copies: Math.max(0, Number(form.total_copies) || 0),
         status: form.status,
@@ -418,6 +421,21 @@ function EditDialog({
               {CATEGORIES.map((cat) => (
                 <option key={cat.key} value={cat.key}>
                   {cat.icon} {cat.key}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <span className={label}>대상 연령</span>
+            <select
+              value={form.audience}
+              onChange={(e) => setForm({ ...form, audience: e.target.value })}
+              className={field}
+            >
+              <option value="">정하지 않음</option>
+              {AUDIENCES.map((a) => (
+                <option key={a} value={a}>
+                  {a}
                 </option>
               ))}
             </select>
