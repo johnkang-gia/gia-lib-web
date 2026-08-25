@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import ShelfMap from "@/components/ShelfMap";
+import LabelZoneSetup from "@/components/LabelZoneSetup";
 import { createClient } from "@/lib/supabase/client";
 import type { LibLocation, LibMap } from "@/lib/types";
 
@@ -147,6 +148,9 @@ export default function LocationsClient({
       </div>
 
       {error && <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>}
+
+      {/* ── 라벨 등급별 임시구역 한꺼번에 만들기 ───────────────────────── */}
+      <LabelZoneSetup hasZones={rows.length > 0} />
 
       {/* ── 배치도 ─────────────────────────────────────────────────────── */}
       <section className="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200">

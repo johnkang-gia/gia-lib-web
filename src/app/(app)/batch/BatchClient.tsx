@@ -391,12 +391,21 @@ export default function BatchClient({ locations }: { locations: LibLocation[] })
           <span className="text-sm font-semibold text-slate-500">이 책들을 넣을 구역</span>
           <select
             value={locationId}
-            onChange={(e) => setLocationId(e.target.value)}
+            onChange={(e) => {
+              const id = e.target.value;
+              setLocationId(id);
+              // 구역 이름이 '2-3'처럼 <등급>-<칸> 꼴이면 라벨 등급을 자동으로 맞춰줍니다.
+              // 라벨 그대로 만든 임시구역이라 매번 손으로 고를 필요가 없습니다.
+              const picked = locations.find((l) => l.id === id);
+              const m = picked?.code.match(/^\s*([2-9])\s*-\s*\d+\s*$/);
+              if (m) setLabelLevel(m[1]);
+            }}
             className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
           >
             <option value="">나중에 정하기</option>
             {locations.map((loc) => (
               <option key={loc.id} value={loc.id}>
+                {loc.kind === "임시" ? "[임시] " : ""}
                 {loc.code}
                 {loc.name ? ` · ${loc.name}` : ""}
               </option>
