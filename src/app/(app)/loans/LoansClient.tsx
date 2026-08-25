@@ -29,7 +29,7 @@ export default function LoansClient({
   const [keyword, setKeyword] = useState("");
   const today = todayKst();
 
-  async function act(loanId: string, action: "return" | "renew" | "lost") {
+  async function act(loanId: string, action: "return" | "lost") {
     if (action === "lost" && !confirm("이 책을 '분실'로 처리할까요? 되돌리려면 다시 수정해야 합니다.")) {
       return;
     }
@@ -175,16 +175,11 @@ export default function LoansClient({
                         >
                           반납
                         </button>
-                        {settings.allow_renew && loan.renew_count < settings.max_renew && (
-                          <button
-                            type="button"
-                            disabled={busyId === loan.id}
-                            onClick={() => void act(loan.id, "renew")}
-                            className="rounded border border-slate-300 px-2 py-1 text-xs font-medium hover:bg-slate-50 disabled:opacity-50"
-                          >
-                            +{settings.renew_days}일
-                          </button>
-                        )}
+                        {/*
+                          규칙 #3: "Renewal is only possible with the book present".
+                          그래서 목록에는 연장 버튼을 두지 않습니다. 학생이 책을 가져와서
+                          대출·반납 화면에 찍었을 때만 연장 버튼이 나옵니다.
+                        */}
                         <button
                           type="button"
                           disabled={busyId === loan.id}

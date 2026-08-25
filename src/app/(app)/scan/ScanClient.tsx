@@ -195,7 +195,7 @@ export default function ScanClient({
     async (
       code: string,
       studentNo: string | null,
-      action?: "return"
+      action?: "return" | "renew"
     ): Promise<ScanResult | null> => {
       const res = await fetch("/api/scan", {
         method: "POST",
@@ -325,6 +325,18 @@ export default function ScanClient({
             available: result.available,
           });
           beep("info");
+        } else if (result.kind === "renewed") {
+          // 규칙 #3 - 책을 가져와서 찍었을 때만 연장됩니다.
+          setPopup({
+            kind: "result",
+            tone: "borrowed",
+            title: "연장 완료",
+            bookTitle: result.book.title,
+            sub: `${result.student?.name ?? ""} · ${result.loan.due_date}까지 (${result.loan.renew_count}회째 연장)`,
+            coverUrl: result.book.cover_url,
+            shelf: null,
+          });
+          beep("ok");
         } else if (result.kind === "unknown_book") {
           show(
             "warn",
@@ -671,6 +683,37 @@ export default function ScanClient({
               setTimeout(refocus, 30);
             })();
           }}
+          onRenew={() => {
+            // 규칙 #3: 연장은 책을 가져왔을 때만 - 그래서 이 팝업에서만 가능합니다.
+            if (popup.kind !== "known") return;
+            const code = popup.book.item_code ?? popup.book.isbn ?? "";
+            void (async () => {
+              setBusy(true);
+              const result = await send(code, null, "renew");
+              setBusy(false);
+              if (result && result.kind === "renewed") {
+                showResult({
+                  tone: "borrowed",
+                  title: "연장 완료",
+                  bookTitle: result.book.title,
+                  sub: `${result.student?.name ?? ""} · ${result.loan.due_date}까지 (${result.loan.renew_count}회째 연장)`,
+                  coverUrl: result.book.cover_url,
+                  shelf: null,
+                });
+                beep("ok");
+              } else if (result && result.kind === "error") {
+                setPopup(null);
+                show("error", result.message, result.detail ?? "");
+                beep("error");
+              }
+              setTimeout(refocus, 30);
+            })();
+          }}
+          canRenew={
+            settings.allow_renew &&
+            popup.kind === "known" &&
+            popup.activeLoans.some((l) => l.renew_count < settings.max_renew)
+          }
           onRegister={() => setDialogOpen(true)}
           onClose={() => {
             setPopup(null);

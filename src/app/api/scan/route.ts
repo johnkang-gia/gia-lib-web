@@ -1,10 +1,17 @@
 import { NextResponse } from "next/server";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/server";
-import { addDaysKst, overdueDays, todayKst } from "@/lib/dates";
+import { addDaysKst, addDaysToDate, overdueDays, todayKst } from "@/lib/dates";
 import { isIsbn, isItemCode, isStudentCode, normalizeScan } from "@/lib/scan";
 import { findActiveLoans, findBook, findStudent, getSettings } from "@/lib/server/library";
-import type { LibBookWithShelf, LibLoan, LibStudent, ReadingStats, ScanResult } from "@/lib/types";
+import type {
+  LibBookWithShelf,
+  LibLoan,
+  LibSettings,
+  LibStudent,
+  ReadingStats,
+  ScanResult,
+} from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
@@ -30,7 +37,7 @@ export async function POST(request: Request) {
     );
   }
 
-  let body: { code?: string; studentNo?: string | null; action?: "return" };
+  let body: { code?: string; studentNo?: string | null; action?: "return" | "renew" };
   try {
     body = await request.json();
   } catch {
@@ -248,6 +255,20 @@ export async function POST(request: Request) {
     return NextResponse.json<ScanResult>(await returnLoan(supabase, bookLoans[0], book, email));
   }
 
+  // ── 연장 ────────────────────────────────────────────────────────────────
+  // 규칙 #3: "Renewal is only possible with the book present".
+  // 그래서 연장은 목록의 버튼이 아니라, 책을 실제로 가져와 찍었을 때만 됩니다.
+  if (body.action === "renew") {
+    if (bookLoans.length === 0) {
+      return NextResponse.json<ScanResult>({
+        kind: "error",
+        message: "지금 대출중이 아닌 책입니다.",
+        detail: book.title,
+      });
+    }
+    return NextResponse.json<ScanResult>(await renewLoan(supabase, bookLoans[0], book, settings));
+  }
+
   // 그 밖에는 책 정보를 돌려주어, 화면에서 표지와 함께 보여주고 무엇을 할지 고르게 합니다.
   const available = Math.max(0, book.total_copies - bookLoans.length);
   return NextResponse.json<ScanResult>({
@@ -315,6 +336,53 @@ async function readingStats(
     lastTitle: lastRow?.book?.title ?? null,
     byCategory,
     englishCount,
+  };
+}
+
+/**
+ * 연장 처리. 책을 손에 들고 찍었을 때만 여기까지 옵니다(규칙 #3).
+ * 이미 반납예정일이 지났으면 오늘부터, 아니면 원래 예정일부터 더합니다.
+ */
+async function renewLoan(
+  supabase: SupabaseClient,
+  loan: LibLoan,
+  book: LibBookWithShelf,
+  settings: LibSettings
+): Promise<ScanResult> {
+  if (!settings.allow_renew) {
+    return { kind: "error", message: "연장이 허용되어 있지 않습니다." };
+  }
+  if (loan.renew_count >= settings.max_renew) {
+    return {
+      kind: "error",
+      message: `연장은 최대 ${settings.max_renew}회까지입니다`,
+      detail: `${loan.student_name} · ${book.title} — 오늘 반납해 주세요`,
+    };
+  }
+
+  const base = loan.due_date < todayKst() ? todayKst() : loan.due_date;
+  const { data: updated, error } = await supabase
+    .from("lib_loans")
+    .update({
+      due_date: addDaysToDate(base, settings.renew_days),
+      renew_count: loan.renew_count + 1,
+    })
+    .eq("id", loan.id)
+    .eq("status", "대출중")
+    .select("*")
+    .single();
+
+  if (error || !updated) {
+    return { kind: "error", message: "연장을 저장하지 못했습니다.", detail: error?.message };
+  }
+
+  const next = updated as LibLoan;
+  return {
+    kind: "renewed",
+    message: `${next.due_date}까지 연장`,
+    book,
+    loan: next,
+    student: { name: next.student_name, class_name: next.student_class },
   };
 }
 

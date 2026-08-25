@@ -149,11 +149,12 @@ export type LibStudentPhoto = {
 export const DEFAULT_SETTINGS: LibSettings = {
   id: 1,
   library_name: "GIA 도서관",
-  loan_days: 14,
-  max_books: 3,
+  // GIA LIBRARY RULES 게시물 기준: 1주 · 1인 4권 · 연장 최대 2회(1주씩)
+  loan_days: 7,
+  max_books: 4,
   allow_renew: true,
   renew_days: 7,
-  max_renew: 1,
+  max_renew: 2,
   block_when_overdue: true,
   card_bg_url: null,
   card_text_color: "#10203a",
@@ -273,6 +274,14 @@ export type ScanResult =
       loan: LibLoan;
       overdueDays: number;
       location: LibLocation | null;
+    }
+  | {
+      /** 연장 완료 - 책을 가져와서 찍었을 때만 나옵니다(규칙 #3). */
+      kind: "renewed";
+      message: string;
+      book: LibBook;
+      loan: LibLoan;
+      student: { name: string; class_name: string | null } | null;
     }
   | { kind: "unknown_book"; message: string; code: string; isIsbn: boolean }
   | {

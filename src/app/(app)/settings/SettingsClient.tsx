@@ -116,7 +116,7 @@ export default function SettingsClient({
               onChange={(e) => setForm({ ...form, allow_renew: e.target.checked })}
               className="h-4 w-4"
             />
-            대출 연장을 허용합니다
+            대출 연장을 허용합니다 (규칙 #3 — 책을 가져와 찍었을 때만 연장됩니다)
           </label>
 
           <label className="col-span-2 flex items-center gap-2 rounded-lg bg-slate-50 px-3 py-2.5 text-sm">

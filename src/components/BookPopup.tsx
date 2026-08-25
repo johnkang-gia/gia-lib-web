@@ -37,8 +37,10 @@ export default function BookPopup({
   busy,
   onBorrow,
   onReturn,
+  onRenew,
   onRegister,
   onClose,
+  canRenew,
 }: {
   state: BookPopupState;
   /** 대출을 고른 뒤 학생 카드를 기다리는 중인지. */
@@ -46,8 +48,12 @@ export default function BookPopup({
   busy: boolean;
   onBorrow: () => void;
   onReturn: () => void;
+  /** 연장(규칙 #3 - 책을 가져왔을 때만 됩니다). */
+  onRenew: () => void;
   onRegister: () => void;
   onClose: () => void;
+  /** 연장 규칙이 켜져 있고 아직 연장 횟수가 남았는지. */
+  canRenew: boolean;
 }) {
   const known = state.kind === "known" ? state : null;
   const book = known?.book;
@@ -242,6 +248,16 @@ export default function BookPopup({
                     className="flex-1 rounded-2xl bg-blue-600 px-6 py-4 text-xl font-black text-white disabled:opacity-50"
                   >
                     반납하기
+                  </button>
+                )}
+                {onLoan > 0 && canRenew && (
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={onRenew}
+                    className="flex-1 rounded-2xl border-2 border-blue-600 bg-white px-6 py-4 text-xl font-black text-blue-700 disabled:opacity-50"
+                  >
+                    연장하기
                   </button>
                 )}
               </>
