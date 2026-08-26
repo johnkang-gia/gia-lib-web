@@ -8,7 +8,14 @@ import { formatDay, overdueDays, todayKst } from "@/lib/dates";
 import { formatIsbn } from "@/lib/scan";
 import { cheerFor, monthlyProgress, readingLevel } from "@/lib/reading";
 import { CATEGORIES } from "@/lib/categories";
-import type { LibLoanWithBook, LibLocation, LibSettings, LibStudent, ScanResult } from "@/lib/types";
+import type {
+  LibBookWithShelf,
+  LibLoanWithBook,
+  LibLocation,
+  LibSettings,
+  LibStudent,
+  ScanResult,
+} from "@/lib/types";
 
 type StudentState = {
   student: LibStudent;
@@ -70,6 +77,10 @@ export default function ScanClient({
   const [clock, setClock] = useState("");
   // 책부터 찍었을 때 뜨는 큰 확인 창(요청: "바코드로 책을 찍으면 큰 팝업창이 뜨고").
   const [popup, setPopup] = useState<BookPopupState | null>(null);
+  // 메인 화면에서 제목으로 찾은 책 목록(요청: "책검색은 메인페이지에서 가능하게").
+  const [bookHits, setBookHits] = useState<
+    { query: string; books: (LibBookWithShelf & { onLoan: number })[] } | null
+  >(null);
   // 팝업에서 '대출하기'를 누른 뒤 학생 카드를 기다리는 중이면 그 책의 바코드가 들어 있습니다.
   const [awaitBookCode, setAwaitBookCode] = useState<string | null>(null);
 
@@ -278,6 +289,7 @@ export default function ScanClient({
         if (result.kind !== "book_info" && result.kind !== "unknown_book") setPopup(null);
         if (resultTimerRef.current) clearTimeout(resultTimerRef.current);
         if (result.kind !== "student_choices") setChoices(null);
+        if (result.kind !== "book_choices") setBookHits(null);
 
         if (result.kind === "student") {
           setStudent({
@@ -316,6 +328,10 @@ export default function ScanClient({
           setChoices(result.students);
           setStudent(null);
           show("info", "학생을 골라주세요", result.message);
+          beep("info");
+        } else if (result.kind === "book_choices") {
+          setBookHits({ query: result.query, books: result.books });
+          show("info", result.message, "찾는 책을 누르면 자리를 알려줍니다");
           beep("info");
         } else if (result.kind === "book_info") {
           setPopup({
@@ -425,7 +441,88 @@ export default function ScanClient({
 
       {/* ── 현재 학생 ───────────────────────────────────────────────────── */}
       <section className="flex flex-1 flex-col rounded-3xl bg-white p-7 shadow-sm ring-1 ring-slate-200">
-        {choices ? (
+        {bookHits ? (
+          /* ── 제목으로 찾은 책들 (요청: 메인 화면에서 책 검색) ────────── */
+          <>
+            <p className="mb-3 text-sm font-bold text-slate-500">
+              &lsquo;{bookHits.query}&rsquo; 검색 결과 {bookHits.books.length}권 — 눌러보세요
+            </p>
+            <ul className="grid max-h-[26rem] gap-2 overflow-y-auto sm:grid-cols-2">
+              {bookHits.books.map((hit) => {
+                const left = Math.max(0, hit.total_copies - hit.onLoan);
+                return (
+                  <li key={hit.id}>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setBookHits(null);
+                        setPopup({
+                          kind: "known",
+                          book: hit,
+                          activeLoans: [],
+                          available: left,
+                        });
+                      }}
+                      className="flex w-full items-center gap-3 rounded-2xl bg-slate-50 px-4 py-3 text-left transition hover:bg-slate-100"
+                    >
+                      {hit.cover_url ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img
+                          src={hit.cover_url}
+                          alt=""
+                          className="h-16 w-12 shrink-0 rounded object-cover ring-1 ring-slate-200"
+                        />
+                      ) : (
+                        <span className="flex h-16 w-12 shrink-0 items-center justify-center rounded bg-slate-200 text-xl">
+                          📘
+                        </span>
+                      )}
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate text-lg font-bold">{hit.title}</span>
+                        <span className="block truncate text-sm text-slate-500">
+                          {hit.author ?? ""}
+                        </span>
+                        <span
+                          className={`mt-0.5 inline-block text-sm font-semibold ${
+                            left > 0 ? "text-emerald-600" : "text-slate-400"
+                          }`}
+                        >
+                          {left > 0 ? `대출 가능 ${left}권` : "모두 대출중"}
+                        </span>
+                      </span>
+                      {hit.shelf ? (
+                        <span
+                          className="shrink-0 rounded-xl px-3 py-2 text-center"
+                          style={{ background: `${hit.shelf.color}1f`, color: hit.shelf.color }}
+                        >
+                          <span className="block text-xl font-black">{hit.shelf.code}</span>
+                          {hit.shelf.name && (
+                            <span className="block text-[11px] font-medium">{hit.shelf.name}</span>
+                          )}
+                        </span>
+                      ) : (
+                        <span className="shrink-0 rounded-xl bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-700">
+                          자리 미정
+                        </span>
+                      )}
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+            <button
+              type="button"
+              onClick={() => {
+                setBookHits(null);
+                setBanner(null);
+                setTimeout(refocus, 30);
+              }}
+              className="mt-4 self-start text-sm text-slate-400 hover:underline"
+            >
+              닫기 (Esc)
+            </button>
+          </>
+        ) : choices ? (
           <>
             <p className="mb-3 text-sm font-bold text-slate-500">
               같은 이름이 여러 명입니다 — 눌러서 골라주세요
@@ -629,6 +726,7 @@ export default function ScanClient({
             setBanner(null);
             setUnknownPending(false);
             setChoices(null);
+            setBookHits(null);
             setPopup(null);
             setAwaitBookCode(null);
             setValue("");
@@ -636,7 +734,11 @@ export default function ScanClient({
         }}
         aria-label="바코드 입력"
         className="scan-input h-9 w-full rounded-xl border border-dashed border-slate-200 bg-transparent px-4 text-center text-xs text-slate-300 outline-none focus:border-gia-gold"
-        placeholder={busy ? "처리 중…" : "바코드를 찍거나, 카드를 안 가져왔으면 학생 이름을 입력하고 Enter"}
+        placeholder={
+          busy
+            ? "처리 중…"
+            : "바코드를 찍거나 · 학생 이름 · 책 제목을 입력하고 Enter (책은 어디 있는지 알려줍니다)"
+        }
         autoComplete="off"
         spellCheck={false}
       />

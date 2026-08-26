@@ -4,20 +4,59 @@ import { useEffect, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 
-const MENU = [
-  { href: "/find", label: "책 찾기", icon: "🔎", desc: "제목으로 찾고 위치 보기" },
-  { href: "/shelve", label: "책 정리", icon: "🧺", desc: "반납 정리 · 구역 배정" },
-  { href: "/plan", label: "도서정리 계획", icon: "🗂️", desc: "분류해서 옮길 자리 정하기" },
-  { href: "/move", label: "정리 실행", icon: "🚚", desc: "찍으면 갈 칸 알려주기" },
-  { href: "/loans", label: "대출현황", icon: "🕒", desc: "대출중 · 연체 · 전체 기록" },
-  { href: "/books", label: "장서관리", icon: "📚", desc: "책 등록 · 수정 · 라벨 인쇄" },
-  { href: "/batch", label: "여러 권 등록", icon: "⚡", desc: "바코드 연속 스캔 → 한 구역에" },
-  { href: "/students", label: "학생별 이력", icon: "🙋", desc: "학생이 빌린 책 기록" },
-  { href: "/locations", label: "구역 관리", icon: "🗺️", desc: "책장 배치도 · 구역 라벨" },
-  { href: "/labels", label: "지금 라벨 점검", icon: "🏷️", desc: "색 라벨 등급 · 빠진 번호" },
-  { href: "/cards", label: "도서카드 인쇄", icon: "🪪", desc: "학생 카드 만들기" },
-  { href: "/settings", label: "설정", icon: "⚙️", desc: "대출 기간 · 권수 규칙" },
+/**
+ * 관리 메뉴.
+ *
+ * 요청: "메뉴들이 너무 많고 복잡해서 통합 분류 해줘".
+ *
+ * 화면 수를 줄이는 대신 '언제 쓰는가'로 네 묶음으로 나눴습니다. 매일 여러 번 쓰는 것이 맨 위,
+ * 학기 초에 한 번 하는 일이 아래로 갑니다. 도서관 담당이 바뀌어도 순서만 따라가면 됩니다.
+ */
+const MENU_GROUPS: {
+  title: string;
+  hint: string;
+  items: { href: string; label: string; icon: string; desc: string }[];
+}[] = [
+  {
+    title: "매일 쓰는 것",
+    hint: "대출·반납 중에 자주 여는 화면",
+    items: [
+      { href: "/find", label: "책 찾기", icon: "🔎", desc: "제목으로 찾고 자리 보기" },
+      { href: "/loans", label: "대출현황", icon: "🕒", desc: "대출중 · 연체 · 전체 기록" },
+      { href: "/shelve", label: "반납 정리", icon: "🧺", desc: "반납된 책 제자리에 꽂기" },
+    ],
+  },
+  {
+    title: "책 등록",
+    hint: "새 책이 들어왔을 때",
+    items: [
+      { href: "/batch", label: "여러 권 등록", icon: "⚡", desc: "바코드 연속 스캔 → 한 칸에" },
+      { href: "/books", label: "장서 관리", icon: "📚", desc: "책 목록 · 수정 · 라벨 인쇄" },
+    ],
+  },
+  {
+    title: "도서 정리",
+    hint: "책장을 새로 정돈할 때 — ①②③ 순서대로",
+    items: [
+      { href: "/locations", label: "① 구역 관리", icon: "🗺️", desc: "책장 칸 만들기 · 배치도" },
+      { href: "/plan", label: "② 정리 계획", icon: "🗂️", desc: "분류해서 옮길 자리 정하기" },
+      { href: "/move", label: "③ 정리 실행", icon: "🚚", desc: "찍으면 갈 칸 알려주기" },
+      { href: "/labels", label: "지금 라벨 점검", icon: "🏷️", desc: "색 라벨 등급 · 빠진 번호" },
+    ],
+  },
+  {
+    title: "학교 운영",
+    hint: "학기 초에 한 번",
+    items: [
+      { href: "/cards", label: "도서카드 인쇄", icon: "🪪", desc: "학생 카드 만들기" },
+      { href: "/students", label: "학생별 이력", icon: "🙋", desc: "학생이 빌린 책 기록" },
+      { href: "/settings", label: "설정", icon: "⚙️", desc: "대출 기간 · 권수 규칙" },
+    ],
+  },
 ];
+
+/** 미리 받아둘 화면들(서랍에서 누르는 즉시 열리도록). */
+const ALL_ITEMS = MENU_GROUPS.flatMap((g) => g.items);
 
 /**
  * 도서관 전용 단말에 맞춘 화면 틀입니다.
@@ -42,7 +81,7 @@ export default function AppShell({
 
   // 관리 화면들은 미리 받아두어 서랍에서 누르는 즉시 열리게 합니다.
   useEffect(() => {
-    MENU.forEach((item) => router.prefetch(item.href));
+    ALL_ITEMS.forEach((item) => router.prefetch(item.href));
   }, [router]);
 
   // 서랍이 열려 있을 때 Esc로 닫습니다.
@@ -119,32 +158,42 @@ export default function AppShell({
             </div>
 
             <nav className="flex-1 overflow-y-auto p-3">
-              {MENU.map((item) => {
-                const active = pathname.startsWith(item.href);
-                return (
-                  <button
-                    key={item.href}
-                    type="button"
-                    onClick={() => {
-                      setOpen(false);
-                      router.push(item.href);
-                    }}
-                    className={`mb-1 flex w-full items-center gap-3 rounded-xl px-3 py-3 text-left transition ${
-                      active ? "bg-slate-900 text-white" : "hover:bg-slate-100"
-                    }`}
-                  >
-                    <span className="text-xl">{item.icon}</span>
-                    <span className="min-w-0">
-                      <span className="block text-sm font-semibold">{item.label}</span>
-                      <span
-                        className={`block truncate text-xs ${active ? "text-white/60" : "text-slate-400"}`}
+              {MENU_GROUPS.map((group) => (
+                <div key={group.title} className="mb-4">
+                  <div className="px-3 pb-1.5">
+                    <p className="text-xs font-bold text-slate-500">{group.title}</p>
+                    <p className="text-[11px] text-slate-400">{group.hint}</p>
+                  </div>
+                  {group.items.map((item) => {
+                    const active = pathname.startsWith(item.href);
+                    return (
+                      <button
+                        key={item.href}
+                        type="button"
+                        onClick={() => {
+                          setOpen(false);
+                          router.push(item.href);
+                        }}
+                        className={`mb-1 flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left transition ${
+                          active ? "bg-slate-900 text-white" : "hover:bg-slate-100"
+                        }`}
                       >
-                        {item.desc}
-                      </span>
-                    </span>
-                  </button>
-                );
-              })}
+                        <span className="text-lg">{item.icon}</span>
+                        <span className="min-w-0">
+                          <span className="block text-sm font-semibold">{item.label}</span>
+                          <span
+                            className={`block truncate text-xs ${
+                              active ? "text-white/60" : "text-slate-400"
+                            }`}
+                          >
+                            {item.desc}
+                          </span>
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              ))}
             </nav>
 
             <div className="border-t border-slate-100 p-3">

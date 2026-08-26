@@ -33,6 +33,9 @@ export default function LocationsClient({
   const [newCode, setNewCode] = useState("");
   const [newName, setNewName] = useState("");
   const [newKind, setNewKind] = useState<"임시" | "정식">("정식");
+  // 여러 개 한꺼번에 만들기(요청: "3-1부터 3-9까지")
+  const [bulk, setBulk] = useState({ prefix: "", from: 1, to: 9, name: "" });
+  const [bulkMsg, setBulkMsg] = useState<string | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -73,6 +76,46 @@ export default function LocationsClient({
     setRows((prev) => [...prev, data as LibLocation]);
     setNewCode("");
     setNewName("");
+  }
+
+  /** '3-' + 1~9 → 3-1 … 3-9 를 한 번에 만듭니다. */
+  async function addRange() {
+    const prefix = bulk.prefix.trim();
+    if (!prefix) return;
+    setBusy(true);
+    setError(null);
+    setBulkMsg(null);
+    try {
+      const res = await fetch("/api/locations/bulk", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          prefix,
+          from: bulk.from,
+          to: bulk.to,
+          name: bulk.name,
+          kind: newKind,
+          color: COLORS[rows.length % COLORS.length],
+        }),
+      });
+      const json = (await res.json()) as {
+        created?: number;
+        skipped?: number;
+        locations?: LibLocation[];
+        error?: string;
+      };
+      if (!res.ok) throw new Error(json.error ?? "만들지 못했습니다.");
+      if (json.locations?.length) setRows((prev) => [...prev, ...json.locations!]);
+      setBulkMsg(
+        `${json.created ?? 0}개를 만들었습니다` +
+          ((json.skipped ?? 0) > 0 ? ` (이미 있던 ${json.skipped}개는 건너뜀)` : "")
+      );
+      router.refresh();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "만들지 못했습니다.");
+    } finally {
+      setBusy(false);
+    }
   }
 
   async function removeLocation(loc: LibLocation) {
@@ -256,6 +299,57 @@ export default function LocationsClient({
               </button>
             )}
           </div>
+        </div>
+
+        {/* ── 여러 개 한꺼번에 만들기 ─────────────────────────────────── */}
+        <div className="mb-4 flex flex-wrap items-end gap-2 rounded-xl bg-slate-50 px-4 py-3">
+          <span className="text-sm font-semibold text-slate-500">여러 개 한꺼번에</span>
+          <input
+            value={bulk.prefix}
+            onChange={(e) => setBulk({ ...bulk, prefix: e.target.value })}
+            placeholder="앞부분 (예: 3-)"
+            className={`${field} w-32`}
+          />
+          <span className="flex items-center gap-1.5 text-sm text-slate-500">
+            <input
+              type="number"
+              min={0}
+              value={bulk.from}
+              onChange={(e) => setBulk({ ...bulk, from: Number(e.target.value) })}
+              className={`${field} w-20 text-center`}
+            />
+            부터
+            <input
+              type="number"
+              min={0}
+              value={bulk.to}
+              onChange={(e) => setBulk({ ...bulk, to: Number(e.target.value) })}
+              className={`${field} w-20 text-center`}
+            />
+            까지
+          </span>
+          <input
+            value={bulk.name}
+            onChange={(e) => setBulk({ ...bulk, name: e.target.value })}
+            placeholder="설명 (예: 초록 라벨)"
+            className={`${field} w-44`}
+          />
+          <span className="font-mono text-xs text-slate-400">
+            {bulk.prefix.trim() && bulk.to >= bulk.from
+              ? `${bulk.prefix}${bulk.from} ~ ${bulk.prefix}${bulk.to} (${bulk.to - bulk.from + 1}개)`
+              : "앞부분과 범위를 적어주세요"}
+          </span>
+          <button
+            type="button"
+            onClick={() => void addRange()}
+            disabled={busy || !bulk.prefix.trim() || bulk.to < bulk.from}
+            className="ml-auto rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white disabled:opacity-40"
+          >
+            + 범위로 만들기
+          </button>
+          {bulkMsg && (
+            <p className="w-full text-sm text-emerald-700">{bulkMsg}</p>
+          )}
         </div>
 
         {rows.length === 0 ? (

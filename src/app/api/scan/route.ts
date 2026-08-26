@@ -106,11 +106,23 @@ export async function POST(request: Request) {
       .limit(12);
     const found = (data ?? []) as LibStudent[];
 
+    // 학생 이름으로 안 나오면 책 제목·지은이로 찾아봅니다.
+    // 요청: "책검색은 메인페이지에서 가능하게 해주고" - 메인 화면 입력칸 하나로 학생도 책도
+    // 찾을 수 있게 했습니다. 학생을 먼저 보는 이유는 대출·반납이 훨씬 잦기 때문입니다.
     if (found.length === 0) {
+      const books = await searchBooks(supabase, raw);
+      if (books.length > 0) {
+        return NextResponse.json<ScanResult>({
+          kind: "book_choices",
+          query: raw,
+          books,
+          message: `'${raw}' 책 ${books.length}권을 찾았습니다`,
+        });
+      }
       return NextResponse.json<ScanResult>({
         kind: "error",
-        message: `'${raw}' 학생을 찾지 못했습니다.`,
-        detail: "이름 일부만 입력해도 됩니다. 등록된 책이라면 바코드를 찍어주세요.",
+        message: `'${raw}' 을(를) 찾지 못했습니다.`,
+        detail: "학생 이름이나 책 제목의 일부만 입력해도 됩니다.",
       });
     }
 
@@ -384,6 +396,41 @@ async function renewLoan(
     loan: next,
     student: { name: next.student_name, class_name: next.student_class },
   };
+}
+
+/**
+ * 제목·지은이로 책을 찾고, 각 책이 지금 몇 권 나가 있는지도 함께 셉니다.
+ * 메인 화면에서 학생이 직접 쓰는 검색이라, 자리(구역)까지 붙여서 돌려줍니다.
+ */
+async function searchBooks(
+  supabase: SupabaseClient,
+  keyword: string
+): Promise<(LibBookWithShelf & { onLoan: number })[]> {
+  const like = `%${keyword.replace(/[%_]/g, "")}%`;
+  const { data } = await supabase
+    .from("lib_books")
+    .select("*, shelf:lib_locations(*)")
+    .or(`title.ilike.${like},author.ilike.${like},series.ilike.${like}`)
+    .eq("status", "보유")
+    .order("title", { ascending: true })
+    .limit(20);
+
+  const books = (data ?? []) as unknown as LibBookWithShelf[];
+  if (books.length === 0) return [];
+
+  // 대출중 권수를 한 번의 질의로 세어 붙입니다.
+  const { data: loanRows } = await supabase
+    .from("lib_loans")
+    .select("book_id")
+    .eq("status", "대출중")
+    .in("book_id", books.map((b) => b.id));
+
+  const counts = new Map<string, number>();
+  for (const row of (loanRows ?? []) as { book_id: string }[]) {
+    counts.set(row.book_id, (counts.get(row.book_id) ?? 0) + 1);
+  }
+
+  return books.map((b) => ({ ...b, onLoan: counts.get(b.id) ?? 0 }));
 }
 
 async function returnLoan(

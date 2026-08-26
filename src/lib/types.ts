@@ -298,6 +298,16 @@ export type ScanResult =
       message: string;
     }
   | {
+      /**
+       * 메인 화면에서 책 제목을 입력해 찾은 결과.
+       * 요청: "책검색은 메인페이지에서 가능하게 해주고".
+       */
+      kind: "book_choices";
+      query: string;
+      books: (LibBookWithShelf & { onLoan: number })[];
+      message: string;
+    }
+  | {
       /** 카드를 안 가져온 학생을 이름으로 찾은 결과(여러 명이면 골라야 합니다). */
       kind: "student_choices";
       query: string;
