@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useTransition } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 
@@ -77,7 +77,23 @@ export default function AppShell({
   const pathname = usePathname();
   const router = useRouter();
   const [open, setOpen] = useState(false);
+  // 화면을 바꾸는 동안 상단에 가는 막대를 띄웁니다. 누른 즉시 반응이 보여야 사람이 두 번
+  // 누르지 않습니다(요청: "메뉴를 누르거나, 책찾기를 누르면 너무 느려").
+  const [navigating, startNavigation] = useTransition();
+  const [target, setTarget] = useState<string | null>(null);
   const isScan = pathname === "/scan";
+
+  /** 서랍을 곧바로 닫고, 화면 전환은 전환 상태로 처리합니다. */
+  function go(href: string) {
+    setOpen(false);
+    setTarget(href);
+    startNavigation(() => router.push(href));
+  }
+
+  // 새 화면이 실제로 열리면 표시를 지웁니다.
+  useEffect(() => {
+    setTarget(null);
+  }, [pathname]);
 
   // 관리 화면들은 미리 받아두어 서랍에서 누르는 즉시 열리게 합니다.
   useEffect(() => {
@@ -106,7 +122,7 @@ export default function AppShell({
       <header className="gia-navy-panel sticky top-0 z-20 flex items-center gap-3 px-5 py-2.5 text-white no-print">
         <button
           type="button"
-          onClick={() => router.push("/scan")}
+          onClick={() => go("/scan")}
           className="flex items-center gap-3"
           title="대출·반납 화면으로"
         >
@@ -121,7 +137,7 @@ export default function AppShell({
         {!isScan && (
           <button
             type="button"
-            onClick={() => router.push("/scan")}
+            onClick={() => go("/scan")}
             className="ml-2 rounded-lg bg-white/10 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-white/20"
           >
             ← 대출·반납 화면
@@ -139,6 +155,13 @@ export default function AppShell({
           </button>
         </div>
       </header>
+
+      {/* 전환 중 표시 - 얇은 막대가 흐르면 "눌렸다"는 게 바로 보입니다. */}
+      {navigating && (
+        <div className="sticky top-[52px] z-20 h-0.5 w-full overflow-hidden bg-gia-gold/20 no-print">
+          <div className="nav-bar h-full w-1/3 bg-gia-gold" />
+        </div>
+      )}
 
       <main className={isScan ? "flex flex-1 flex-col" : "mx-auto w-full max-w-6xl px-4 py-6"}>
         {children}
@@ -166,19 +189,17 @@ export default function AppShell({
                   </div>
                   {group.items.map((item) => {
                     const active = pathname.startsWith(item.href);
+                    const loading = target === item.href;
                     return (
                       <button
                         key={item.href}
                         type="button"
-                        onClick={() => {
-                          setOpen(false);
-                          router.push(item.href);
-                        }}
+                        onClick={() => go(item.href)}
                         className={`mb-1 flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left transition ${
                           active ? "bg-slate-900 text-white" : "hover:bg-slate-100"
                         }`}
                       >
-                        <span className="text-lg">{item.icon}</span>
+                        <span className="text-lg">{loading ? "⏳" : item.icon}</span>
                         <span className="min-w-0">
                           <span className="block text-sm font-semibold">{item.label}</span>
                           <span

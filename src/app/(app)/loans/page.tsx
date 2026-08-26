@@ -15,8 +15,9 @@ export default async function LoansPage({
   const view = tab === "overdue" || tab === "history" ? tab : "active";
 
   const supabase = await createClient();
-  const settings = await getSettings(supabase);
   const today = todayKst();
+  // 설정 조회를 먼저 기다리지 않고 아래 목록 질의와 함께 진행시킵니다(왕복 한 번 절약).
+  const settingsPromise = getSettings(supabase);
 
   let query = supabase.from("lib_loans").select(`*, book:lib_books(${BOOK_FIELDS})`);
 
@@ -28,16 +29,17 @@ export default async function LoansPage({
     query = query.order("borrowed_at", { ascending: false }).limit(300);
   }
 
-  const { data } = await query;
-
-  // 탭 옆에 보여줄 숫자.
-  const [{ count: activeCount }, { count: overdueCount }] = await Promise.all([
+  const [{ data }, settings, [{ count: activeCount }, { count: overdueCount }]] = await Promise.all([
+    query,
+    settingsPromise,
+    Promise.all([
     supabase.from("lib_loans").select("id", { count: "exact", head: true }).eq("status", "대출중"),
     supabase
       .from("lib_loans")
       .select("id", { count: "exact", head: true })
       .eq("status", "대출중")
       .lt("due_date", today),
+    ]),
   ]);
 
   return (

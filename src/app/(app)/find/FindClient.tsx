@@ -44,7 +44,10 @@ export default function FindClient({
     const { data } = await supabase
       .from("lib_books")
       .select("*, shelf:lib_locations(*)")
-      .or(`title.ilike.${like},author.ilike.${like},publisher.ilike.${like},isbn.ilike.${like},item_code.ilike.${like}`)
+      .or(
+        `title.ilike.${like},author.ilike.${like},series.ilike.${like},` +
+          `publisher.ilike.${like},isbn.ilike.${like},item_code.ilike.${like}`
+      )
       .order("title", { ascending: true })
       .limit(60);
 
