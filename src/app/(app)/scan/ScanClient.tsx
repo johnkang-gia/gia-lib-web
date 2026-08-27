@@ -147,13 +147,7 @@ export default function ScanClient({
   // USB 스캐너는 "키보드처럼" 입력하므로, 커서가 다른 곳에 있으면 값이 사라집니다.
   const refocus = useScanFocus(inputRef, !dialogOpen);
 
-  // 화면 아무 곳이나 눌렀을 때도 커서를 되돌립니다(주기적인 되돌리기는 useScanFocus가 합니다).
-  // 드롭다운·입력칸을 누른 경우에는 useScanFocus가 알아서 쉬어주므로 여기서 따로 막지 않습니다.
-  useEffect(() => {
-    const onClick = () => refocus();
-    document.addEventListener("click", onClick);
-    return () => document.removeEventListener("click", onClick);
-  }, [refocus]);
+
 
   // ── 학생 자동 해제 타이머 ─────────────────────────────────────────────────
   useEffect(() => {

@@ -1,101 +1,93 @@
 "use client";
 
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect } from "react";
 
 /**
- * USB 스캐너용 "입력칸에 커서 붙들어두기" - 사람이 쓰는 중일 때는 비켜줍니다.
+ * USB 스캐너 입력을 놓치지 않으면서, 화면의 다른 조작을 방해하지 않는 방법.
  *
- * 문제: "스캐너 연결 안했는데도 아직도 드롭다운 바로 접혀".
+ * ── 왜 다시 만들었나 ──────────────────────────────────────────────────────
+ * 처음에는 0.9초마다 커서를 스캔칸으로 되돌렸습니다. 스캐너는 키보드처럼 입력하니 커서가
+ * 거기 있어야 한다는 생각이었는데, 이게 드롭다운을 여는 순간과 계속 부딪혔습니다.
+ * "지금 드롭다운을 쓰는 중이면 비켜준다"는 예외를 두 번 붙였지만 여전히 접혔습니다 —
+ * 브라우저가 목록을 창 밖의 별도 위젯으로 그리는 동안 문서 쪽에서 보이는 상태가
+ * 브라우저·운영체제마다 달라서, "지금 쓰는 중인지"를 정확히 알아낼 방법이 없었기 때문입니다.
  *
- * 스캐너는 키보드처럼 입력하므로 커서가 입력칸에 있어야 합니다. 그래서 0.9초마다 커서를
- * 되돌리는데, 이게 드롭다운을 여는 순간과 부딪혔습니다. 한 번 고쳤지만 부족했던 이유는
- * 운영체제마다 동작이 다르기 때문입니다.
+ * 그래서 판단하려 애쓰는 대신 **주기적으로 커서를 뺏는 일 자체를 없앴습니다.**
  *
- *   - 리눅스/윈도우: 드롭다운이 열려도 그 <select>가 계속 '초점 받은 요소'로 남습니다.
- *   - macOS: 드롭다운이 **창 밖의 별도 위젯**으로 열려서, 브라우저 창 자체가 초점을 잃습니다.
- *     이때 '초점 받은 요소'는 <select>가 아니라 문서 본문이 되어버립니다. 그래서 앞선 규칙이
- *     "아무도 안 쓰는 중"으로 오해하고 커서를 뺏어갔고, 드롭다운이 즉시 닫혔습니다.
+ * ── 지금 방식 ────────────────────────────────────────────────────────────
+ * 커서를 미리 잡아두지 않고, **스캐너가 첫 글자를 보내는 순간에** 스캔칸으로 옮깁니다.
+ * 브라우저는 keydown 처리 중에 focus()를 부르면 그 키를 새로 초점을 받은 칸에 넣어주므로,
+ * 첫 글자도 잃지 않습니다. 사람이 입력칸이나 드롭다운을 쓰는 중이면 그 키는 그쪽 것이므로
+ * 건드리지 않습니다.
  *
- * 그래서 규칙을 셋으로 늘렸습니다.
- *   ① 브라우저 창이 초점을 잃은 상태면 아무것도 하지 않습니다 (macOS 드롭다운이 여기 걸립니다).
- *   ② 사람이 입력칸·드롭다운에 들어가 있으면 건드리지 않습니다.
- *   ③ 사람이 방금 입력칸이나 드롭다운을 눌렀으면 잠시(기본 6초) 쉽니다. 목록을 훑어보는
- *      동안에도 안전하게 합니다.
- *
- * 셋 중 하나라도 걸리면 커서를 그대로 둡니다. 사람이 손을 떼면 다시 스캐너 대기 상태로
- * 돌아옵니다.
+ * 결과적으로 화면이 가만히 있을 때는 아무 일도 일어나지 않습니다. 드롭다운은 열어둔 채로
+ * 얼마든지 둘러볼 수 있고, 스캐너를 찍으면 그 즉시 스캔칸이 받습니다.
  */
 
-/** 사람이 지금 쓰고 있는 요소인지(입력칸·드롭다운·여러 줄 입력). */
-function isFormField(el: Element | null): boolean {
-  if (!el) return false;
+/**
+ * 이 요소가 글자를 직접 받아 쓰는 곳인지 - 입력칸·드롭다운·여러 줄 입력.
+ * 여기에 커서가 있으면 그 키는 사람 것이므로 절대 가로채지 않습니다.
+ *
+ * 버튼은 일부러 뺐습니다. 버튼을 누르고 나면 커서가 그 버튼에 남는데, 버튼은 글자를 받아
+ * 쓰는 곳이 아니므로 이때 찍은 바코드는 스캔칸으로 보내야 합니다(그러지 않으면 등록 버튼을
+ * 누른 뒤 첫 스캔이 통째로 사라집니다).
+ */
+function ownsTyping(el: EventTarget | null): boolean {
+  if (!el || !(el instanceof Element)) return false;
   const tag = el.tagName;
   if (tag === "SELECT" || tag === "TEXTAREA" || tag === "OPTION") return true;
   if (tag === "INPUT") {
     const type = (el as HTMLInputElement).type;
+    // 체크상자·라디오·버튼형 input은 글자를 받지 않습니다.
     return type !== "checkbox" && type !== "radio" && type !== "button" && type !== "submit";
   }
   return (el as HTMLElement).isContentEditable === true;
 }
 
+/**
+ * 스캐너가 보내는 글자인지.
+ * 한 글자짜리 키만 봅니다 - 스페이스와 Enter는 버튼을 누르는 키라서 제외합니다.
+ * (바코드의 첫 글자가 커서를 스캔칸으로 옮겨주므로, 뒤따르는 Enter는 자연히 스캔칸이 받습니다.)
+ */
+function isScannerKey(e: KeyboardEvent): boolean {
+  if (e.ctrlKey || e.altKey || e.metaKey) return false;
+  return e.key.length === 1 && e.key !== " ";
+}
+
 export function useScanFocus(
   inputRef: React.RefObject<HTMLInputElement | null>,
   /** 카메라를 쓰거나 다른 창이 떠 있으면 꺼둡니다. */
-  enabled: boolean,
-  /** 사람이 form 요소를 만진 뒤 쉬는 시간(밀리초). */
-  pauseMs = 6000
+  enabled: boolean
 ) {
-  const pausedUntil = useRef(0);
-
+  /** 필요할 때 직접 커서를 옮기고 싶을 때 쓰는 함수(처리 직후 등). */
   const refocus = useCallback(() => {
     if (!enabled) return;
-    if (typeof document === "undefined") return;
-
-    // ① 창이 초점을 잃은 상태(= macOS에서 드롭다운이 열려 있는 상태 포함)
-    if (!document.hasFocus()) return;
-    // ③ 방금 사람이 입력칸·드롭다운을 눌렀다면 잠시 쉽니다.
-    if (Date.now() < pausedUntil.current) return;
-
     const el = inputRef.current;
     if (!el) return;
-    // ② 사람이 다른 입력칸·드롭다운에 들어가 있으면 그대로 둡니다.
-    const active = document.activeElement;
-    if (active !== el && isFormField(active)) return;
-
-    if (active !== el) el.focus();
+    // 사람이 다른 칸을 쓰는 중이면 그대로 둡니다.
+    if (document.activeElement !== el && ownsTyping(document.activeElement)) return;
+    if (document.activeElement !== el) el.focus();
   }, [enabled, inputRef]);
 
   useEffect(() => {
     if (!enabled) return;
+    const el = inputRef.current;
+    // 화면에 들어온 순간 한 번만 커서를 둡니다(그 뒤로는 스캔이 들어올 때만 옮깁니다).
+    el?.focus();
 
-    // 사람이 입력칸·드롭다운을 누르면 그때부터 잠시 쉽니다.
-    const onPointerDown = (e: Event) => {
-      const target = e.target as Element | null;
-      if (target === inputRef.current) {
-        pausedUntil.current = 0;
-        return;
-      }
-      // 라벨을 눌러도 그 안의 입력칸이 열리므로 함께 봅니다.
-      const field = target?.closest?.("select, input, textarea, label") ?? null;
-      if (field && field !== inputRef.current) pausedUntil.current = Date.now() + pauseMs;
+    const onKeyDown = (e: KeyboardEvent) => {
+      const input = inputRef.current;
+      if (!input || e.target === input) return;
+      // 사람이 입력칸·드롭다운에 글자를 쓰는 중이면 그 키는 그쪽 것입니다.
+      if (ownsTyping(e.target)) return;
+      if (!isScannerKey(e)) return;
+      // keydown 처리 중에 초점을 옮기면, 이 키의 글자는 새로 초점을 받은 칸에 들어갑니다.
+      input.focus();
     };
 
-    // 드롭다운에서 값을 고르고 나면 곧 스캔을 이어갈 테니 조금만 쉬고 돌아옵니다.
-    const onChange = () => {
-      pausedUntil.current = Date.now() + 800;
-    };
-
-    document.addEventListener("pointerdown", onPointerDown, true);
-    document.addEventListener("change", onChange, true);
-
-    refocus();
-    const timer = setInterval(refocus, 900);
-    return () => {
-      clearInterval(timer);
-      document.removeEventListener("pointerdown", onPointerDown, true);
-      document.removeEventListener("change", onChange, true);
-    };
-  }, [enabled, refocus, inputRef, pauseMs]);
+    document.addEventListener("keydown", onKeyDown, true);
+    return () => document.removeEventListener("keydown", onKeyDown, true);
+  }, [enabled, inputRef]);
 
   return refocus;
 }
