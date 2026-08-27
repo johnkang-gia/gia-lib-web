@@ -37,6 +37,8 @@ export default function LocationsClient({
   const [bulk, setBulk] = useState({ prefix: "", from: 1, to: 9, name: "" });
   const [bulkMsg, setBulkMsg] = useState<string | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
+  /** 여러 개 골라 한꺼번에 바꾸기(요청: "일괄로 바꿀 수 있게 · 드래그해서 복수선택"). */
+  const [picked, setPicked] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -116,6 +118,59 @@ export default function LocationsClient({
     } finally {
       setBusy(false);
     }
+  }
+
+  /** 고른 구역들을 한꺼번에 고칩니다. */
+  async function savePicked(changes: Partial<LibLocation>) {
+    if (picked.length === 0) return;
+    setRows((prev) => prev.map((l) => (picked.includes(l.id) ? { ...l, ...changes } : l)));
+    const { error: err } = await supabase.from("lib_locations").update(changes).in("id", picked);
+    if (err) setError(err.message);
+    else router.refresh();
+  }
+
+  /** 배치도에서 여러 개를 함께 옮겼을 때. */
+  async function moveMany(moves: { id: string; x: number; y: number }[]) {
+    setRows((prev) =>
+      prev.map((l) => {
+        const m = moves.find((x) => x.id === l.id);
+        return m ? { ...l, map_x: m.x, map_y: m.y } : l;
+      })
+    );
+    // 자리는 구역마다 달라서 한 줄씩 저장해야 합니다(칸 수가 수십 개라 부담 없습니다).
+    for (const m of moves) {
+      const { error: err } = await supabase
+        .from("lib_locations")
+        .update({ map_x: m.x, map_y: m.y })
+        .eq("id", m.id);
+      if (err) {
+        setError(err.message);
+        return;
+      }
+    }
+  }
+
+  /** 고른 구역들을 한꺼번에 지웁니다. */
+  async function removePicked() {
+    if (picked.length === 0) return;
+    const total = picked.reduce((sum, id) => sum + (counts[id] ?? 0), 0);
+    if (
+      !confirm(
+        total > 0
+          ? `고른 ${picked.length}개 구역을 지울까요? 배정된 ${total}종의 책은 '위치 없음'이 됩니다.`
+          : `고른 ${picked.length}개 구역을 지울까요?`
+      )
+    ) {
+      return;
+    }
+    const { error: err } = await supabase.from("lib_locations").delete().in("id", picked);
+    if (err) {
+      setError(err.message);
+      return;
+    }
+    setRows((prev) => prev.filter((l) => !picked.includes(l.id)));
+    setPicked([]);
+    router.refresh();
   }
 
   async function removeLocation(loc: LibLocation) {
@@ -230,8 +285,15 @@ export default function LocationsClient({
           highlightId={selected}
           editable
           onMove={(id, x, y) => void save(id, { map_x: x, map_y: y })}
+          selectedIds={picked}
+          onSelectionChange={setPicked}
+          onMoveMany={(moves) => void moveMany(moves)}
           className="w-full rounded-xl"
         />
+        <p className="mt-2 text-xs leading-relaxed text-slate-400">
+          빈 곳을 <b>끌면</b> 사각형 안의 구역이 한꺼번에 골라집니다. Shift(또는 ⌘)를 누른 채
+          누르면 하나씩 담거나 뺄 수 있고, 고른 것 중 하나를 끌면 <b>전부 같이 움직입니다</b>.
+        </p>
 
         {unplaced.length > 0 && (
           <div className="mt-3 flex flex-wrap items-center gap-2 rounded-xl bg-amber-50 px-3 py-2.5">
@@ -253,7 +315,16 @@ export default function LocationsClient({
       {/* ── 구역 목록 ──────────────────────────────────────────────────── */}
       <section className="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200">
         <div className="mb-3 flex flex-wrap items-end gap-2">
-          <h2 className="text-sm font-bold text-slate-500">구역 목록 ({rows.length}개)</h2>
+          <h2 className="flex items-center gap-2 text-sm font-bold text-slate-500">
+            <input
+              type="checkbox"
+              checked={rows.length > 0 && picked.length === rows.length}
+              onChange={(e) => setPicked(e.target.checked ? rows.map((l) => l.id) : [])}
+              className="h-4 w-4"
+              aria-label="전체 선택"
+            />
+            구역 목록 ({rows.length}개)
+          </h2>
           <div className="ml-auto flex flex-wrap gap-2">
             <input
               value={newCode}
@@ -300,6 +371,87 @@ export default function LocationsClient({
             )}
           </div>
         </div>
+
+        {/* ── 고른 구역 한꺼번에 바꾸기 ───────────────────────────────── */}
+        {picked.length > 0 && (
+          <div className="mb-4 flex flex-wrap items-center gap-2 rounded-xl bg-slate-900 px-4 py-3 text-white">
+            <span className="text-sm font-bold">{picked.length}개 선택됨</span>
+
+            <select
+              defaultValue=""
+              onChange={(e) => {
+                if (!e.target.value) return;
+                void savePicked({ kind: e.target.value as "임시" | "정식" });
+                e.target.value = "";
+              }}
+              className="rounded-lg bg-white/10 px-3 py-1.5 text-sm text-white"
+            >
+              <option value="" className="text-slate-900">
+                종류 바꾸기
+              </option>
+              <option value="임시" className="text-slate-900">
+                임시로
+              </option>
+              <option value="정식" className="text-slate-900">
+                정식으로
+              </option>
+            </select>
+
+            <span className="flex items-center gap-1.5 text-sm">
+              색
+              {COLORS.map((c) => (
+                <button
+                  key={c}
+                  type="button"
+                  onClick={() => void savePicked({ color: c })}
+                  className="h-5 w-5 rounded-full ring-1 ring-white/40"
+                  style={{ background: c }}
+                  aria-label={`색 ${c}`}
+                />
+              ))}
+            </span>
+
+            <span className="flex items-center gap-1.5 text-sm">
+              용량
+              <input
+                type="number"
+                min={0}
+                placeholder="권"
+                onKeyDown={(e) => {
+                  if (e.key !== "Enter") return;
+                  const v = (e.target as HTMLInputElement).value;
+                  void savePicked({ capacity: v === "" ? null : Number(v) });
+                }}
+                className="w-20 rounded-lg bg-white/10 px-2 py-1.5 text-center text-sm text-white placeholder:text-white/40"
+                title="숫자를 넣고 Enter"
+              />
+            </span>
+
+            <button
+              type="button"
+              onClick={() => void savePicked({ capacity: null })}
+              className="rounded-lg bg-white/10 px-3 py-1.5 text-sm"
+            >
+              용량 비우기
+            </button>
+
+            <button
+              type="button"
+              onClick={() => void removePicked()}
+              className="rounded-lg bg-red-500/90 px-3 py-1.5 text-sm font-semibold"
+            >
+              선택 삭제
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setPicked([])}
+              className="ml-auto text-sm text-white/60 hover:underline"
+            >
+              선택 해제
+            </button>
+          </div>
+        )}
 
         {/* ── 여러 개 한꺼번에 만들기 ─────────────────────────────────── */}
         <div className="mb-4 flex flex-wrap items-end gap-2 rounded-xl bg-slate-50 px-4 py-3">
@@ -359,7 +511,23 @@ export default function LocationsClient({
         ) : (
           <ul className="divide-y divide-slate-100">
             {rows.map((loc) => (
-              <li key={loc.id} className="flex flex-wrap items-center gap-3 py-2.5">
+              <li
+                key={loc.id}
+                className={`flex flex-wrap items-center gap-3 py-2.5 ${
+                  picked.includes(loc.id) ? "bg-slate-50" : ""
+                }`}
+              >
+                <input
+                  type="checkbox"
+                  checked={picked.includes(loc.id)}
+                  onChange={(e) =>
+                    setPicked((prev) =>
+                      e.target.checked ? [...prev, loc.id] : prev.filter((id) => id !== loc.id)
+                    )
+                  }
+                  className="h-4 w-4 shrink-0"
+                  aria-label={`${loc.code} 선택`}
+                />
                 <span
                   className="h-7 w-7 shrink-0 rounded-lg"
                   style={{ background: `${loc.color}22`, border: `2px solid ${loc.color}` }}

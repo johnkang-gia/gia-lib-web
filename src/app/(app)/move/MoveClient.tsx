@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import BarcodeScanner from "@/components/BarcodeScanner";
 import { isBookBarcode, normalizeScan } from "@/lib/scan";
 import type { MoveResult } from "@/lib/types";
+import { isUserTyping } from "@/lib/focus";
 
 type Done = {
   key: string;
@@ -40,6 +41,8 @@ export default function MoveClient({ remaining }: { remaining: number }) {
   const refocus = useCallback(() => {
     if (camera) return;
     const el = inputRef.current;
+    // 사람이 드롭다운이나 다른 입력칸을 쓰는 중이면 커서를 뺏지 않습니다.
+    if (isUserTyping(el)) return;
     if (el && document.activeElement !== el) el.focus();
   }, [camera]);
 

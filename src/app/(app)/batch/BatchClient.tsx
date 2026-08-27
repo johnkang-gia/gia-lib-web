@@ -5,8 +5,8 @@ import { useRouter } from "next/navigation";
 import BarcodeScanner from "@/components/BarcodeScanner";
 import { createClient } from "@/lib/supabase/client";
 import { formatIsbn, isBookBarcode, normalizeScan } from "@/lib/scan";
-import { AUDIENCES, type Audience } from "@/lib/audience";
 import type { BookLookup, LibBook, LibLocation } from "@/lib/types";
+import { isUserTyping } from "@/lib/focus";
 
 type Status = "찾는중" | "준비" | "제목필요" | "ISBN필요" | "복본" | "실패";
 
@@ -24,7 +24,7 @@ type Item = {
   cover_url: string;
   language: "한국어" | "영어" | "기타";
   category: string;
-  audience: Audience | "";
+  audience: string;
   series: string;
   seriesNo: string;
   /** 이 책에 붙어 있는 라벨 일련번호(자동으로 하나씩 올라갑니다). */
@@ -54,8 +54,6 @@ export default function BatchClient({ locations }: { locations: LibLocation[] })
   const [camera, setCamera] = useState(false);
   // 이번에 담는 책들이 모두 "바코드가 인쇄되어 있지 않은 책"인 경우(라벨을 뽑아 붙일 예정).
   const [needLabel, setNeedLabel] = useState(false);
-  // 이 칸의 책들이 대체로 한 연령대일 때, 자동 추정이 비어 있는 책에 채워 넣을 기본값입니다.
-  const [defaultAudience, setDefaultAudience] = useState<Audience | "">("");
   // 지금 책에 붙어 있는 색 라벨. 한 칸을 통째로 등록하는 동안에는 등급이 같으므로 위에서 한 번만
   // 고르고, 일련번호는 찍을 때마다 하나씩 올라갑니다(요청: 번호를 넣는 게 나을지 고민).
   const [labelLevel, setLabelLevel] = useState<string>("");
@@ -72,6 +70,8 @@ export default function BatchClient({ locations }: { locations: LibLocation[] })
   const refocus = useCallback(() => {
     if (camera) return;
     const el = inputRef.current;
+    // 사람이 드롭다운이나 다른 입력칸을 쓰는 중이면 커서를 뺏지 않습니다.
+    if (isUserTyping(el)) return;
     if (el && document.activeElement !== el) el.focus();
   }, [camera]);
 
@@ -272,7 +272,10 @@ export default function BatchClient({ locations }: { locations: LibLocation[] })
             cover_url: item.cover_url,
             language: item.language,
             category: item.category || null,
-            audience: item.audience || defaultAudience || null,
+            // 대상 연령은 등록할 때 묻지 않습니다(요청: "이미 연령별로 구분이 된거 같아서
+            // 이건 등록할때는 그냥 두고 나중에 다시 분류할때 선택해서"). 조회에서 자동으로
+            // 알아낸 값만 넣어두고, 나머지는 장서 관리에서 여러 권씩 골라 한꺼번에 바꿉니다.
+            audience: item.audience || null,
             series: item.series || null,
             series_no: item.seriesNo || null,
             label_level: labelLevel || null,
@@ -419,21 +422,6 @@ export default function BatchClient({ locations }: { locations: LibLocation[] })
               📍 {location.code}
             </span>
           )}
-
-          <span className="text-sm font-semibold text-slate-500">대상</span>
-          <select
-            value={defaultAudience}
-            onChange={(e) => setDefaultAudience(e.target.value as Audience | "")}
-            className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
-            title="자동 추정이 비어 있는 책에 채워 넣을 기본값입니다"
-          >
-            <option value="">자동 추정에 맡기기</option>
-            {AUDIENCES.map((a) => (
-              <option key={a} value={a}>
-                {a}
-              </option>
-            ))}
-          </select>
 
           <span className="text-sm font-semibold text-slate-500">지금 라벨</span>
           <select
@@ -589,22 +577,6 @@ export default function BatchClient({ locations }: { locations: LibLocation[] })
                   <div className="mt-1 flex flex-wrap items-center gap-2">
                     {item.author && (
                       <span className="truncate text-xs text-slate-400">{item.author}</span>
-                    )}
-                    {item.status !== "복본" && (
-                      <select
-                        value={item.audience}
-                        onChange={(e) =>
-                          patchItem(item.key, { audience: e.target.value as Audience | "" })
-                        }
-                        className="rounded border border-slate-200 px-1.5 py-0.5 text-[11px] text-slate-500"
-                      >
-                        <option value="">대상 미정</option>
-                        {AUDIENCES.map((a) => (
-                          <option key={a} value={a}>
-                            {a}
-                          </option>
-                        ))}
-                      </select>
                     )}
                     {item.category && (
                       <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[11px] text-slate-500">

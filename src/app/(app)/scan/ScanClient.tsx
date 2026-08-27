@@ -8,6 +8,7 @@ import { formatDay, overdueDays, todayKst } from "@/lib/dates";
 import { formatIsbn } from "@/lib/scan";
 import { cheerFor, monthlyProgress, readingLevel } from "@/lib/reading";
 import { CATEGORIES } from "@/lib/categories";
+import { isUserTyping } from "@/lib/focus";
 import type {
   LibBookWithShelf,
   LibLoanWithBook,
@@ -147,6 +148,8 @@ export default function ScanClient({
   const refocus = useCallback(() => {
     if (dialogOpen) return;
     const el = inputRef.current;
+    // 사람이 드롭다운이나 다른 입력칸을 쓰는 중이면 커서를 뺏지 않습니다.
+    if (isUserTyping(el)) return;
     if (el && document.activeElement !== el) el.focus();
   }, [dialogOpen]);
 

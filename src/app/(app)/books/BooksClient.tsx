@@ -24,10 +24,39 @@ export default function BooksClient({
   const [onlyLabel, setOnlyLabel] = useState(false);
   const [onlyNoShelf, setOnlyNoShelf] = useState(false);
   const [category, setCategory] = useState("전체");
+  // 라벨 등급·구역·대상으로 걸러서 한꺼번에 고르기 좋게 합니다(정리할 때 이 조합을 씁니다).
+  const [level, setLevel] = useState("전체");
+  const [zone, setZone] = useState("전체");
+  const [audience, setAudience] = useState("전체");
   const [dialogOpen, setDialogOpen] = useState(false);
   const [qrOpen, setQrOpen] = useState(false);
   const [editing, setEditing] = useState<LibBook | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
+
+  const [bulkBusy, setBulkBusy] = useState(false);
+
+  /**
+   * 고른 책들을 한꺼번에 고칩니다.
+   *
+   * 요청: "이미 연령별로 구분이 된거 같아서 이건 등록할때는 그냥 두고 나중에 다시 분류할때
+   * 선택해서 하고 싶어" + "일괄로 바꿀 수 있게".
+   *
+   * 등록할 때는 대상 연령을 묻지 않고, 등록이 끝난 뒤 여기서 라벨 등급이나 구역으로 걸러
+   * 한 번에 지정하는 흐름입니다. 라벨 4등급 책 200권을 '초등부'로 바꾸는 데 세 번 누르면 됩니다.
+   */
+  async function bulkUpdate(changes: Record<string, unknown>) {
+    const ids = [...selected];
+    if (ids.length === 0) return;
+    setBulkBusy(true);
+    const supabase = createClient();
+    const { error } = await supabase.from("lib_books").update(changes).in("id", ids);
+    setBulkBusy(false);
+    if (error) {
+      alert(`바꾸지 못했습니다: ${error.message}`);
+      return;
+    }
+    router.refresh();
+  }
 
   const filtered = useMemo(() => {
     const kw = keyword.trim().toLowerCase();
@@ -36,13 +65,20 @@ export default function BooksClient({
       if (onlyNoShelf && book.location_id) return false;
       if (category === "미분류" && book.category) return false;
       if (category !== "전체" && category !== "미분류" && book.category !== category) return false;
+      if (level === "없음" && book.label_level != null) return false;
+      if (level !== "전체" && level !== "없음" && String(book.label_level ?? "") !== level)
+        return false;
+      if (zone === "없음" && book.location_id) return false;
+      if (zone !== "전체" && zone !== "없음" && book.location_id !== zone) return false;
+      if (audience === "미정" && book.audience) return false;
+      if (audience !== "전체" && audience !== "미정" && book.audience !== audience) return false;
       if (!kw) return true;
       const hay = `${book.title} ${book.author ?? ""} ${book.publisher ?? ""} ${book.isbn ?? ""} ${
         book.item_code ?? ""
       } ${book.category ?? ""} ${book.shelf?.code ?? ""} ${book.shelf?.name ?? ""}`.toLowerCase();
       return hay.includes(kw);
     });
-  }, [books, keyword, onlyLabel, onlyNoShelf, category]);
+  }, [books, keyword, onlyLabel, onlyNoShelf, category, level, zone, audience]);
 
   // 자체 라벨 번호가 있는 책은 그 번호로, ISBN만 있는 책은 ISBN으로 바코드를 만들어 인쇄합니다
   // (요청: "isbn 번호만 있고 바코드는 없는 경우도 있어, 이경우에도 바코드 생성할 수 있게").
@@ -82,6 +118,50 @@ export default function BooksClient({
               {cat.icon} {cat.key}
             </option>
           ))}
+        </select>
+
+        <select
+          value={level}
+          onChange={(e) => setLevel(e.target.value)}
+          className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
+          title="지금 책에 붙어 있는 색 라벨 등급"
+        >
+          <option value="전체">라벨 전체</option>
+          {[2, 3, 4, 5, 6].map((n) => (
+            <option key={n} value={String(n)}>
+              {n}등급
+            </option>
+          ))}
+          <option value="없음">라벨 없음</option>
+        </select>
+
+        <select
+          value={audience}
+          onChange={(e) => setAudience(e.target.value)}
+          className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
+        >
+          <option value="전체">대상 전체</option>
+          {AUDIENCES.map((a) => (
+            <option key={a} value={a}>
+              {a}
+            </option>
+          ))}
+          <option value="미정">대상 미정</option>
+        </select>
+
+        <select
+          value={zone}
+          onChange={(e) => setZone(e.target.value)}
+          className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
+        >
+          <option value="전체">구역 전체</option>
+          {locations.map((loc) => (
+            <option key={loc.id} value={loc.id}>
+              {loc.kind === "임시" ? "[임시] " : ""}
+              {loc.code}
+            </option>
+          ))}
+          <option value="없음">구역 미지정</option>
         </select>
 
         <label className="flex items-center gap-1.5 text-sm text-slate-600">
@@ -170,6 +250,96 @@ export default function BooksClient({
           </button>
         </div>
       </div>
+
+      {/* ── 고른 책 한꺼번에 바꾸기 ─────────────────────────────────────── */}
+      {selected.size > 0 && (
+        <div className="mb-3 flex flex-wrap items-center gap-2 rounded-2xl bg-slate-900 px-4 py-3 text-white">
+          <span className="text-sm font-bold">{selected.size}권 선택됨</span>
+
+          <select
+            defaultValue=""
+            disabled={bulkBusy}
+            onChange={(e) => {
+              if (!e.target.value) return;
+              void bulkUpdate({ audience: e.target.value === "지움" ? null : e.target.value });
+              e.target.value = "";
+            }}
+            className="rounded-lg bg-white/10 px-3 py-1.5 text-sm text-white"
+          >
+            <option value="" className="text-slate-900">
+              대상 연령 바꾸기
+            </option>
+            {AUDIENCES.map((a) => (
+              <option key={a} value={a} className="text-slate-900">
+                {a}로
+              </option>
+            ))}
+            <option value="지움" className="text-slate-900">
+              비우기
+            </option>
+          </select>
+
+          <select
+            defaultValue=""
+            disabled={bulkBusy}
+            onChange={(e) => {
+              if (!e.target.value) return;
+              void bulkUpdate({ category: e.target.value === "지움" ? null : e.target.value });
+              e.target.value = "";
+            }}
+            className="rounded-lg bg-white/10 px-3 py-1.5 text-sm text-white"
+          >
+            <option value="" className="text-slate-900">
+              분류 바꾸기
+            </option>
+            {CATEGORIES.map((c) => (
+              <option key={c.key} value={c.key} className="text-slate-900">
+                {c.icon} {c.key}
+              </option>
+            ))}
+            <option value="지움" className="text-slate-900">
+              비우기
+            </option>
+          </select>
+
+          <select
+            defaultValue=""
+            disabled={bulkBusy}
+            onChange={(e) => {
+              if (!e.target.value) return;
+              void bulkUpdate({
+                location_id: e.target.value === "지움" ? null : e.target.value,
+              });
+              e.target.value = "";
+            }}
+            className="rounded-lg bg-white/10 px-3 py-1.5 text-sm text-white"
+          >
+            <option value="" className="text-slate-900">
+              구역 옮기기
+            </option>
+            {locations.map((loc) => (
+              <option key={loc.id} value={loc.id} className="text-slate-900">
+                {loc.kind === "임시" ? "[임시] " : ""}
+                {loc.code}
+                {loc.name ? ` · ${loc.name}` : ""}
+              </option>
+            ))}
+            <option value="지움" className="text-slate-900">
+              자리 비우기
+            </option>
+          </select>
+
+          {bulkBusy && <span className="text-sm text-white/60">바꾸는 중…</span>}
+
+          <button
+            type="button"
+            onClick={() => setSelected(new Set())}
+            className="ml-auto text-sm text-white/60 hover:underline"
+          >
+            선택 해제
+          </button>
+        </div>
+      )}
 
       <div className="overflow-hidden rounded-2xl bg-white shadow-sm ring-1 ring-slate-200">
         <table className="w-full text-sm">
