@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import BarcodeScanner from "@/components/BarcodeScanner";
 import { isBookBarcode, normalizeScan } from "@/lib/scan";
 import type { MoveResult } from "@/lib/types";
-import { isUserTyping } from "@/lib/focus";
+import { useScanFocus } from "@/lib/useScanFocus";
 
 type Done = {
   key: string;
@@ -37,20 +37,7 @@ export default function MoveClient({ remaining }: { remaining: number }) {
 
   const left = Math.max(0, remaining - done.length);
 
-  // USB 스캐너용 - 카메라를 안 쓰는 동안에는 입력칸에 커서를 붙들어 둡니다.
-  const refocus = useCallback(() => {
-    if (camera) return;
-    const el = inputRef.current;
-    // 사람이 드롭다운이나 다른 입력칸을 쓰는 중이면 커서를 뺏지 않습니다.
-    if (isUserTyping(el)) return;
-    if (el && document.activeElement !== el) el.focus();
-  }, [camera]);
-
-  useEffect(() => {
-    refocus();
-    const timer = setInterval(refocus, 900);
-    return () => clearInterval(timer);
-  }, [refocus]);
+  const refocus = useScanFocus(inputRef, !camera);
 
   const handle = useCallback(
     async (raw: string) => {

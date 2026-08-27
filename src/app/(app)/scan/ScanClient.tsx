@@ -8,7 +8,7 @@ import { formatDay, overdueDays, todayKst } from "@/lib/dates";
 import { formatIsbn } from "@/lib/scan";
 import { cheerFor, monthlyProgress, readingLevel } from "@/lib/reading";
 import { CATEGORIES } from "@/lib/categories";
-import { isUserTyping } from "@/lib/focus";
+import { useScanFocus } from "@/lib/useScanFocus";
 import type {
   LibBookWithShelf,
   LibLoanWithBook,
@@ -145,23 +145,14 @@ export default function ScanClient({
 
   // ── 입력칸에 항상 커서 유지 ───────────────────────────────────────────────
   // USB 스캐너는 "키보드처럼" 입력하므로, 커서가 다른 곳에 있으면 값이 사라집니다.
-  const refocus = useCallback(() => {
-    if (dialogOpen) return;
-    const el = inputRef.current;
-    // 사람이 드롭다운이나 다른 입력칸을 쓰는 중이면 커서를 뺏지 않습니다.
-    if (isUserTyping(el)) return;
-    if (el && document.activeElement !== el) el.focus();
-  }, [dialogOpen]);
+  const refocus = useScanFocus(inputRef, !dialogOpen);
 
+  // 화면 아무 곳이나 눌렀을 때도 커서를 되돌립니다(주기적인 되돌리기는 useScanFocus가 합니다).
+  // 드롭다운·입력칸을 누른 경우에는 useScanFocus가 알아서 쉬어주므로 여기서 따로 막지 않습니다.
   useEffect(() => {
-    refocus();
-    const timer = setInterval(refocus, 800);
     const onClick = () => refocus();
     document.addEventListener("click", onClick);
-    return () => {
-      clearInterval(timer);
-      document.removeEventListener("click", onClick);
-    };
+    return () => document.removeEventListener("click", onClick);
   }, [refocus]);
 
   // ── 학생 자동 해제 타이머 ─────────────────────────────────────────────────

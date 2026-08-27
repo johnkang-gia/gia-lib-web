@@ -6,7 +6,7 @@ import BarcodeScanner from "@/components/BarcodeScanner";
 import { createClient } from "@/lib/supabase/client";
 import { formatIsbn, isBookBarcode, normalizeScan } from "@/lib/scan";
 import type { BookLookup, LibBook, LibLocation } from "@/lib/types";
-import { isUserTyping } from "@/lib/focus";
+import { useScanFocus } from "@/lib/useScanFocus";
 
 type Status = "찾는중" | "준비" | "제목필요" | "ISBN필요" | "복본" | "실패";
 
@@ -67,19 +67,8 @@ export default function BatchClient({ locations }: { locations: LibLocation[] })
   const inputRef = useRef<HTMLInputElement>(null);
 
   // USB 스캐너용 - 카메라를 안 쓰는 동안에는 입력칸에 커서를 붙들어 둡니다.
-  const refocus = useCallback(() => {
-    if (camera) return;
-    const el = inputRef.current;
-    // 사람이 드롭다운이나 다른 입력칸을 쓰는 중이면 커서를 뺏지 않습니다.
-    if (isUserTyping(el)) return;
-    if (el && document.activeElement !== el) el.focus();
-  }, [camera]);
-
-  useEffect(() => {
-    refocus();
-    const timer = setInterval(refocus, 900);
-    return () => clearInterval(timer);
-  }, [refocus]);
+  // 사람이 드롭다운·입력칸을 쓰는 중이면 비켜줍니다(useScanFocus 안에 규칙이 있습니다).
+  const refocus = useScanFocus(inputRef, !camera);
 
   /**
    * 다음 라벨 번호를 하나 꺼내고, 칸을 하나 올려둡니다.
