@@ -7,6 +7,7 @@ import { createClient } from "@/lib/supabase/client";
 import { formatIsbn, isBookBarcode, normalizeScan } from "@/lib/scan";
 import type { BookLookup, LibBook, LibLocation } from "@/lib/types";
 import { useScanFocus } from "@/lib/useScanFocus";
+import HealthBanner from "@/components/HealthBanner";
 
 type Status = "찾는중" | "준비" | "제목필요" | "ISBN필요" | "복본" | "실패";
 
@@ -29,6 +30,8 @@ type Item = {
   seriesNo: string;
   /** 이 책에 붙어 있는 라벨 일련번호(자동으로 하나씩 올라갑니다). */
   labelNo: string;
+  /** 같은 책을 몇 권 담았는지. 중복 스캔을 '여러 권'이라고 답하면 늘어납니다. */
+  copies: number;
   status: Status;
   note: string;
   /** 이미 등록된 책이면 그 id - 등록 대신 구역만 바꿉니다. */
@@ -61,6 +64,28 @@ export default function BatchClient({ locations }: { locations: LibLocation[] })
   const labelNextRef = useRef<string>("");
   labelNextRef.current = labelNext;
   const [saving, setSaving] = useState(false);
+  /**
+   * 같은 바코드를 또 찍었을 때 물어보는 창.
+   *
+   * 요청: "중복되는 책이 바코드로 찍히면 잘못해서 두번찍은건지, 아니면 같은책이 여러권있는건지
+   * 물어보고, 여러권이라고하면 찍으면 바로 권수 추가해줘".
+   *
+   * 스캐너가 한 번 찍었는데 두 번 읽히는 일도 흔하고, 실제로 같은 책이 두 권인 경우도 흔합니다.
+   * 둘을 앱이 알아맞힐 수는 없으므로 사람에게 묻습니다. 답하기 전에도 다른 책은 계속 찍을 수
+   * 있도록 화면을 막지 않습니다.
+   */
+  const [dupAsk, setDupAsk] = useState<{ code: string; title: string; times: number } | null>(null);
+  /**
+   * 지금 담겨 있는 바코드 목록.
+   *
+   * 화면 상태(items)로 중복을 판정하면 놓칩니다 - React는 상태 갱신 함수를 나중에 실행하므로,
+   * 바로 다음 줄에서 "이미 담겼나?"를 읽으면 아직 옛 값입니다. 스캐너가 한 번 찍었는데 두 번
+   * 읽히는 경우처럼 몇 밀리초 사이에 두 번 들어오면 이 차이가 그대로 버그가 됩니다.
+   * 그래서 판정용 목록은 즉시 반영되는 ref로 따로 들고 있습니다.
+   */
+  const codesRef = useRef<Set<string>>(new Set());
+  const itemsRef = useRef<Item[]>([]);
+  itemsRef.current = items;
   const [done, setDone] = useState<{ added: number; moved: number; failed: number; ids: string[] } | null>(
     null
   );
@@ -92,12 +117,20 @@ export default function BatchClient({ locations }: { locations: LibLocation[] })
       const code = normalizeScan(raw);
       if (!code) return;
 
-      let already = false;
+      // 이미 담긴 책을 또 찍었습니다 - 두 번 찍은 건지 여러 권인지 물어봅니다.
+      if (codesRef.current.has(code)) {
+        const same = itemsRef.current.find((it) => it.code === code);
+        const title = same?.title || code;
+        setDupAsk((prev) =>
+          prev && prev.code === code
+            ? { ...prev, times: prev.times + 1, title }
+            : { code, title, times: 1 }
+        );
+        return;
+      }
+      codesRef.current.add(code);
+
       setItems((prev) => {
-        if (prev.some((it) => it.code === code)) {
-          already = true;
-          return prev;
-        }
         return [
           {
             key: `${code}-${Date.now()}`,
@@ -115,6 +148,7 @@ export default function BatchClient({ locations }: { locations: LibLocation[] })
             series: "",
             seriesNo: "",
             labelNo: nextLabelNo(),
+            copies: 1,
             status: "찾는중",
             note: "",
             existingId: null,
@@ -122,13 +156,19 @@ export default function BatchClient({ locations }: { locations: LibLocation[] })
           ...prev,
         ];
       });
-      if (already) return;
 
       const patch = (changes: Partial<Item>) =>
         setItems((prev) => prev.map((it) => (it.code === code ? { ...it, ...changes } : it)));
 
       try {
         const res = await fetch(`/api/books/lookup?code=${encodeURIComponent(code)}`);
+        if (res.status === 401) {
+          patch({
+            status: "실패",
+            note: "로그인이 풀렸습니다 — 새로고침(Ctrl+Shift+R) 후 다시 로그인해 주세요",
+          });
+          return;
+        }
         const json = (await res.json()) as {
           existing?: LibBook | null;
           found?: BookLookup | null;
@@ -178,12 +218,23 @@ export default function BatchClient({ locations }: { locations: LibLocation[] })
           status: found ? "준비" : "제목필요",
           note: found ? (found.source ?? "") : "인터넷 목록에 없는 책 — 제목만 적으면 등록됩니다",
         });
-      } catch {
-        patch({ status: "실패", note: "조회 중 오류" });
+      } catch (e) {
+        patch({
+          status: "실패",
+          note: `조회 중 오류 — ${e instanceof Error ? e.message : "인터넷 연결을 확인해 주세요"}`,
+        });
       }
     },
     [nextLabelNo]
   );
+
+  /** "같은 책이 여러 권" 이라고 답했을 때 - 담긴 권수를 바로 올립니다. */
+  function addCopies(code: string, times: number) {
+    setItems((prev) =>
+      prev.map((it) => (it.code === code ? { ...it, copies: it.copies + times } : it))
+    );
+    setDupAsk(null);
+  }
 
   function patchItem(key: string, changes: Partial<Item>) {
     setItems((prev) => prev.map((it) => (it.key === key ? { ...it, ...changes } : it)));
@@ -271,23 +322,28 @@ export default function BatchClient({ locations }: { locations: LibLocation[] })
             label_no: item.labelNo || null,
             location_id: locationId || null,
             need_label: needLabel,
-            total_copies: 1,
+            total_copies: item.copies,
           }),
         });
+        if (res.status === 401) {
+          throw new Error("로그인이 풀렸습니다 — 새로고침 후 다시 로그인하면 담긴 목록은 그대로입니다");
+        }
         const json = (await res.json()) as {
           book?: LibBook;
           incremented?: boolean;
           totalCopies?: number;
           error?: string;
         };
-        if (!res.ok || !json.book) throw new Error(json.error ?? "등록 실패");
+        if (!res.ok || !json.book) throw new Error(json.error ?? `등록 실패 (HTTP ${res.status})`);
         if (json.incremented) {
           moved += 1;
           patchItem(item.key, { note: `보유 ${json.totalCopies ?? "?"}권으로 늘림` });
         } else {
-          added += 1;
+          added += item.copies;
           ids.push(json.book.id);
-          patchItem(item.key, { note: "등록 완료" });
+          patchItem(item.key, {
+            note: item.copies > 1 ? `${item.copies}권으로 등록 완료` : "등록 완료",
+          });
         }
       } catch (e) {
         failed += 1;
@@ -327,10 +383,36 @@ export default function BatchClient({ locations }: { locations: LibLocation[] })
           </p>
         )}
         {done.failed > 0 && (
-          <p className="rounded-xl bg-amber-50 px-4 py-3 text-sm text-amber-800">
-            {done.failed}권은 등록되지 않았습니다. 아래 &lsquo;목록으로 돌아가기&rsquo;에서 제목을
-            채운 뒤 다시 등록해 주세요.
-          </p>
+          <div className="rounded-xl border-2 border-red-300 bg-red-50 px-4 py-3 text-left">
+            <p className="text-base font-bold text-red-800">
+              {done.failed}권이 등록되지 않았습니다
+            </p>
+            <ul className="mt-2 space-y-1.5">
+              {items
+                .filter((it) => it.status === "실패" || it.status === "제목필요")
+                .slice(0, 8)
+                .map((it) => (
+                  <li key={it.key} className="text-sm leading-relaxed text-red-800">
+                    <span className="font-semibold">{it.title || it.code}</span>
+                    <br />
+                    <span className="font-mono text-xs">{it.note}</span>
+                  </li>
+                ))}
+            </ul>
+            <button
+              type="button"
+              onClick={() => {
+                const text = items
+                  .filter((it) => it.status === "실패" || it.status === "제목필요")
+                  .map((it) => `${it.title || it.code}: ${it.note}`)
+                  .join("\n");
+                void navigator.clipboard?.writeText(text);
+              }}
+              className="mt-3 rounded-lg border border-red-300 bg-white px-3 py-1.5 text-xs font-semibold text-red-700"
+            >
+              오류 내용 복사하기
+            </button>
+          </div>
         )}
 
         <div className="space-y-2 pt-2">
@@ -347,7 +429,11 @@ export default function BatchClient({ locations }: { locations: LibLocation[] })
             type="button"
             onClick={() => {
               setDone(null);
-              setItems((prev) => prev.filter((it) => it.status === "실패" || !it.title.trim()));
+              setItems((prev) => {
+                const keep = prev.filter((it) => it.status === "실패" || !it.title.trim());
+                codesRef.current = new Set(keep.map((it) => it.code));
+                return keep;
+              });
             }}
             className="w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 text-sm font-semibold text-slate-600"
           >
@@ -357,6 +443,7 @@ export default function BatchClient({ locations }: { locations: LibLocation[] })
             type="button"
             onClick={() => {
               setDone(null);
+              codesRef.current.clear();
               setItems([]);
             }}
             className="w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 text-sm font-semibold text-slate-600"
@@ -370,6 +457,9 @@ export default function BatchClient({ locations }: { locations: LibLocation[] })
 
   return (
     <div className="space-y-4">
+      {/* DB가 앱보다 뒤처져 있으면 등록 전에 먼저 알려줍니다. */}
+      <HealthBanner />
+
       {/* ── 구역 고르기 + 스캔 ─────────────────────────────────────────── */}
       <section className="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200">
         <h1 className="text-lg font-bold">여러 권 한꺼번에 등록</h1>
@@ -482,6 +572,35 @@ export default function BatchClient({ locations }: { locations: LibLocation[] })
         )}
       </section>
 
+      {/* ── 같은 바코드를 또 찍었을 때 ─────────────────────────────────── */}
+      {dupAsk && (
+        <div className="gia-pop rounded-2xl border-2 border-amber-300 bg-amber-50 px-5 py-4">
+          <p className="text-base font-bold text-amber-900">
+            이 책은 이미 담겨 있습니다 — {dupAsk.title}
+          </p>
+          <p className="mt-1 text-sm text-amber-800">
+            {dupAsk.times > 1 && <b>{dupAsk.times}번 더 찍혔습니다. </b>}
+            잘못해서 두 번 찍으신 건가요, 아니면 같은 책이 여러 권 있나요?
+          </p>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={() => addCopies(dupAsk.code, dupAsk.times)}
+              className="rounded-xl bg-amber-600 px-5 py-2.5 text-sm font-bold text-white"
+            >
+              같은 책이 여러 권 — {dupAsk.times}권 추가
+            </button>
+            <button
+              type="button"
+              onClick={() => setDupAsk(null)}
+              className="rounded-xl border border-amber-300 bg-white px-5 py-2.5 text-sm font-semibold text-amber-800"
+            >
+              잘못 찍었어요 (무시)
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* ── 담긴 목록 ─────────────────────────────────────────────────── */}
       <div className="flex flex-wrap items-center gap-2">
         <span className="text-sm font-semibold text-slate-500">
@@ -490,7 +609,10 @@ export default function BatchClient({ locations }: { locations: LibLocation[] })
         {items.length > 0 && (
           <button
             type="button"
-            onClick={() => setItems([])}
+            onClick={() => {
+              codesRef.current.clear();
+              setItems([]);
+            }}
             className="text-sm text-slate-400 hover:underline"
           >
             전체 비우기
@@ -531,6 +653,11 @@ export default function BatchClient({ locations }: { locations: LibLocation[] })
                     >
                       {item.status}
                     </span>
+                    {item.copies > 1 && (
+                      <span className="rounded bg-amber-100 px-1.5 py-0.5 text-[11px] font-bold text-amber-800">
+                        {item.copies}권
+                      </span>
+                    )}
                     <span className="font-mono text-[11px] text-slate-400">
                       {item.isbn ? formatIsbn(item.isbn) : item.code}
                     </span>
@@ -594,7 +721,10 @@ export default function BatchClient({ locations }: { locations: LibLocation[] })
 
                 <button
                   type="button"
-                  onClick={() => setItems((prev) => prev.filter((it) => it.key !== item.key))}
+                  onClick={() => {
+                    codesRef.current.delete(item.code);
+                    setItems((prev) => prev.filter((it) => it.key !== item.key));
+                  }}
                   className="shrink-0 text-xs text-slate-400 hover:text-red-500"
                 >
                   빼기
