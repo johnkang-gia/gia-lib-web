@@ -33,8 +33,13 @@ const REQUIRED: { table: string; columns: string[] }[] = [
   { table: "lib_loans", columns: ["id", "book_id", "student_no", "due_date", "status", "renew_count", "reshelved_at"] },
   { table: "lib_settings", columns: ["id", "loan_days", "max_books", "max_renew", "plan_rule", "plan_made_at"] },
   { table: "lib_label_levels", columns: ["level", "color", "name", "audience"] },
-  { table: "lib_students", columns: ["student_no", "name", "grade", "class_name"] },
+  // photo_path 는 도서카드에 사진을 넣기 위해 뷰에 더한 칸입니다. 이 칸이 없으면 카드에
+  // 사진이 안 들어갑니다(명부 자체는 사진 없이 그대로 나옵니다).
+  { table: "lib_students", columns: ["student_no", "name", "grade", "class_name", "photo_path"] },
   { table: "lib_move_plan", columns: ["book_id", "needs_move", "to_code"] },
+  // 도서카드 발급 기록 - 누가 받았는지, 잃어버려 다시 뽑았는지.
+  { table: "lib_card_issues", columns: ["student_no", "issued_at", "reason"] },
+  { table: "lib_card_status", columns: ["student_no", "issue_count", "last_issued_at"] },
 ];
 
 export async function GET() {

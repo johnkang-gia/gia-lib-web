@@ -3,6 +3,7 @@ import StudentCard from "@/components/StudentCard";
 import { createClient } from "@/lib/supabase/server";
 import { getSettings } from "@/lib/server/library";
 import { getStudentPhotoUrls } from "@/lib/server/photos";
+import { loadStudentsForCards } from "@/lib/server/students";
 import type { LibStudent } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -22,25 +23,27 @@ export const dynamic = "force-dynamic";
 export default async function PrintCardsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ ids?: string; photo?: string }>;
+  searchParams: Promise<{ ids?: string; photo?: string; bg?: string }>;
 }) {
-  const { ids, photo } = await searchParams;
+  const { ids, photo, bg } = await searchParams;
   const idList = (ids ?? "").split(",").map((v) => v.trim()).filter(Boolean);
   const wantPhoto = photo === "1";
+  // 배경 그림은 이제 **골랐을 때만** 씁니다(bg=1). 예전에 올려둔 그림 한 장이 새 GIA 디자인을
+  // 조용히 덮어 버리던 문제 때문입니다 - 화면에서 어느 쪽으로 뽑을지 고르고 넘어옵니다.
+  const useBackground = bg === "1";
 
   const supabase = await createClient();
   const settings = await getSettings(supabase);
 
   let students: LibStudent[] = [];
   if (idList.length > 0) {
-    const { data } = await supabase
-      .from("lib_students")
-      .select("id,student_no,name,name_en,grade,class_name,department,status,photo_path")
-      .in("id", idList);
+    // 사진 칸이 아직 없는 DB에서도 인쇄는 되어야 하므로 공용 로더를 씁니다.
+    const wanted = new Set(idList);
+    const all = await loadStudentsForCards(supabase);
     const order = new Map(idList.map((id, index) => [id, index]));
-    students = ((data ?? []) as LibStudent[]).sort(
-      (a, b) => (order.get(a.id) ?? 0) - (order.get(b.id) ?? 0)
-    );
+    students = all
+      .filter((s) => wanted.has(s.id))
+      .sort((a, b) => (order.get(a.id) ?? 0) - (order.get(b.id) ?? 0));
   }
 
   // 사진을 넣기로 했으면 주소를 한 번에 받아옵니다(비공개 버킷이라 서명 주소를 발급받습니다).
@@ -100,7 +103,7 @@ export default async function PrintCardsPage({
               key={student.id}
               student={student}
               libraryName={settings.library_name}
-              bgUrl={settings.card_bg_url}
+              bgUrl={useBackground ? settings.card_bg_url : null}
               textColor={settings.card_text_color}
               photoUrl={photos[student.student_no] ?? null}
               showPhoto={wantPhoto}

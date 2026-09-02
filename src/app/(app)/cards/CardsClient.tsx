@@ -42,7 +42,22 @@ export default function CardsClient({
   const [issueMsg, setIssueMsg] = useState<string | null>(null);
   const [bgUrl, setBgUrl] = useState(settings.card_bg_url);
   const [textColor, setTextColor] = useState(settings.card_text_color);
-  const [withPhoto, setWithPhoto] = useState(settings.card_show_photo);
+  /**
+   * 어떤 디자인으로 뽑을지.
+   *
+   * 예전에는 배경 그림이 올라와 있으면 **무조건** 그 그림이 쓰였습니다. 그래서 새로 만든 GIA
+   * 기본 디자인(남색·금색·문장)이 화면에 나타나지 않았습니다 - 예전에 올려둔 그림 한 장이
+   * 조용히 덮고 있었던 것입니다. 이제 어느 쪽으로 뽑을지 여기서 고르고, 기본은 GIA 디자인입니다.
+   */
+  const [useBg, setUseBg] = useState(false);
+  /**
+   * 사진을 넣을지. 저장된 설정이 꺼져 있어도 **사진이 준비된 학생이 있으면 켠 채로 시작**합니다.
+   * 이 설정은 사진 기능이 생기기 전에 만들어진 것이라 기본값이 '꺼짐'이었고, 그 탓에 사진을
+   * 다 올려놓고도 이름만 인쇄되는 일이 있었습니다.
+   */
+  const [withPhoto, setWithPhoto] = useState(
+    settings.card_show_photo || Object.keys(photos).length > 0
+  );
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const bgInputRef = useRef<HTMLInputElement>(null);
@@ -224,6 +239,7 @@ export default function CardsClient({
 
   async function clearBackground() {
     setBgUrl(null);
+    setUseBg(false);
     await saveCardOption({ card_bg_url: null });
   }
 
@@ -239,12 +255,36 @@ export default function CardsClient({
               인쇄합니다. A4 한 장에 10장씩 나오며, 두꺼운 종이에 인쇄해 자르고 코팅하면 됩니다.
             </p>
 
-            <div className="mt-4 flex flex-wrap items-center gap-2">
+            {/* 디자인 고르기 - 기본은 GIA 디자인입니다. */}
+            <div className="mt-4 inline-flex rounded-xl bg-slate-100 p-1 text-sm">
+              <button
+                type="button"
+                onClick={() => setUseBg(false)}
+                className={`rounded-lg px-4 py-1.5 font-semibold transition ${
+                  useBg ? "text-slate-500 hover:text-slate-700" : "bg-white text-slate-900 shadow-sm"
+                }`}
+              >
+                GIA 기본 디자인
+              </button>
+              <button
+                type="button"
+                onClick={() => setUseBg(true)}
+                disabled={!bgUrl}
+                className={`rounded-lg px-4 py-1.5 font-semibold transition disabled:opacity-40 ${
+                  useBg ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-700"
+                }`}
+                title={bgUrl ? "올려둔 배경 그림으로 뽑습니다" : "먼저 배경 그림을 올려주세요"}
+              >
+                올린 배경 그림
+              </button>
+            </div>
+
+            <div className="mt-3 flex flex-wrap items-center gap-2">
               <button
                 type="button"
                 onClick={() => bgInputRef.current?.click()}
                 disabled={busy === "bg"}
-                className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
+                className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
               >
                 {busy === "bg" ? "올리는 중…" : bgUrl ? "배경 그림 바꾸기" : "배경 그림 올리기"}
               </button>
@@ -271,8 +311,10 @@ export default function CardsClient({
             </div>
 
             <p className="mt-2 text-xs text-slate-400">
-              가로로 긴 그림(권장 1012 × 638px 이상, 카드 비율 86:54)이 가장 잘 맞습니다. 바코드는
-              어떤 배경이든 항상 흰 바탕 위에 얹혀 인쇄되므로 스캔이 잘 됩니다.
+              <b>GIA 기본 디자인</b>은 남색 바탕에 금색 띠와 학교 문장이 들어간 카드입니다. 직접
+              만든 그림으로 뽑고 싶으면 가로로 긴 그림(권장 1012 × 638px 이상, 카드 비율 86:54)을
+              올린 뒤 <b>올린 배경 그림</b>을 고르세요. 바코드는 어느 쪽이든 항상 흰 바탕 위에
+              얹혀 인쇄되므로 스캔이 잘 됩니다.
             </p>
 
             <div className="mt-4 flex flex-wrap items-center gap-4">
@@ -316,7 +358,7 @@ export default function CardsClient({
               <StudentCard
                 student={sample}
                 libraryName={settings.library_name}
-                bgUrl={bgUrl}
+                bgUrl={useBg ? bgUrl : null}
                 textColor={textColor}
                 photoUrl={photoMap[sample.student_no] ?? null}
                 showPhoto={withPhoto}
@@ -390,7 +432,9 @@ export default function CardsClient({
           disabled={selectedList.length === 0}
           onClick={() =>
             window.open(
-              `/print/cards?ids=${selectedList.map((s) => s.id).join(",")}${withPhoto ? "&photo=1" : ""}`,
+              `/print/cards?ids=${selectedList.map((s) => s.id).join(",")}` +
+                (withPhoto ? "&photo=1" : "") +
+                (useBg ? "&bg=1" : ""),
               "_blank"
             )
           }
