@@ -3,6 +3,7 @@
 import { useEffect, useState, useTransition } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
+import { APP_VERSION } from "@/lib/version";
 
 /**
  * 관리 메뉴.
@@ -146,6 +147,18 @@ export default function AppShell({
 
         <div className="ml-auto flex items-center gap-2">
           <span className="hidden text-[11px] text-white/40 md:inline">{email}</span>
+          {/*
+            현재 버전. 새로 배포한 뒤 이 숫자가 올라갔는지만 보면 반영됐는지 알 수 있습니다.
+            눌러 들어가면 무엇이 언제 바뀌었는지 나옵니다.
+          */}
+          <button
+            type="button"
+            onClick={() => go("/changelog")}
+            title="버전 기록 보기"
+            className="rounded-lg px-2 py-1 font-mono text-[11px] text-white/45 transition hover:bg-white/10 hover:text-white/80"
+          >
+            v{APP_VERSION}
+          </button>
           <button
             type="button"
             onClick={() => setOpen(true)}
@@ -178,6 +191,13 @@ export default function AppShell({
             <div className="gia-navy-panel px-5 py-4 text-white">
               <p className="text-sm font-bold">관리 메뉴</p>
               <p className="mt-0.5 text-[11px] text-white/50">{email}</p>
+              <button
+                type="button"
+                onClick={() => go("/changelog")}
+                className="mt-2 rounded-lg border border-gia-gold/40 px-2 py-0.5 font-mono text-[10px] text-gia-gold-soft transition hover:bg-white/10"
+              >
+                v{APP_VERSION} · 버전 기록
+              </button>
             </div>
 
             <nav className="flex-1 overflow-y-auto p-3">

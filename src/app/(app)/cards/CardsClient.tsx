@@ -2,6 +2,7 @@
 
 import { useMemo, useRef, useState } from "react";
 import StudentCard from "@/components/StudentCard";
+import StudentCardBack from "@/components/StudentCardBack";
 import { createClient } from "@/lib/supabase/client";
 import { formatDay } from "@/lib/dates";
 import type { LibSettings, LibStudent } from "@/lib/types";
@@ -50,6 +51,14 @@ export default function CardsClient({
    * 조용히 덮고 있었던 것입니다. 이제 어느 쪽으로 뽑을지 여기서 고르고, 기본은 GIA 디자인입니다.
    */
   const [useBg, setUseBg] = useState(false);
+  /**
+   * 앞뒤를 어떻게 뽑을지.
+   *
+   * 앞면만 뽑으면 뒤가 하얗게 남습니다. 접이식은 한 장에 뒷면·앞면을 붙여 뽑고 가운데를 접는
+   * 방식이라 앞뒤가 어긋날 수가 없습니다(A4 한 장에 4명분). 양면은 종이가 적게 들지만
+   * 앞뒤가 1~2mm 어긋나는 일이 흔합니다. 그래서 접이식을 기본으로 둡니다.
+   */
+  const [fold, setFold] = useState(true);
   /**
    * 사진을 넣을지. 저장된 설정이 꺼져 있어도 **사진이 준비된 학생이 있으면 켠 채로 시작**합니다.
    * 이 설정은 사진 기능이 생기기 전에 만들어진 것이라 기본값이 '꺼짐'이었고, 그 탓에 사진을
@@ -279,6 +288,35 @@ export default function CardsClient({
               </button>
             </div>
 
+            {/* 앞뒤 뽑는 방식 - 뒤가 백지로 남지 않게. */}
+            <div className="mt-3 inline-flex rounded-xl bg-slate-100 p-1 text-sm">
+              <button
+                type="button"
+                onClick={() => setFold(true)}
+                className={`rounded-lg px-4 py-1.5 font-semibold transition ${
+                  fold ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-700"
+                }`}
+                title="한 장에 앞뒤를 붙여 뽑고 반으로 접습니다"
+              >
+                접어서 앞뒤 (권장)
+              </button>
+              <button
+                type="button"
+                onClick={() => setFold(false)}
+                className={`rounded-lg px-4 py-1.5 font-semibold transition ${
+                  fold ? "text-slate-500 hover:text-slate-700" : "bg-white text-slate-900 shadow-sm"
+                }`}
+                title="앞면 시트와 뒷면 시트를 따로 뽑습니다"
+              >
+                양면 인쇄
+              </button>
+            </div>
+            <p className="mt-1.5 text-xs leading-relaxed text-slate-400">
+              {fold
+                ? "한 장에 뒷면과 앞면이 위아래로 붙어 나옵니다. 잘라서 가운데를 접고 코팅하면 앞뒤가 모두 남색이 됩니다. 접힌 쪽이 카드 윗변이 되고 종이가 두 겹이라 더 빳빳합니다. A4 한 장에 4명분."
+                : "앞면 시트와 뒷면 시트가 따로 나옵니다. A4 한 장에 10명분으로 종이는 적게 들지만, 양면 인쇄는 앞뒤가 1~2mm 어긋나는 일이 흔해 잘라 보면 티가 납니다."}
+            </p>
+
             <div className="mt-3 flex flex-wrap items-center gap-2">
               <button
                 type="button"
@@ -354,7 +392,9 @@ export default function CardsClient({
 
           {sample && (
             <div className="shrink-0">
-              <p className="mb-2 text-center text-xs font-semibold text-slate-400">미리보기</p>
+              <p className="mb-2 text-center text-xs font-semibold text-slate-400">
+                미리보기 — 앞면
+              </p>
               <StudentCard
                 student={sample}
                 libraryName={settings.library_name}
@@ -362,6 +402,12 @@ export default function CardsClient({
                 textColor={textColor}
                 photoUrl={photoMap[sample.student_no] ?? null}
                 showPhoto={withPhoto}
+                preview
+              />
+              <p className="mt-3 mb-2 text-center text-xs font-semibold text-slate-400">뒷면</p>
+              <StudentCardBack
+                libraryName={settings.library_name}
+                settings={settings}
                 preview
               />
             </div>
@@ -434,7 +480,8 @@ export default function CardsClient({
             window.open(
               `/print/cards?ids=${selectedList.map((s) => s.id).join(",")}` +
                 (withPhoto ? "&photo=1" : "") +
-                (useBg ? "&bg=1" : ""),
+                (useBg ? "&bg=1" : "") +
+                (fold ? "" : "&layout=flat"),
               "_blank"
             )
           }

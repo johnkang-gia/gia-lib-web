@@ -27,12 +27,18 @@ export default function StudentCard({
   photoUrl,
   showPhoto = false,
   preview = false,
+  /**
+   * 접이식으로 뽑을 때 **접히는 쪽 변**. 그 변의 모서리를 각지게 만듭니다.
+   * 둥근 모서리 두 개가 맞닿은 채로 접히면 카드 윗변에 흰 홈이 남습니다.
+   */
+  foldEdge,
 }: {
   student: Pick<LibStudent, "student_no" | "name" | "name_en" | "grade" | "class_name">;
   libraryName: string;
   bgUrl?: string | null;
   textColor?: string;
   photoUrl?: string | null;
+  foldEdge?: "top" | "bottom" | null;
   showPhoto?: boolean;
   /** 화면 미리보기용 - 인쇄 시트가 아니라 단독으로 보여줄 때 그림자를 넣습니다. */
   preview?: boolean;
@@ -41,13 +47,19 @@ export default function StudentCard({
   const withPhoto = showPhoto && Boolean(photoUrl);
   const onImage = Boolean(bgUrl);
   const ink = onImage ? textColor : "#ffffff";
+  const radius =
+    foldEdge === "top"
+      ? "0 0 3.2mm 3.2mm"
+      : foldEdge === "bottom"
+        ? "3.2mm 3.2mm 0 0"
+        : "3.2mm";
 
   return (
     <div
       style={{
         width: "86mm",
         height: "54mm",
-        borderRadius: "3.2mm",
+        borderRadius: radius,
         position: "relative",
         overflow: "hidden",
         boxSizing: "border-box",
