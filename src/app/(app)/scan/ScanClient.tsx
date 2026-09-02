@@ -37,8 +37,14 @@ const TONE: Record<Tone, { box: string; chip: string; label: string }> = {
   error: { box: "bg-red-600 text-white", chip: "bg-white/20", label: "오류" },
 };
 
-/** 학생을 화면에 띄워두는 시간(초). 이 시간 동안 아무것도 안 찍으면 자동으로 해제됩니다. */
-const STUDENT_HOLD_SECONDS = 25;
+/**
+ * 화면에 띄워둔 것을 유지하는 시간(초).
+ *
+ * 이 시간 동안 아무 입력이 없으면 메인 화면으로 돌아갑니다. 예전에는 말없이 사라져서,
+ * 화면을 보던 아이도 사서 선생님도 무슨 일이 일어난 건지 알 수 없었습니다. 이제 남은
+ * 시간을 세어 보여주고, 더 볼 것이 있으면 시간을 되돌릴 수 있습니다.
+ */
+const IDLE_SECONDS = 20;
 
 /**
  * 도서관 전용 단말의 메인 화면입니다.
@@ -70,6 +76,8 @@ export default function ScanClient({
   } | null>(null);
   const [counts, setCounts] = useState({ borrowed: borrowedToday, returned: returnedToday });
   const [holdLeft, setHoldLeft] = useState(0);
+  /** 입력이 있을 때마다 올라가는 값. 이게 바뀌면 되돌아가기까지 남은 시간이 처음으로 돌아갑니다. */
+  const [activity, setActivity] = useState(0);
   const [dialogIsbn, setDialogIsbn] = useState<string | null>(null);
   // ISBN이 아닌 바코드(UPC 등)를 찍었을 때 등록창에 넘겨줄 값.
   const [dialogCode, setDialogCode] = useState<string | null>(null);
@@ -151,24 +159,42 @@ export default function ScanClient({
 
 
 
-  // ── 학생 자동 해제 타이머 ─────────────────────────────────────────────────
+  // ── 입력이 없을 때 메인 화면으로 되돌리는 타이머 ─────────────────────────
+  //
+  // 학생 정보·검색 결과·후보 목록은 다음 아이가 오기 전에 치워져야 합니다(앞사람 기록이
+  // 남아 있으면 안 됩니다). 다만 **말없이** 사라지면 안 됩니다 - 남은 시간을 보여주고,
+  // 더 볼 것이 있으면 시간을 되돌릴 수 있게 합니다.
+  //
+  // 팝업이나 등록창이 떠 있는 동안은 세지 않습니다. 그때는 사람이 무언가 하는 중입니다.
+  const holding = Boolean(student || choices || bookHits);
+  const paused = Boolean(popup) || dialogOpen;
+
   useEffect(() => {
-    if (!student) {
+    if (!holding || paused) {
       setHoldLeft(0);
       return;
     }
-    setHoldLeft(STUDENT_HOLD_SECONDS);
+    setHoldLeft(IDLE_SECONDS);
     const timer = setInterval(() => {
       setHoldLeft((left) => {
-        if (left <= 1) {
-          setStudent(null);
-          return 0;
-        }
-        return left - 1;
+        if (left > 1) return left - 1;
+        setStudent(null);
+        setChoices(null);
+        setBookHits(null);
+        seqRef.current += 1;
+        setBanner({
+          tone: "info",
+          title: "메인 화면으로 돌아왔습니다",
+          sub: "도서카드를 찍으면 다시 시작합니다",
+          seq: seqRef.current,
+          shelf: null,
+        });
+        return 0;
       });
     }, 1000);
     return () => clearInterval(timer);
-  }, [student]);
+    // activity: 입력칸에 무언가 칠 때마다 올라가서 남은 시간을 처음으로 되돌립니다.
+  }, [holding, paused, activity, student, choices, bookHits]);
 
   /** 대출·반납 결과를 팝업으로 띄웁니다(메인 화면은 학생 정보만 두기 위해). 잠시 뒤 자동으로 닫힙니다. */
   const showResult = useCallback(
@@ -391,9 +417,17 @@ export default function ScanClient({
     : "";
 
   return (
-    <div className="mx-auto flex w-full max-w-5xl flex-1 flex-col gap-4 p-5">
+    /*
+      화면 하나에 다 들어가게 짠 틀입니다.
+
+      예전에는 가운데 1024px만 쓰고 양옆을 비워 둔 채 세로로 길게 쌓아서, 학생 정보를 보려면
+      스크롤을 내려야 했습니다. 데스크에 놓고 아이와 함께 보는 화면에서 스크롤은 곧 "안 보이는
+      정보"입니다. 그래서 가로를 다 쓰고, 학생 화면은 두 칸으로 나눠 한 눈에 들어오게 했습니다.
+      길어질 수 있는 것은 빌린 책 목록 하나뿐이라 그 안에서만 스크롤됩니다.
+    */
+    <div className="flex h-[calc(100dvh-3.25rem)] w-full flex-col gap-2.5 overflow-hidden px-3 py-2.5">
       {/* ── 안내 줄 ─────────────────────────────────────────────────────── */}
-      <div className="flex items-center gap-3 text-xs text-slate-400">
+      <div className="flex shrink-0 items-center gap-3 text-xs text-slate-400">
         <span className="rounded-full bg-white px-3 py-1 font-semibold text-slate-500 ring-1 ring-slate-200">
           오늘 대출 {counts.borrowed} · 반납 {counts.returned}
         </span>
@@ -410,37 +444,63 @@ export default function ScanClient({
         <span className="font-mono text-sm text-slate-400">{clock}</span>
       </div>
 
-      {/* ── 처리 결과 ───────────────────────────────────────────────────── */}
+      {/* ── 처리 결과 (학생이 떠 있을 때는 아래 패널이 대신합니다) ───────── */}
       {student ? null : banner ? (
-        <div key={banner.seq} className={`gia-pop rounded-3xl px-8 py-7 shadow-lg ${TONE[banner.tone].box}`}>
+        <div
+          key={banner.seq}
+          className={`gia-pop shrink-0 rounded-3xl px-7 py-5 shadow-lg ${TONE[banner.tone].box}`}
+        >
           <div className="flex items-start gap-4">
             <span
-              className={`mt-1.5 rounded-full px-3 py-1 text-xs font-bold tracking-wide ${TONE[banner.tone].chip}`}
+              className={`mt-1 rounded-full px-3 py-1 text-xs font-bold tracking-wide ${TONE[banner.tone].chip}`}
             >
               {TONE[banner.tone].label}
             </span>
             <div className="min-w-0 flex-1">
-              <p className="text-5xl leading-tight font-black">{banner.title}</p>
-              {banner.sub && <p className="mt-2 text-xl opacity-90">{banner.sub}</p>}
+              <p className="text-4xl leading-tight font-black">{banner.title}</p>
+              {banner.sub && <p className="mt-1.5 text-lg opacity-90">{banner.sub}</p>}
             </div>
           </div>
         </div>
       ) : (
-        <div className="rounded-3xl bg-white px-8 py-7 text-center shadow-sm ring-1 ring-slate-200">
+        <div className="shrink-0 rounded-3xl bg-white px-7 py-5 text-center shadow-sm ring-1 ring-slate-200">
           <p className="text-4xl font-black text-gia-navy">📕 도서카드를 찍어주세요</p>
-          <p className="mt-2 text-lg text-slate-400">책을 반납할 때는 책만 찍으면 됩니다</p>
+          <p className="mt-1.5 text-lg text-slate-400">책을 반납할 때는 책만 찍으면 됩니다</p>
         </div>
       )}
 
-      {/* ── 현재 학생 ───────────────────────────────────────────────────── */}
-      <section className="flex flex-1 flex-col rounded-3xl bg-white p-7 shadow-sm ring-1 ring-slate-200">
+      {/* ── 되돌아가기 안내 ─────────────────────────────────────────────── */}
+      {holdLeft > 0 && (
+        <div className="flex shrink-0 items-center gap-3 rounded-2xl bg-amber-50 px-4 py-2 ring-1 ring-amber-200">
+          <span className="text-sm font-semibold text-amber-900">
+            입력이 없어 <b className="tabular-nums text-base">{holdLeft}초</b> 후 메인 화면으로
+            돌아갑니다
+          </span>
+          <div className="ml-auto h-2 w-32 overflow-hidden rounded-full bg-amber-200 sm:w-48">
+            <div
+              className="h-full rounded-full bg-amber-500 transition-all duration-1000 ease-linear"
+              style={{ width: `${(holdLeft / IDLE_SECONDS) * 100}%` }}
+            />
+          </div>
+          <button
+            type="button"
+            onClick={() => setActivity((n) => n + 1)}
+            className="rounded-lg bg-amber-500 px-3 py-1 text-xs font-bold text-white transition hover:bg-amber-600"
+          >
+            더 볼게요
+          </button>
+        </div>
+      )}
+
+      {/* ── 본문 ────────────────────────────────────────────────────────── */}
+      <section className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-3xl bg-white p-5 shadow-sm ring-1 ring-slate-200">
         {bookHits ? (
-          /* ── 제목으로 찾은 책들 (요청: 메인 화면에서 책 검색) ────────── */
+          /* ── 제목으로 찾은 책들 ─────────────────────────────────────── */
           <>
-            <p className="mb-3 text-sm font-bold text-slate-500">
+            <p className="mb-2 shrink-0 text-sm font-bold text-slate-500">
               &lsquo;{bookHits.query}&rsquo; 검색 결과 {bookHits.books.length}권 — 눌러보세요
             </p>
-            <ul className="grid max-h-[26rem] gap-2 overflow-y-auto sm:grid-cols-2">
+            <ul className="grid min-h-0 flex-1 content-start gap-2 overflow-y-auto md:grid-cols-2 xl:grid-cols-3">
               {bookHits.books.map((hit) => {
                 const left = Math.max(0, hit.total_copies - hit.onLoan);
                 return (
@@ -449,12 +509,7 @@ export default function ScanClient({
                       type="button"
                       onClick={() => {
                         setBookHits(null);
-                        setPopup({
-                          kind: "known",
-                          book: hit,
-                          activeLoans: [],
-                          available: left,
-                        });
+                        setPopup({ kind: "known", book: hit, activeLoans: [], available: left });
                       }}
                       className="flex w-full items-center gap-3 rounded-2xl bg-slate-50 px-4 py-3 text-left transition hover:bg-slate-100"
                     >
@@ -510,17 +565,17 @@ export default function ScanClient({
                 setBanner(null);
                 setTimeout(refocus, 30);
               }}
-              className="mt-4 self-start text-sm text-slate-400 hover:underline"
+              className="mt-3 shrink-0 self-start text-sm text-slate-400 hover:underline"
             >
               닫기 (Esc)
             </button>
           </>
         ) : choices ? (
           <>
-            <p className="mb-3 text-sm font-bold text-slate-500">
+            <p className="mb-2 shrink-0 text-sm font-bold text-slate-500">
               같은 이름이 여러 명입니다 — 눌러서 골라주세요
             </p>
-            <ul className="grid gap-2 sm:grid-cols-2">
+            <ul className="grid min-h-0 flex-1 content-start gap-2 overflow-y-auto md:grid-cols-2 xl:grid-cols-3">
               {choices.map((cand) => (
                 <li key={cand.id}>
                   <button
@@ -549,80 +604,88 @@ export default function ScanClient({
                 setBanner(null);
                 setTimeout(refocus, 30);
               }}
-              className="mt-4 self-start text-sm text-slate-400 hover:underline"
+              className="mt-3 shrink-0 self-start text-sm text-slate-400 hover:underline"
             >
               취소 (Esc)
             </button>
           </>
         ) : !student ? (
-          <div className="flex flex-1 flex-col items-center justify-center py-10 text-center">
+          <div className="flex flex-1 flex-col items-center justify-center text-center">
             {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src="/logo-main.png" alt="" className="mb-6 h-10 w-auto opacity-15" />
+            <img src="/logo-main.png" alt="" className="mb-5 h-9 w-auto opacity-15" />
             <p className="text-lg text-slate-300">
               학생 도서카드를 찍으면 빌린 책과 반납일이 여기에 크게 표시됩니다
             </p>
           </div>
         ) : (
-          <>
-            {/* 사진 · 이름 · 학년 반 */}
-            <div className="flex items-end gap-5 border-b border-slate-100 pb-4">
-              {/*
-                사진을 함께 띄우는 이유: 카드를 바꿔 들고 오거나 친구 카드를 내미는 일이
-                생깁니다. 사서 선생님이 화면을 흘깃 보기만 해도 맞는 아이인지 알 수 있습니다.
-              */}
-              {student.photoUrl ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img
-                  src={student.photoUrl}
-                  alt=""
-                  className="h-28 w-[5.45rem] shrink-0 rounded-xl object-cover shadow-md ring-1 ring-slate-200"
-                />
-              ) : (
-                <div className="flex h-28 w-[5.45rem] shrink-0 items-center justify-center rounded-xl bg-slate-100 text-3xl text-slate-300">
-                  🙂
+          /*
+            학생 화면 - 왼쪽은 "이 아이가 누구이고 얼마나 읽었는가", 오른쪽은 "지금 무엇을
+            들고 있는가". 오른쪽이 실제로 창구에서 보는 정보라 넓은 쪽에 둡니다.
+          */
+          <div className="grid min-h-0 flex-1 gap-4 lg:grid-cols-[21rem_minmax(0,1fr)] xl:grid-cols-[24rem_minmax(0,1fr)]">
+            {/* ── 왼쪽: 누구인가 · 얼마나 읽었나 ─────────────────────── */}
+            <div className="flex min-h-0 flex-col gap-3 overflow-y-auto">
+              <div className="flex items-center gap-4">
+                {/*
+                  사진을 함께 띄우는 이유: 카드를 바꿔 들고 오거나 친구 카드를 내미는 일이
+                  생깁니다. 화면을 흘깃 보기만 해도 맞는 아이인지 알 수 있습니다.
+                */}
+                {student.photoUrl ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={student.photoUrl}
+                    alt=""
+                    className="h-24 w-[4.67rem] shrink-0 rounded-xl object-cover shadow-md ring-1 ring-slate-200"
+                  />
+                ) : (
+                  <div className="flex h-24 w-[4.67rem] shrink-0 items-center justify-center rounded-xl bg-slate-100 text-3xl text-slate-300">
+                    🙂
+                  </div>
+                )}
+                <div className="min-w-0">
+                  <p className="truncate text-5xl leading-none font-black text-gia-navy">
+                    {student.student.name}
+                  </p>
+                  <p className="mt-1.5 text-xl text-slate-400">
+                    {[student.student.grade, student.student.class_name]
+                      .filter(Boolean)
+                      .join(" ")}
+                  </p>
                 </div>
-              )}
-
-              <div className="flex min-w-0 flex-1 flex-wrap items-end gap-x-4 gap-y-1">
-                <p className="text-6xl leading-none font-black text-gia-navy">
-                  {student.student.name}
-                </p>
-                <p className="text-2xl text-slate-400">
-                  {[student.student.grade, student.student.class_name].filter(Boolean).join(" ")}
-                </p>
-                <p className="ml-auto text-sm text-slate-300">{holdLeft}초 후 자동 해제 · Esc</p>
               </div>
-            </div>
 
-            {/* 독서 단계 + 이번 달 목표 - 한 권 더 읽고 싶어지도록 진행 막대로 보여줍니다 */}
-            <div className="mt-4 grid gap-3 sm:grid-cols-2">
-              <div className="rounded-2xl bg-slate-50 px-5 py-4">
+              {/* 독서 단계 — 한 권 더 읽고 싶어지도록 진행 막대로 보여줍니다 */}
+              <div className="rounded-2xl bg-slate-50 px-4 py-3">
                 <div className="flex items-baseline gap-2">
-                  <span className="text-3xl">{level.current.icon}</span>
-                  <span className="text-2xl font-black" style={{ color: level.current.color }}>
+                  <span className="text-2xl">{level.current.icon}</span>
+                  <span className="text-xl font-black" style={{ color: level.current.color }}>
                     {level.current.name}
                   </span>
-                  <span className="ml-auto text-sm text-slate-400">
+                  <span className="ml-auto text-xs text-slate-400">
                     {level.next ? `다음까지 ${level.remain}권` : "최고 단계"}
                   </span>
                 </div>
-                <div className="mt-2 h-3 overflow-hidden rounded-full bg-white">
+                <div className="mt-2 h-2.5 overflow-hidden rounded-full bg-white">
                   <div
                     className="h-full rounded-full transition-all duration-700"
-                    style={{ width: `${Math.round(level.progress * 100)}%`, background: level.current.color }}
+                    style={{
+                      width: `${Math.round(level.progress * 100)}%`,
+                      background: level.current.color,
+                    }}
                   />
                 </div>
               </div>
 
-              <div className="rounded-2xl bg-slate-50 px-5 py-4">
+              {/* 이번 달 목표 */}
+              <div className="rounded-2xl bg-slate-50 px-4 py-3">
                 <div className="flex items-baseline gap-2">
                   <span className="text-sm font-semibold text-slate-500">이번 달 목표</span>
-                  <span className="text-2xl font-black text-gia-navy">
+                  <span className="text-xl font-black text-gia-navy">
                     {goal.done} / {goal.goal}권
                   </span>
                   {goal.achieved && <span className="ml-auto text-xl">🎉</span>}
                 </div>
-                <div className="mt-2 h-3 overflow-hidden rounded-full bg-white">
+                <div className="mt-2 h-2.5 overflow-hidden rounded-full bg-white">
                   <div
                     className={`h-full rounded-full transition-all duration-700 ${
                       goal.achieved ? "bg-emerald-500" : "bg-gia-gold"
@@ -631,97 +694,110 @@ export default function ScanClient({
                   />
                 </div>
               </div>
+
+              {/* 이번 달 · 올해 · 누적 */}
+              <div className="grid grid-cols-3 gap-2">
+                {[
+                  { label: "이번 달", value: student.stats.month },
+                  { label: "올해", value: student.stats.year },
+                  { label: "지금까지", value: student.stats.total },
+                ].map((tile) => (
+                  <div
+                    key={tile.label}
+                    className="rounded-2xl bg-white px-2 py-2.5 text-center ring-1 ring-slate-200"
+                  >
+                    <p className="text-[11px] font-semibold text-slate-400">{tile.label}</p>
+                    <p className="text-2xl font-black text-gia-navy">
+                      {tile.value}
+                      <span className="ml-0.5 text-sm font-medium text-slate-400">권</span>
+                    </p>
+                  </div>
+                ))}
+              </div>
+
+              <p className="mt-auto text-center text-base font-semibold text-gia-navy">{cheer}</p>
             </div>
 
-            {/* 이번 달 · 올해 · 누적 */}
-            <div className="mt-3 grid grid-cols-3 gap-3">
-              {[
-                { label: "이번 달", value: student.stats.month },
-                { label: "올해", value: student.stats.year },
-                { label: "지금까지", value: student.stats.total },
-              ].map((tile) => (
-                <div key={tile.label} className="rounded-2xl bg-white px-4 py-3 text-center ring-1 ring-slate-200">
-                  <p className="text-xs font-semibold text-slate-400">{tile.label}</p>
-                  <p className="text-3xl font-black text-gia-navy">
-                    {tile.value}
-                    <span className="ml-0.5 text-base font-medium text-slate-400">권</span>
-                  </p>
-                </div>
-              ))}
-            </div>
-
-            {/* 독서 도감 - 분류별로 몇 권 읽었는지. 안 읽은 칸은 흐리게 보여서
-                "비어 있는 칸을 채우고 싶은" 마음이 들도록 했습니다. */}
-            <div className="mt-4">
-              <div className="mb-1.5 flex items-baseline gap-2">
-                <p className="text-sm font-bold text-slate-500">독서 도감</p>
+            {/* ── 오른쪽: 지금 들고 있는 책 · 독서 도감 ─────────────────── */}
+            <div className="flex min-h-0 flex-col border-slate-100 lg:border-l lg:pl-4">
+              <div className="mb-2 flex shrink-0 items-baseline gap-2">
+                <p className="text-sm font-bold text-slate-500">지금 빌린 책</p>
                 <p className="text-xs text-slate-400">
-                  {filledCategories}/{CATEGORIES.length}칸 채움
-                  {student.stats.englishCount > 0 && ` · 영어책 ${student.stats.englishCount}권`}
+                  {student.activeLoans.length}권
+                  {remaining > 0 ? ` · ${remaining}권 더 빌릴 수 있어요` : " · 최대 권수를 채웠습니다"}
                 </p>
               </div>
-              <div className="flex flex-wrap gap-1.5">
-                {CATEGORIES.map((cat) => {
-                  const count = student.stats.byCategory[cat.key] ?? 0;
-                  const filled = count > 0;
+
+              {/* 길어질 수 있는 유일한 목록이라, 스크롤은 여기 안에서만 생깁니다. */}
+              <ul className="min-h-0 flex-1 space-y-2 overflow-y-auto pr-1">
+                {student.activeLoans.length === 0 && (
+                  <li className="rounded-2xl bg-slate-50 px-5 py-8 text-center text-lg text-slate-300">
+                    지금 빌린 책이 없습니다
+                  </li>
+                )}
+                {student.activeLoans.map((loan) => {
+                  const late = overdueDays(loan.due_date, today);
                   return (
-                    <span
-                      key={cat.key}
-                      className={`flex items-center gap-1 rounded-xl px-2.5 py-1.5 text-sm font-semibold ${
-                        filled ? "" : "bg-slate-50 text-slate-300"
+                    <li
+                      key={loan.id}
+                      className={`flex items-center gap-4 rounded-2xl px-4 py-3 ${
+                        late > 0 ? "bg-red-50 ring-1 ring-red-200" : "bg-slate-50"
                       }`}
-                      style={filled ? { background: `${cat.color}1f`, color: cat.color } : undefined}
-                      title={filled ? `${cat.key} ${count}권` : `${cat.key} — 아직 안 읽었어요`}
                     >
-                      <span className={filled ? "" : "opacity-40 grayscale"}>{cat.icon}</span>
-                      {cat.key}
-                      {filled && <span className="font-black">{count}</span>}
-                    </span>
+                      <span className="flex-1 truncate text-lg font-bold">
+                        {loan.book?.title ?? "(삭제된 책)"}
+                      </span>
+                      <span
+                        className={`shrink-0 text-base font-bold ${
+                          late > 0 ? "text-red-600" : "text-slate-500"
+                        }`}
+                      >
+                        {late > 0 ? `${late}일 연체` : `${formatDay(loan.due_date)}까지`}
+                      </span>
+                    </li>
                   );
                 })}
+              </ul>
+
+              {/* 독서 도감 - 안 읽은 칸은 흐리게 두어 "채우고 싶은" 마음이 들도록 했습니다. */}
+              <div className="mt-3 shrink-0 border-t border-slate-100 pt-3">
+                <div className="mb-1.5 flex items-baseline gap-2">
+                  <p className="text-sm font-bold text-slate-500">독서 도감</p>
+                  <p className="text-xs text-slate-400">
+                    {filledCategories}/{CATEGORIES.length}칸 채움
+                    {student.stats.englishCount > 0 && ` · 영어책 ${student.stats.englishCount}권`}
+                  </p>
+                  {student.stats.lastTitle && (
+                    <p className="ml-auto truncate text-xs text-slate-300">
+                      지난번에 읽은 책: {student.stats.lastTitle}
+                    </p>
+                  )}
+                </div>
+                <div className="flex flex-wrap gap-1.5">
+                  {CATEGORIES.map((cat) => {
+                    const count = student.stats.byCategory[cat.key] ?? 0;
+                    const filled = count > 0;
+                    return (
+                      <span
+                        key={cat.key}
+                        className={`flex items-center gap-1 rounded-xl px-2 py-1 text-[13px] font-semibold ${
+                          filled ? "" : "bg-slate-50 text-slate-300"
+                        }`}
+                        style={
+                          filled ? { background: `${cat.color}1f`, color: cat.color } : undefined
+                        }
+                        title={filled ? `${cat.key} ${count}권` : `${cat.key} — 아직 안 읽었어요`}
+                      >
+                        <span className={filled ? "" : "opacity-40 grayscale"}>{cat.icon}</span>
+                        {cat.key}
+                        {filled && <span className="font-black">{count}</span>}
+                      </span>
+                    );
+                  })}
+                </div>
               </div>
             </div>
-
-            {/* 지금 빌린 책 */}
-            <p className="mt-5 mb-2 text-sm font-bold text-slate-500">지금 빌린 책</p>
-            <ul className="space-y-2.5">
-              {student.activeLoans.length === 0 && (
-                <li className="rounded-2xl bg-slate-50 px-5 py-6 text-center text-lg text-slate-300">
-                  지금 빌린 책이 없습니다
-                </li>
-              )}
-              {student.activeLoans.map((loan) => {
-                const late = overdueDays(loan.due_date, today);
-                return (
-                  <li
-                    key={loan.id}
-                    className={`flex items-center gap-4 rounded-2xl px-5 py-3.5 ${
-                      late > 0 ? "bg-red-50 ring-1 ring-red-200" : "bg-slate-50"
-                    }`}
-                  >
-                    <span className="flex-1 truncate text-xl font-bold">
-                      {loan.book?.title ?? "(삭제된 책)"}
-                    </span>
-                    <span
-                      className={`shrink-0 text-lg font-bold ${late > 0 ? "text-red-600" : "text-slate-500"}`}
-                    >
-                      {late > 0 ? `${late}일 연체` : `${formatDay(loan.due_date)}까지`}
-                    </span>
-                  </li>
-                );
-              })}
-            </ul>
-
-            {/* 응원 한마디 + 남은 권수 */}
-            <p className="mt-4 text-center text-lg font-semibold text-gia-navy">{cheer}</p>
-            <p className="mt-1 text-center text-sm text-slate-400">
-              {remaining > 0
-                ? `${remaining}권 더 빌릴 수 있어요`
-                : "최대 권수를 채웠습니다 — 반납 후 빌릴 수 있어요"}
-              {student.stats.lastTitle && ` · 지난번에 읽은 책: ${student.stats.lastTitle}`}
-            </p>
-            <div className="flex-1" />
-          </>
+          </div>
         )}
       </section>
 
@@ -729,7 +805,10 @@ export default function ScanClient({
       <input
         ref={inputRef}
         value={value}
-        onChange={(e) => setValue(e.target.value)}
+        onChange={(e) => {
+          setValue(e.target.value);
+          setActivity((n) => n + 1);
+        }}
         onKeyDown={(e) => {
           if (e.key === "Enter") {
             e.preventDefault();
@@ -744,10 +823,11 @@ export default function ScanClient({
             setPopup(null);
             setAwaitBookCode(null);
             setValue("");
+            setActivity((n) => n + 1);
           }
         }}
         aria-label="바코드 입력"
-        className="scan-input h-9 w-full rounded-xl border border-dashed border-slate-200 bg-transparent px-4 text-center text-xs text-slate-300 outline-none focus:border-gia-gold"
+        className="scan-input h-8 w-full shrink-0 rounded-xl border border-dashed border-slate-200 bg-transparent px-4 text-center text-xs text-slate-300 outline-none focus:border-gia-gold"
         placeholder={
           busy
             ? "처리 중…"

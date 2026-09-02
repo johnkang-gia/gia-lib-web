@@ -76,14 +76,15 @@ export async function POST(request: Request) {
       });
     }
 
-    const [activeLoans, stats] = await Promise.all([
+    // 사진까지 한 물결에 함께 받아옵니다. 예전에는 목록·기록을 받은 **뒤에** 사진을 또
+    // 기다렸는데, 그 한 번이 카드를 찍고 화면이 뜨기까지의 체감 시간을 그대로 늘렸습니다.
+    const [activeLoans, stats, photos] = await Promise.all([
       findActiveLoans(supabase, student.student_no),
       readingStats(supabase, student.student_no),
+      getStudentPhotoUrls(supabase, [student]),
     ]);
     const today = todayKst();
     const overdue = activeLoans.filter((loan) => overdueDays(loan.due_date, today) > 0).length;
-
-    const photos = await getStudentPhotoUrls(supabase, [student]);
 
     return NextResponse.json<ScanResult>({
       kind: "student",
@@ -133,13 +134,13 @@ export async function POST(request: Request) {
     // 딱 한 명이면 바로 그 학생을 띄웁니다(카드를 찍은 것과 똑같이 동작).
     if (found.length === 1) {
       const student = found[0];
-      const [activeLoans, stats] = await Promise.all([
+      const [activeLoans, stats, photos] = await Promise.all([
         findActiveLoans(supabase, student.student_no),
         readingStats(supabase, student.student_no),
+        getStudentPhotoUrls(supabase, [student]),
       ]);
       const today = todayKst();
       const overdue = activeLoans.filter((loan) => overdueDays(loan.due_date, today) > 0).length;
-      const photos = await getStudentPhotoUrls(supabase, [student]);
       return NextResponse.json<ScanResult>({
         kind: "student",
         student,
@@ -300,61 +301,67 @@ export async function POST(request: Request) {
 
 
 /**
- * 도서카드를 찍었을 때 보여줄 독서 기록(이번 달·올해·누적)을 셉니다.
- * 대출 기록(lib_loans)만 세면 되므로 가볍습니다.
+ * 도서카드를 찍었을 때 보여줄 독서 기록(이번 달·올해·누적·독서 도감).
+ *
+ * **질의 다섯 번을 한 번으로 줄였습니다.** 예전에는 누적·이번 달·올해를 각각 count로 세고,
+ * 마지막 읽은 책과 도감용 목록을 또 따로 받았습니다. 다섯 번 왕복하는 동안 카드를 찍은
+ * 아이는 그냥 서서 기다립니다. 한 아이의 대출 기록은 많아야 수백 줄이라, 한 번에 받아
+ * 여기서 세는 편이 훨씬 빠릅니다.
  */
 async function readingStats(
   supabase: SupabaseClient,
   studentNo: string
 ): Promise<ReadingStats> {
   const today = todayKst();
-  const monthStart = `${today.slice(0, 7)}-01T00:00:00+09:00`;
-  const yearStart = `${today.slice(0, 4)}-01-01T00:00:00+09:00`;
+  const monthStart = `${today.slice(0, 7)}-01`;
+  const yearStart = `${today.slice(0, 4)}-01-01`;
 
-  const [total, month, year, last, read] = await Promise.all([
-    supabase.from("lib_loans").select("id", { count: "exact", head: true }).eq("student_no", studentNo),
-    supabase
-      .from("lib_loans")
-      .select("id", { count: "exact", head: true })
-      .eq("student_no", studentNo)
-      .gte("borrowed_at", monthStart),
-    supabase
-      .from("lib_loans")
-      .select("id", { count: "exact", head: true })
-      .eq("student_no", studentNo)
-      .gte("borrowed_at", yearStart),
-    supabase
-      .from("lib_loans")
-      .select("book:lib_books(title)")
-      .eq("student_no", studentNo)
-      .eq("status", "반납완료")
-      .order("returned_at", { ascending: false })
-      .limit(1),
-    // 독서 도감 - 지금까지 빌린 책들의 분류·언어를 모아 셉니다.
-    supabase
-      .from("lib_loans")
-      .select("book:lib_books(category,language)")
-      .eq("student_no", studentNo)
-      .limit(1000),
-  ]);
+  const { data } = await supabase
+    .from("lib_loans")
+    .select("borrowed_at,returned_at,status,book:lib_books(title,category,language)")
+    .eq("student_no", studentNo)
+    .order("borrowed_at", { ascending: false })
+    .limit(1000);
+
+  type Row = {
+    borrowed_at: string | null;
+    returned_at: string | null;
+    status: string | null;
+    book?: { title?: string | null; category?: string | null; language?: string | null } | null;
+  };
+  const rows = (data ?? []) as unknown as Row[];
 
   const byCategory: Record<string, number> = {};
   let englishCount = 0;
-  for (const row of (read.data ?? []) as { book?: { category?: string | null; language?: string | null } | null }[]) {
+  let month = 0;
+  let year = 0;
+  let lastTitle: string | null = null;
+  let lastReturnedAt = "";
+
+  for (const row of rows) {
+    // 빌린 날짜는 UTC로 저장되므로 한국 날짜로 바꿔 비교합니다(자정 근처에서 하루가 어긋납니다).
+    const day = row.borrowed_at ? kstDate(row.borrowed_at) : "";
+    if (day && day >= monthStart) month += 1;
+    if (day && day >= yearStart) year += 1;
+
     const cat = row.book?.category;
     if (cat) byCategory[cat] = (byCategory[cat] ?? 0) + 1;
     if (row.book?.language === "영어") englishCount += 1;
+
+    if (row.status === "반납완료" && row.returned_at && row.returned_at > lastReturnedAt) {
+      lastReturnedAt = row.returned_at;
+      lastTitle = row.book?.title ?? null;
+    }
   }
 
-  const lastRow = (last.data ?? [])[0] as { book?: { title?: string } | null } | undefined;
-  return {
-    total: total.count ?? 0,
-    month: month.count ?? 0,
-    year: year.count ?? 0,
-    lastTitle: lastRow?.book?.title ?? null,
-    byCategory,
-    englishCount,
-  };
+  return { total: rows.length, month, year, lastTitle, byCategory, englishCount };
+}
+
+/** 저장된 시각(UTC)을 한국 날짜(YYYY-MM-DD)로 바꿉니다. */
+function kstDate(iso: string): string {
+  const t = new Date(iso).getTime();
+  if (Number.isNaN(t)) return "";
+  return new Date(t + 9 * 60 * 60 * 1000).toISOString().slice(0, 10);
 }
 
 /**
