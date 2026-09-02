@@ -269,6 +269,11 @@ export type ScanResult =
       overdueCount: number;
       /** 이번 달·올해·누적 권수(카드를 찍으면 화면에 크게 보여줍니다). */
       stats: ReadingStats;
+      /**
+       * 학생 사진 주소(한 시간짜리 서명 주소).
+       * 카드를 찍었을 때 "이 아이가 맞는지" 눈으로 바로 확인하려고 함께 보냅니다.
+       */
+      photoUrl: string | null;
       message: string;
     }
   | { kind: "borrowed"; message: string; book: LibBook; loan: LibLoan; student: LibStudent }

@@ -23,6 +23,8 @@ type StudentState = {
   activeLoans: LibLoanWithBook[];
   overdueCount: number;
   stats: import("@/lib/types").ReadingStats;
+  /** 카드를 찍은 아이의 사진 - "이 아이가 맞는지" 눈으로 확인합니다. */
+  photoUrl: string | null;
 };
 
 type Tone = "ok" | "return" | "info" | "warn" | "error";
@@ -216,6 +218,7 @@ export default function ScanClient({
           activeLoans: result.activeLoans,
           overdueCount: result.overdueCount,
           stats: result.stats,
+          photoUrl: result.photoUrl,
         });
       }
     },
@@ -241,6 +244,7 @@ export default function ScanClient({
             activeLoans: result.activeLoans,
             overdueCount: result.overdueCount,
             stats: result.stats,
+            photoUrl: result.photoUrl,
           });
           const borrow = await send(waitingBook, result.student.student_no);
           setAwaitBookCode(null);
@@ -285,6 +289,7 @@ export default function ScanClient({
             activeLoans: result.activeLoans,
             overdueCount: result.overdueCount,
             stats: result.stats,
+            photoUrl: result.photoUrl,
           });
           setBanner(null);
           beep(result.overdueCount > 0 ? "warn" : "info");
@@ -559,13 +564,34 @@ export default function ScanClient({
           </div>
         ) : (
           <>
-            {/* 이름 · 학년 반 */}
-            <div className="flex flex-wrap items-end gap-x-4 gap-y-1 border-b border-slate-100 pb-4">
-              <p className="text-6xl leading-none font-black text-gia-navy">{student.student.name}</p>
-              <p className="text-2xl text-slate-400">
-                {[student.student.grade, student.student.class_name].filter(Boolean).join(" ")}
-              </p>
-              <p className="ml-auto text-sm text-slate-300">{holdLeft}초 후 자동 해제 · Esc</p>
+            {/* 사진 · 이름 · 학년 반 */}
+            <div className="flex items-end gap-5 border-b border-slate-100 pb-4">
+              {/*
+                사진을 함께 띄우는 이유: 카드를 바꿔 들고 오거나 친구 카드를 내미는 일이
+                생깁니다. 사서 선생님이 화면을 흘깃 보기만 해도 맞는 아이인지 알 수 있습니다.
+              */}
+              {student.photoUrl ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={student.photoUrl}
+                  alt=""
+                  className="h-28 w-[5.45rem] shrink-0 rounded-xl object-cover shadow-md ring-1 ring-slate-200"
+                />
+              ) : (
+                <div className="flex h-28 w-[5.45rem] shrink-0 items-center justify-center rounded-xl bg-slate-100 text-3xl text-slate-300">
+                  🙂
+                </div>
+              )}
+
+              <div className="flex min-w-0 flex-1 flex-wrap items-end gap-x-4 gap-y-1">
+                <p className="text-6xl leading-none font-black text-gia-navy">
+                  {student.student.name}
+                </p>
+                <p className="text-2xl text-slate-400">
+                  {[student.student.grade, student.student.class_name].filter(Boolean).join(" ")}
+                </p>
+                <p className="ml-auto text-sm text-slate-300">{holdLeft}초 후 자동 해제 · Esc</p>
+              </div>
             </div>
 
             {/* 독서 단계 + 이번 달 목표 - 한 권 더 읽고 싶어지도록 진행 막대로 보여줍니다 */}

@@ -4,6 +4,7 @@ import { createClient } from "@/lib/supabase/server";
 import { addDaysKst, addDaysToDate, overdueDays, todayKst } from "@/lib/dates";
 import { isIsbn, isItemCode, isStudentCode, normalizeScan } from "@/lib/scan";
 import { findActiveLoans, findBook, findStudent, getSettings } from "@/lib/server/library";
+import { getStudentPhotoUrls } from "@/lib/server/photos";
 import type {
   LibBookWithShelf,
   LibLoan,
@@ -82,12 +83,15 @@ export async function POST(request: Request) {
     const today = todayKst();
     const overdue = activeLoans.filter((loan) => overdueDays(loan.due_date, today) > 0).length;
 
+    const photos = await getStudentPhotoUrls(supabase, [student]);
+
     return NextResponse.json<ScanResult>({
       kind: "student",
       student,
       activeLoans,
       overdueCount: overdue,
       stats,
+      photoUrl: photos[student.student_no] ?? null,
       message: `${student.name} 학생 · 빌린 책 ${activeLoans.length}권`,
     });
   }
@@ -99,7 +103,7 @@ export async function POST(request: Request) {
     const like = `%${raw}%`;
     const { data } = await supabase
       .from("lib_students")
-      .select("id,student_no,name,name_en,grade,class_name,department,status")
+      .select("id,student_no,name,name_en,grade,class_name,department,status,photo_path")
       .or(`name.ilike.${like},name_en.ilike.${like}`)
       .eq("status", "active")
       .order("name", { ascending: true })
@@ -135,12 +139,14 @@ export async function POST(request: Request) {
       ]);
       const today = todayKst();
       const overdue = activeLoans.filter((loan) => overdueDays(loan.due_date, today) > 0).length;
+      const photos = await getStudentPhotoUrls(supabase, [student]);
       return NextResponse.json<ScanResult>({
         kind: "student",
         student,
         activeLoans,
         overdueCount: overdue,
         stats,
+        photoUrl: photos[student.student_no] ?? null,
         message: `${student.name} 학생 · 빌린 책 ${activeLoans.length}권`,
       });
     }

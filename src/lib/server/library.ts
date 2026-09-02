@@ -59,7 +59,7 @@ export async function findStudent(
 ): Promise<LibStudent | null> {
   const { data } = await supabase
     .from("lib_students")
-    .select("id,student_no,name,name_en,grade,class_name,department,status")
+    .select("id,student_no,name,name_en,grade,class_name,department,status,photo_path")
     .eq("student_no", studentNo)
     .maybeSingle();
   return (data as LibStudent | null) ?? null;

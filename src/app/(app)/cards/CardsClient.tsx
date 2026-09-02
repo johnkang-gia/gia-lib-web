@@ -3,6 +3,7 @@
 import { useMemo, useRef, useState } from "react";
 import StudentCard from "@/components/StudentCard";
 import { createClient } from "@/lib/supabase/client";
+import { formatDay } from "@/lib/dates";
 import type { LibSettings, LibStudent } from "@/lib/types";
 
 const TEXT_COLORS = ["#10203a", "#ffffff", "#0f766e", "#7c2d12", "#4c1d95"];
@@ -14,13 +15,18 @@ const TEXT_COLORS = ["#10203a", "#ffffff", "#0f766e", "#7c2d12", "#4c1d95"];
  *  · 학생 사진을 올려두면 사진이 들어간 카드로도 뽑을 수 있고, 빼고 이름만 뽑을 수도 있습니다
  *  · 반별로 한 번에 선택해 학기 초에 전교생 카드를 한 번에 뽑을 수 있습니다
  */
+export type IssueStatus = { count: number; last: string; reissue: number };
+
 export default function CardsClient({
   students,
   photos,
+  issued,
   settings,
 }: {
   students: LibStudent[];
   photos: Record<string, string>;
+  /** 학생별 발급 현황 - 몇 번 뽑았는지, 마지막이 언제인지. */
+  issued: Record<string, IssueStatus>;
   settings: LibSettings;
 }) {
   const supabase = createClient();
@@ -29,6 +35,11 @@ export default function CardsClient({
   const [keyword, setKeyword] = useState("");
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [photoMap, setPhotoMap] = useState(photos);
+  const [issuedMap, setIssuedMap] = useState(issued);
+  /** 목록을 어떤 눈으로 볼지 - 사진/발급 여부로 걸러 봅니다. */
+  const [view, setView] = useState<"전체" | "사진있음" | "사진없음" | "미발급" | "발급됨">("전체");
+  const [issueNote, setIssueNote] = useState("");
+  const [issueMsg, setIssueMsg] = useState<string | null>(null);
   const [bgUrl, setBgUrl] = useState(settings.card_bg_url);
   const [textColor, setTextColor] = useState(settings.card_text_color);
   const [withPhoto, setWithPhoto] = useState(settings.card_show_photo);
@@ -53,12 +64,23 @@ export default function CardsClient({
       if (department !== "전체" && s.department !== department) return false;
       const label = [s.grade, s.class_name].filter(Boolean).join(" ");
       if (className !== "전체" && label !== className) return false;
+
+      const hasPhoto = Boolean(photoMap[s.student_no]);
+      const wasIssued = Boolean(issuedMap[s.student_no]);
+      if (view === "사진있음" && !hasPhoto) return false;
+      if (view === "사진없음" && hasPhoto) return false;
+      if (view === "미발급" && wasIssued) return false;
+      if (view === "발급됨" && !wasIssued) return false;
+
       if (!kw) return true;
       return `${s.name} ${s.name_en ?? ""} ${s.student_no}`.toLowerCase().includes(kw);
     });
-  }, [students, department, className, keyword]);
+  }, [students, department, className, keyword, view, photoMap, issuedMap]);
 
   const allSelected = filtered.length > 0 && filtered.every((s) => selected.has(s.id));
+  /** 지금 목록에서 사진이 있어 바로 뽑을 수 있는 학생 수. */
+  const photoReady = filtered.filter((s) => photoMap[s.student_no]).length;
+  const noPhotoCount = filtered.length - photoReady;
   const selectedList = students.filter((s) => selected.has(s.id));
   const sample = selectedList[0] ?? filtered[0] ?? students[0];
 
@@ -78,6 +100,68 @@ export default function CardsClient({
       else next.add(id);
       return next;
     });
+  }
+
+  /**
+   * 사진이 있는 학생만 고릅니다.
+   *
+   * 요청: "사진있는 애들만 뽑을 수 있게 해주고 사진 없는 애들은 사진 넣으면 뽑을 수 있게".
+   * 사진 없는 카드가 섞여 나오면 그 아이만 다시 뽑아야 하고, 그 한 장 때문에 A4를 또 씁니다.
+   */
+  function selectWithPhoto() {
+    setSelected(new Set(filtered.filter((s) => photoMap[s.student_no]).map((s) => s.id)));
+  }
+
+  /**
+   * 방금 인쇄한 것을 발급 기록에 남깁니다.
+   * 처음 받는 학생은 '최초', 이미 받은 적 있으면 '재발급'으로 서버가 알아서 적습니다.
+   */
+  async function recordIssue() {
+    if (selectedList.length === 0) return;
+    setBusy("issue");
+    setError(null);
+    setIssueMsg(null);
+    try {
+      const res = await fetch("/api/cards/issue", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          studentNos: selectedList.map((s) => s.student_no),
+          note: issueNote,
+        }),
+      });
+      const json = (await res.json()) as {
+        recorded?: number;
+        first?: number;
+        reissued?: number;
+        error?: string;
+      };
+      if (!res.ok) throw new Error(json.error ?? "기록하지 못했습니다.");
+
+      // 화면에도 바로 반영합니다(새로고침 없이 체크 표시가 붙도록).
+      const now = new Date().toISOString();
+      setIssuedMap((prev) => {
+        const next = { ...prev };
+        for (const s of selectedList) {
+          const before = next[s.student_no];
+          next[s.student_no] = {
+            count: (before?.count ?? 0) + 1,
+            last: now,
+            reissue: (before?.reissue ?? 0) + (before ? 1 : 0),
+          };
+        }
+        return next;
+      });
+      setIssueMsg(
+        `${json.recorded ?? 0}명 발급 기록 완료` +
+          ((json.reissued ?? 0) > 0 ? ` (재발급 ${json.reissued}명)` : "")
+      );
+      setIssueNote("");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "기록하지 못했습니다.");
+    } finally {
+      setBusy(null);
+    }
   }
 
   /** 그림 파일을 Supabase 저장소에 올리고 공개 주소를 돌려줍니다. */
@@ -271,12 +355,34 @@ export default function CardsClient({
           placeholder="이름 · 고유번호 검색"
           className="w-56 rounded-lg border border-slate-300 px-3 py-2 text-sm"
         />
+        <select
+          value={view}
+          onChange={(e) => setView(e.target.value as typeof view)}
+          className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
+        >
+          <option value="전체">전체 보기</option>
+          <option value="사진있음">사진 있는 학생만</option>
+          <option value="사진없음">사진 없는 학생만</option>
+          <option value="미발급">아직 안 뽑은 학생만</option>
+          <option value="발급됨">이미 뽑은 학생만</option>
+        </select>
+
         <button
           type="button"
           onClick={toggleAll}
           className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium hover:bg-slate-50"
         >
-          {allSelected ? "이 목록 선택 해제" : `이 목록 전체 선택 (${filtered.length}명)`}
+          {allSelected ? "선택 해제" : `전체 선택 (${filtered.length}명)`}
+        </button>
+
+        <button
+          type="button"
+          onClick={selectWithPhoto}
+          disabled={photoReady === 0}
+          className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium hover:bg-slate-50 disabled:opacity-40"
+          title="사진이 없는 학생은 빼고 고릅니다"
+        >
+          📷 사진 있는 {photoReady}명만 선택
         </button>
 
         <button
@@ -294,6 +400,42 @@ export default function CardsClient({
         </button>
       </div>
 
+      {/* ── 인쇄한 뒤 발급 기록 ─────────────────────────────────────────── */}
+      {selectedList.length > 0 && (
+        <div className="flex flex-wrap items-center gap-2 rounded-2xl bg-slate-900 px-4 py-3 text-white">
+          <span className="text-sm">
+            인쇄를 마치셨으면 <b>발급 기록</b>을 남겨 주세요 — 누가 카드를 받았는지, 잃어버려
+            다시 뽑았는지가 남습니다.
+          </span>
+          <input
+            value={issueNote}
+            onChange={(e) => setIssueNote(e.target.value)}
+            placeholder="메모 (예: 분실 재발급)"
+            className="rounded-lg bg-white/10 px-3 py-1.5 text-sm text-white placeholder:text-white/40"
+          />
+          <button
+            type="button"
+            onClick={() => void recordIssue()}
+            disabled={busy === "issue"}
+            className="ml-auto rounded-lg bg-white px-4 py-2 text-sm font-bold text-slate-900 disabled:opacity-50"
+          >
+            {busy === "issue" ? "기록 중…" : `${selectedList.length}명 발급 기록하기`}
+          </button>
+        </div>
+      )}
+
+      {issueMsg && (
+        <p className="rounded-lg bg-emerald-50 px-3 py-2 text-sm text-emerald-800">{issueMsg}</p>
+      )}
+
+      {noPhotoCount > 0 && (view === "전체" || view === "사진없음") && (
+        <p className="rounded-lg bg-amber-50 px-4 py-3 text-sm leading-relaxed text-amber-900">
+          이 목록에서 <b>{noPhotoCount}명</b>은 아직 사진이 없어 카드를 뽑을 수 없습니다.
+          운영앱 학생 관리에서 사진을 올리면 바로 뽑을 수 있고, 사진 칸의 <b>+사진</b>을 눌러
+          도서관에서 직접 올릴 수도 있습니다.
+        </p>
+      )}
+
       <div className="overflow-hidden rounded-2xl bg-white shadow-sm ring-1 ring-slate-200">
         <table className="w-full text-sm">
           <thead className="bg-slate-50 text-left text-xs text-slate-500">
@@ -304,18 +446,28 @@ export default function CardsClient({
               <th className="px-3 py-2.5 font-semibold">이름</th>
               <th className="px-3 py-2.5 font-semibold">학년 / 반</th>
               <th className="px-3 py-2.5 font-semibold">부서</th>
+              <th className="px-3 py-2.5 font-semibold">발급</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100">
             {filtered.length === 0 && (
               <tr>
-                <td colSpan={6} className="px-4 py-12 text-center text-slate-400">
+                <td colSpan={7} className="px-4 py-12 text-center text-slate-400">
                   조건에 맞는 학생이 없습니다. 학생 명부는 운영앱(gia-ops)에서 관리합니다.
                 </td>
               </tr>
             )}
             {filtered.map((student) => (
-              <tr key={student.id} className={selected.has(student.id) ? "bg-blue-50/60" : undefined}>
+              <tr
+                key={student.id}
+                className={
+                  selected.has(student.id)
+                    ? "bg-blue-50/60"
+                    : photoMap[student.student_no]
+                      ? undefined
+                      : "bg-amber-50/40"
+                }
+              >
                 <td className="px-3 py-2">
                   <input
                     type="checkbox"
@@ -360,6 +512,25 @@ export default function CardsClient({
                   {[student.grade, student.class_name].filter(Boolean).join(" ") || "-"}
                 </td>
                 <td className="px-3 py-2 text-slate-500">{student.department ?? "-"}</td>
+                <td className="px-3 py-2">
+                  {issuedMap[student.student_no] ? (
+                    <span className="whitespace-nowrap text-xs">
+                      <span className="font-bold text-emerald-600">✓ 발급</span>
+                      {issuedMap[student.student_no].count > 1 && (
+                        <span className="ml-1 rounded bg-amber-100 px-1.5 py-0.5 font-bold text-amber-800">
+                          {issuedMap[student.student_no].count}번째
+                        </span>
+                      )}
+                      <span className="ml-1 block text-[11px] text-slate-400">
+                        {formatDay(issuedMap[student.student_no].last)}
+                      </span>
+                    </span>
+                  ) : photoMap[student.student_no] ? (
+                    <span className="text-xs text-slate-400">아직</span>
+                  ) : (
+                    <span className="text-xs text-amber-600">사진 필요</span>
+                  )}
+                </td>
               </tr>
             ))}
           </tbody>
