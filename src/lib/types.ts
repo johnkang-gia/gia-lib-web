@@ -115,6 +115,11 @@ export type LibStudent = {
   class_name: string | null;
   department: "유치부" | "초등부" | "중고등부" | null;
   status: "active" | "inactive";
+  /**
+   * 운영앱이 여권 규격으로 잘라 둔 학생 사진의 저장 경로(student-photos 버킷).
+   * 비공개 버킷이라 이 경로로 그때그때 서명 주소를 받아 씁니다.
+   */
+  photo_path?: string | null;
 };
 
 export type LibSettings = {

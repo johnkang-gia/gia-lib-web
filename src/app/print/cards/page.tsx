@@ -2,7 +2,8 @@ import PrintButton from "@/components/PrintButton";
 import StudentCard from "@/components/StudentCard";
 import { createClient } from "@/lib/supabase/server";
 import { getSettings } from "@/lib/server/library";
-import type { LibStudent, LibStudentPhoto } from "@/lib/types";
+import { getStudentPhotoUrls } from "@/lib/server/photos";
+import type { LibStudent } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
@@ -34,7 +35,7 @@ export default async function PrintCardsPage({
   if (idList.length > 0) {
     const { data } = await supabase
       .from("lib_students")
-      .select("id,student_no,name,name_en,grade,class_name,department,status")
+      .select("id,student_no,name,name_en,grade,class_name,department,status,photo_path")
       .in("id", idList);
     const order = new Map(idList.map((id, index) => [id, index]));
     students = ((data ?? []) as LibStudent[]).sort(
@@ -42,18 +43,9 @@ export default async function PrintCardsPage({
     );
   }
 
-  // 사진을 넣기로 했으면 등록된 사진 주소를 한 번에 불러옵니다.
-  const photos: Record<string, string> = {};
-  if (wantPhoto && students.length > 0) {
-    const { data } = await supabase
-      .from("lib_student_photos")
-      .select("*")
-      .in(
-        "student_no",
-        students.map((s) => s.student_no)
-      );
-    for (const row of (data ?? []) as LibStudentPhoto[]) photos[row.student_no] = row.url;
-  }
+  // 사진을 넣기로 했으면 주소를 한 번에 받아옵니다(비공개 버킷이라 서명 주소를 발급받습니다).
+  const photos =
+    wantPhoto && students.length > 0 ? await getStudentPhotoUrls(supabase, students) : {};
 
   const pages: LibStudent[][] = [];
   for (let i = 0; i < students.length; i += 10) {
