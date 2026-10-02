@@ -1,7 +1,8 @@
+import { CARD, type CardSize } from "@/lib/cardSize";
 import type { LibSettings } from "@/lib/types";
 
 /**
- * 학생 도서카드 **뒷면** (앞면과 같은 86 × 54mm).
+ * 학생 도서카드 **뒷면** (앞면과 같은 크기).
  *
  * 앞면만 뽑으면 뒤가 하얗게 남습니다. 코팅해서 아이가 들고 다니는 물건인데 한쪽이 백지면
  * 학교가 만든 물건처럼 보이지 않습니다.
@@ -14,6 +15,10 @@ import type { LibSettings } from "@/lib/types";
  *  · 주웠을 때 어디로 가져다 주면 되는지 - 카드는 반드시 잃어버립니다.
  *  · 앞면과 같은 남색·금색·문장. 접어서 코팅하면 앞뒤가 한 장처럼 보입니다.
  *
+ * 큰 카드에는 **이름을 적는 줄**이 하나 더 들어갑니다. 자리가 생겼기 때문이기도 하지만,
+ * 코팅 전에 아이가 제 이름을 적어 넣으면 그 카드는 '내 것'이 됩니다 - 잃어버려도 돌아올
+ * 확률이 조금 올라갑니다.
+ *
  * 바코드는 앞면에만 둡니다. 양쪽에 있으면 스캐너가 어느 쪽을 읽었는지 사람이 헷갈리고,
  * 카드를 뒤집어 찍는 습관이 생기면 사진 확인을 건너뛰게 됩니다.
  */
@@ -21,38 +26,38 @@ export default function StudentCardBack({
   libraryName,
   settings,
   preview = false,
-  /**
-   * 접이식으로 뽑을 때 **접히는 쪽 변**. 그 변의 모서리를 각지게 만듭니다.
-   * 둥근 모서리 두 개가 맞닿은 채로 접히면 카드 윗변에 흰 홈이 남습니다.
-   */
+  size = "normal",
   foldEdge,
 }: {
   libraryName: string;
   settings: Pick<LibSettings, "loan_days" | "max_books" | "max_renew" | "allow_renew">;
-  foldEdge?: "top" | "bottom" | null;
   preview?: boolean;
+  size?: CardSize;
+  /** 접이식으로 뽑을 때 접히는 쪽 변. 그 변의 모서리를 각지게 만듭니다. */
+  foldEdge?: "top" | "bottom" | null;
 }) {
+  const big = size === "large";
+  const dim = CARD[size];
+
+  const corner = big ? "4mm" : "3.2mm";
+  const radius =
+    foldEdge === "top"
+      ? `0 0 ${corner} ${corner}`
+      : foldEdge === "bottom"
+        ? `${corner} ${corner} 0 0`
+        : corner;
+
   const rules: { label: string; value: string }[] = [
     { label: "한 번에", value: `${settings.max_books}권` },
     { label: "빌리는 기간", value: `${settings.loan_days}일` },
-    {
-      label: "연장",
-      value: settings.allow_renew ? `${settings.max_renew}회까지` : "없음",
-    },
+    { label: "연장", value: settings.allow_renew ? `${settings.max_renew}회까지` : "없음" },
   ];
-
-  const radius =
-    foldEdge === "top"
-      ? "0 0 3.2mm 3.2mm"
-      : foldEdge === "bottom"
-        ? "3.2mm 3.2mm 0 0"
-        : "3.2mm";
 
   return (
     <div
       style={{
-        width: "86mm",
-        height: "54mm",
+        width: `${dim.w}mm`,
+        height: `${dim.h}mm`,
         borderRadius: radius,
         position: "relative",
         overflow: "hidden",
@@ -71,44 +76,58 @@ export default function StudentCardBack({
           top: 0,
           left: 0,
           right: 0,
-          height: "1.1mm",
+          height: big ? "1.4mm" : "1.1mm",
           background: "linear-gradient(90deg,#c6a15b 0%,#efe3c8 45%,#c6a15b 100%)",
         }}
       />
       <div
         style={{
           position: "absolute",
-          left: "-14mm",
-          bottom: "-12mm",
-          width: "52mm",
-          height: "52mm",
+          left: big ? "-18mm" : "-14mm",
+          bottom: big ? "-16mm" : "-12mm",
+          width: big ? "66mm" : "52mm",
+          height: big ? "66mm" : "52mm",
           borderRadius: "50%",
           background: "radial-gradient(circle,rgba(198,161,91,0.26) 0%,rgba(198,161,91,0) 70%)",
         }}
       />
-      {/* 가운데 큰 문장 - 뒷면은 글이 적어 여백이 넓습니다. */}
+      {/* 큰 문장 - 뒷면은 글이 적어 여백이 넓습니다. */}
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img
         src="/icon-512.png"
         alt=""
-        style={{
-          position: "absolute",
-          right: "-6mm",
-          top: "50%",
-          transform: "translateY(-50%)",
-          height: "44mm",
-          width: "auto",
-          filter: "brightness(0) invert(1)",
-          opacity: 0.07,
-          pointerEvents: "none",
-        }}
+        style={
+          big
+            ? {
+                position: "absolute",
+                left: "50%",
+                top: "52%",
+                transform: "translate(-50%,-50%)",
+                height: "62mm",
+                width: "auto",
+                filter: "brightness(0) invert(1)",
+                opacity: 0.06,
+                pointerEvents: "none",
+              }
+            : {
+                position: "absolute",
+                right: "-6mm",
+                top: "50%",
+                transform: "translateY(-50%)",
+                height: "44mm",
+                width: "auto",
+                filter: "brightness(0) invert(1)",
+                opacity: 0.07,
+                pointerEvents: "none",
+              }
+        }
       />
 
       <div
         style={{
           position: "relative",
           height: "100%",
-          padding: "4mm 5mm 3.4mm",
+          padding: big ? "5mm 6mm 4mm" : "4mm 5mm 3.4mm",
           display: "flex",
           flexDirection: "column",
           boxSizing: "border-box",
@@ -116,7 +135,7 @@ export default function StudentCardBack({
       >
         <div
           style={{
-            fontSize: "2.4mm",
+            fontSize: big ? "2.9mm" : "2.4mm",
             fontWeight: 800,
             letterSpacing: "0.3mm",
             color: "#efe3c8",
@@ -126,21 +145,37 @@ export default function StudentCardBack({
         </div>
         <div
           style={{
-            marginTop: "1.2mm",
+            marginTop: big ? "1.5mm" : "1.2mm",
             height: "0.25mm",
-            width: "14mm",
+            width: big ? "18mm" : "14mm",
             background: "rgba(198,161,91,0.7)",
           }}
         />
 
         {/* 규칙 세 줄 - 숫자가 커야 멀리서도 읽힙니다. */}
-        <div style={{ marginTop: "2.6mm", display: "flex", gap: "4.5mm" }}>
+        <div
+          style={{
+            marginTop: big ? "4mm" : "2.6mm",
+            display: "flex",
+            flexDirection: big ? "column" : "row",
+            gap: big ? "3.4mm" : "4.5mm",
+          }}
+        >
           {rules.map((rule) => (
-            <div key={rule.label}>
-              <div style={{ fontSize: "2mm", opacity: 0.55 }}>{rule.label}</div>
+            <div
+              key={rule.label}
+              style={
+                big
+                  ? { display: "flex", alignItems: "baseline", gap: "3mm" }
+                  : undefined
+              }
+            >
+              <div style={{ fontSize: big ? "2.6mm" : "2mm", opacity: 0.55, minWidth: big ? "20mm" : undefined }}>
+                {rule.label}
+              </div>
               <div
                 style={{
-                  fontSize: "4.4mm",
+                  fontSize: big ? "6.4mm" : "4.4mm",
                   fontWeight: 800,
                   lineHeight: 1.15,
                   color: "#ffffff",
@@ -155,24 +190,42 @@ export default function StudentCardBack({
 
         <div
           style={{
-            marginTop: "2.4mm",
-            fontSize: "2.1mm",
+            marginTop: big ? "4mm" : "2.4mm",
+            fontSize: big ? "2.6mm" : "2.1mm",
             lineHeight: 1.5,
             opacity: 0.62,
-            maxWidth: "56mm",
+            maxWidth: big ? "70mm" : "56mm",
           }}
         >
           연장은 책을 가지고 왔을 때만 됩니다. 빌린 책이 늦으면 새로 빌릴 수 없습니다.
         </div>
 
+        {/*
+          이름 적는 줄 - 큰 카드에만. 코팅하기 전에 아이가 제 이름을 적어 넣으면 그 카드는
+          '내 것'이 됩니다. 잃어버린 카드가 돌아올 확률이 조금 올라갑니다.
+        */}
+        {big && (
+          <div style={{ marginTop: "5mm" }}>
+            <div style={{ fontSize: "2.4mm", opacity: 0.5 }}>이름</div>
+            <div
+              style={{
+                marginTop: "4.5mm",
+                height: "0.3mm",
+                width: "100%",
+                background: "rgba(255,255,255,0.35)",
+              }}
+            />
+          </div>
+        )}
+
         <div style={{ marginTop: "auto", display: "flex", alignItems: "flex-end", gap: "2mm" }}>
           <div style={{ minWidth: 0, flex: 1 }}>
-            <div style={{ fontSize: "1.9mm", opacity: 0.45 }}>
+            <div style={{ fontSize: big ? "2.3mm" : "1.9mm", opacity: 0.45 }}>
               주우셨다면 아래로 전해 주세요
             </div>
             <div
               style={{
-                fontSize: "2.6mm",
+                fontSize: big ? "3.2mm" : "2.6mm",
                 fontWeight: 700,
                 color: "#efe3c8",
                 whiteSpace: "nowrap",
@@ -188,7 +241,7 @@ export default function StudentCardBack({
             src="/logo-main.png"
             alt="GIA"
             style={{
-              height: "4.2mm",
+              height: big ? "5mm" : "4.2mm",
               width: "auto",
               filter: "brightness(0) invert(1)",
               opacity: 0.85,

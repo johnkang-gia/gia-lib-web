@@ -1,19 +1,26 @@
 import Barcode from "@/components/Barcode";
+import { CARD, type CardSize } from "@/lib/cardSize";
 import type { LibStudent } from "@/lib/types";
 
 /**
- * 학생 도서카드 한 장 (신용카드 크기 86 × 54mm).
+ * 학생 도서카드 앞면.
  *
- * 요청: "학생이름 학년,반 그리고 고유코드와 연결되는 바코드, gia로고를 이용해서 멋있게" +
- * "나중에 이 바코드를 학생카드로 확장할거야".
+ * ── 크기가 두 가지인 이유 ──────────────────────────────────────────────────
+ * 처음에는 신용카드 크기(86 × 54mm)로 만들었습니다. 어른 기준으로는 지갑에 들어가는 그 크기가
+ * 맞는데, 쓰는 사람이 초등학생이라 가방 안에서 사라집니다. 그래서 **두 장을 위아래로 붙인
+ * 크기**(86 × 108mm)를 더했습니다. 세로로 길어지면서 목걸이 줄을 달기도, 책에 꽂아 두기도
+ * 좋아집니다.
  *
- * ── 설계에서 신경 쓴 것 ────────────────────────────────────────────────────
+ * 큰 카드는 작은 카드를 그냥 확대한 것이 아닙니다. 가로로 넓던 카드를 세로로 세우면 사진과
+ * 이름이 나란히 설 자리가 없어집니다. 그래서 큰 카드는 **사진을 가운데 위에, 이름을 그 아래**에
+ * 두는 증명서 모양으로 다시 짰습니다.
+ *
+ * ── 어느 크기든 지키는 것 ──────────────────────────────────────────────────
  * ① 바코드가 전부입니다. 이 카드로 나중에 출결·행사입장·물품대여까지 하려면, 무엇보다 잘
  *    읽혀야 합니다. 그래서 바코드는 언제나 흰 바탕 위에, 카드 아래쪽 가로 전체를 씁니다.
  *    무늬 위나 어두운 색 위에 바로 얹으면 스캐너가 못 읽습니다. 좌우 여백(quiet zone)도
  *    넉넉히 둡니다.
  * ② 아이가 자기 카드를 한눈에 알아봐야 합니다. 그래서 사진과 이름이 가장 큽니다.
- *    반은 그 아래 작게 — 학년이 바뀌어도 카드를 다시 뽑을지 말지는 학교가 정하면 됩니다.
  * ③ 학교 물건처럼 보여야 합니다. GIA 남색과 금색, 로고, 그리고 위쪽의 얇은 금색 띠로
  *    '학교가 발급한 증'이라는 느낌을 냅니다.
  *
@@ -27,10 +34,7 @@ export default function StudentCard({
   photoUrl,
   showPhoto = false,
   preview = false,
-  /**
-   * 접이식으로 뽑을 때 **접히는 쪽 변**. 그 변의 모서리를 각지게 만듭니다.
-   * 둥근 모서리 두 개가 맞닿은 채로 접히면 카드 윗변에 흰 홈이 남습니다.
-   */
+  size = "normal",
   foldEdge,
 }: {
   student: Pick<LibStudent, "student_no" | "name" | "name_en" | "grade" | "class_name">;
@@ -38,27 +42,36 @@ export default function StudentCard({
   bgUrl?: string | null;
   textColor?: string;
   photoUrl?: string | null;
-  foldEdge?: "top" | "bottom" | null;
   showPhoto?: boolean;
   /** 화면 미리보기용 - 인쇄 시트가 아니라 단독으로 보여줄 때 그림자를 넣습니다. */
   preview?: boolean;
+  size?: CardSize;
+  /**
+   * 접이식으로 뽑을 때 **접히는 쪽 변**. 그 변의 모서리를 각지게 만듭니다.
+   * 둥근 모서리 두 개가 맞닿은 채로 접히면 카드 윗변에 흰 홈이 남습니다.
+   */
+  foldEdge?: "top" | "bottom" | null;
 }) {
   const cls = [student.grade, student.class_name].filter(Boolean).join(" ");
   const withPhoto = showPhoto && Boolean(photoUrl);
   const onImage = Boolean(bgUrl);
   const ink = onImage ? textColor : "#ffffff";
+  const big = size === "large";
+  const dim = CARD[size];
+
+  const corner = big ? "4mm" : "3.2mm";
   const radius =
     foldEdge === "top"
-      ? "0 0 3.2mm 3.2mm"
+      ? `0 0 ${corner} ${corner}`
       : foldEdge === "bottom"
-        ? "3.2mm 3.2mm 0 0"
-        : "3.2mm";
+        ? `${corner} ${corner} 0 0`
+        : corner;
 
   return (
     <div
       style={{
-        width: "86mm",
-        height: "54mm",
+        width: `${dim.w}mm`,
+        height: `${dim.h}mm`,
         borderRadius: radius,
         position: "relative",
         overflow: "hidden",
@@ -92,42 +105,56 @@ export default function StudentCard({
               top: 0,
               left: 0,
               right: 0,
-              height: "1.1mm",
+              height: big ? "1.4mm" : "1.1mm",
               background: "linear-gradient(90deg,#c6a15b 0%,#efe3c8 45%,#c6a15b 100%)",
             }}
           />
-          {/* 오른쪽 아래로 흐르는 옅은 빛 - 남색 단색이 밋밋해 보이지 않게. */}
+          {/* 오른쪽 위에서 흐르는 옅은 빛 - 남색 단색이 밋밋해 보이지 않게. */}
           <div
             style={{
               position: "absolute",
-              right: "-14mm",
-              top: "-10mm",
-              width: "52mm",
-              height: "52mm",
+              right: big ? "-18mm" : "-14mm",
+              top: big ? "-14mm" : "-10mm",
+              width: big ? "66mm" : "52mm",
+              height: big ? "66mm" : "52mm",
               borderRadius: "50%",
               background: "radial-gradient(circle,rgba(198,161,91,0.30) 0%,rgba(198,161,91,0) 70%)",
             }}
           />
           {/*
-            오른쪽에 크게 얹는 로고 워터마크.
-            이름·사진이 왼쪽에 몰려 있어 오른쪽이 비는데, 여기를 글자로 채우면 지저분해집니다.
-            아주 옅은 문장(紋章) 하나가 여백을 '의도한 여백'으로 만들어 줍니다.
+            로고 워터마크.
+            작은 카드는 이름·사진이 왼쪽에 몰려 오른쪽이 비므로 그쪽에, 큰 카드는 가운데가
+            사진으로 차므로 아래쪽에 크게 깝니다. 아주 옅은 문장(紋章) 하나가 여백을 '의도한
+            여백'으로 만들어 줍니다.
           */}
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
             src="/icon-512.png"
             alt=""
-            style={{
-              position: "absolute",
-              right: "3mm",
-              top: "6.5mm",
-              height: "27mm",
-              width: "auto",
-              // 문장만 있는 그림이라 크게 키워도 글자가 겹쳐 보이지 않습니다.
-              filter: "brightness(0) invert(1)",
-              opacity: 0.1,
-              pointerEvents: "none",
-            }}
+            style={
+              big
+                ? {
+                    position: "absolute",
+                    left: "50%",
+                    bottom: "14mm",
+                    transform: "translateX(-50%)",
+                    height: "52mm",
+                    width: "auto",
+                    filter: "brightness(0) invert(1)",
+                    opacity: 0.07,
+                    pointerEvents: "none",
+                  }
+                : {
+                    position: "absolute",
+                    right: "3mm",
+                    top: "6.5mm",
+                    height: "27mm",
+                    width: "auto",
+                    filter: "brightness(0) invert(1)",
+                    opacity: 0.1,
+                    pointerEvents: "none",
+                  }
+            }
           />
         </>
       )}
@@ -136,7 +163,7 @@ export default function StudentCard({
         style={{
           position: "relative",
           height: "100%",
-          padding: "3.4mm 4mm 3mm",
+          padding: big ? "4.2mm 5mm 3.4mm" : "3.4mm 4mm 3mm",
           display: "flex",
           flexDirection: "column",
           boxSizing: "border-box",
@@ -144,24 +171,31 @@ export default function StudentCard({
         }}
       >
         {/* ── 머리: 로고 + 카드 이름 ───────────────────────────────────── */}
-        <div style={{ display: "flex", alignItems: "center", gap: "2mm" }}>
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: big ? "2.4mm" : "2mm",
+            justifyContent: big ? "center" : "flex-start",
+          }}
+        >
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
             src="/logo-main.png"
             alt="GIA"
             style={{
-              height: "4.6mm",
+              height: big ? "5mm" : "4.6mm",
               width: "auto",
               // 남색 배경에서는 로고를 흰색으로 뒤집어 얹습니다.
               filter: onImage ? "none" : "brightness(0) invert(1)",
               opacity: onImage ? 0.9 : 1,
             }}
           />
-          <div style={{ width: "0.25mm", height: "3.6mm", background: ink, opacity: 0.3 }} />
+          <div style={{ width: "0.25mm", height: big ? "4mm" : "3.6mm", background: ink, opacity: 0.3 }} />
           <div style={{ minWidth: 0 }}>
             <div
               style={{
-                fontSize: "2.5mm",
+                fontSize: big ? "2.8mm" : "2.5mm",
                 fontWeight: 800,
                 letterSpacing: "0.35mm",
                 color: onImage ? ink : "#efe3c8",
@@ -170,99 +204,191 @@ export default function StudentCard({
             >
               LIBRARY CARD
             </div>
-            <div style={{ fontSize: "1.9mm", opacity: 0.65, marginTop: "0.2mm", whiteSpace: "nowrap" }}>
+            <div
+              style={{
+                fontSize: big ? "2.1mm" : "1.9mm",
+                opacity: 0.65,
+                marginTop: "0.2mm",
+                whiteSpace: "nowrap",
+              }}
+            >
               {libraryName}
             </div>
           </div>
         </div>
 
-        {/* ── 몸통: 사진 + 이름/반 ─────────────────────────────────────── */}
-        <div
-          style={{
-            flex: 1,
-            display: "flex",
-            alignItems: "center",
-            gap: "3.4mm",
-            marginTop: "2mm",
-            minHeight: 0,
-          }}
-        >
-          {withPhoto && (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img
-              src={photoUrl as string}
-              alt=""
-              style={{
-                // 여권 규격(35:45)과 같은 비율로 잘라 넣습니다.
-                width: "19mm",
-                height: "24.4mm",
-                objectFit: "cover",
-                borderRadius: "1.6mm",
-                flexShrink: 0,
-                border: "0.35mm solid rgba(255,255,255,0.9)",
-                boxShadow: "0 0.4mm 1.2mm rgba(0,0,0,0.25)",
-                background: "#e2e8f0",
-              }}
-            />
-          )}
+        {/* ── 몸통 ─────────────────────────────────────────────────────── */}
+        {big ? (
+          /* 큰 카드: 사진이 가운데 위, 이름이 그 아래. 증명서 모양입니다. */
+          <div
+            style={{
+              flex: 1,
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "center",
+              justifyContent: "center",
+              gap: "2.4mm",
+              minHeight: 0,
+              paddingTop: "2mm",
+            }}
+          >
+            {withPhoto && (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={photoUrl as string}
+                alt=""
+                style={{
+                  // 여권 규격(35:45)과 같은 비율.
+                  width: "40mm",
+                  height: "51.4mm",
+                  objectFit: "cover",
+                  borderRadius: "2mm",
+                  flexShrink: 0,
+                  border: "0.4mm solid rgba(255,255,255,0.9)",
+                  boxShadow: "0 0.5mm 1.6mm rgba(0,0,0,0.28)",
+                  background: "#e2e8f0",
+                }}
+              />
+            )}
 
-          <div style={{ minWidth: 0, flex: 1 }}>
-            <div
-              style={{
-                fontSize: withPhoto ? "7.4mm" : "9mm",
-                fontWeight: 900,
-                lineHeight: 1.02,
-                letterSpacing: "-0.15mm",
-                whiteSpace: "nowrap",
-                overflow: "hidden",
-                textOverflow: "ellipsis",
-              }}
-            >
-              {student.name}
-            </div>
-
-            {student.name_en && (
+            <div style={{ minWidth: 0, width: "100%", textAlign: "center" }}>
               <div
                 style={{
-                  fontSize: "2.4mm",
-                  opacity: 0.7,
-                  marginTop: "0.6mm",
+                  fontSize: withPhoto ? "10mm" : "14mm",
+                  fontWeight: 900,
+                  lineHeight: 1.02,
+                  letterSpacing: "-0.2mm",
                   whiteSpace: "nowrap",
                   overflow: "hidden",
                   textOverflow: "ellipsis",
                 }}
               >
-                {student.name_en}
+                {student.name}
               </div>
+
+              {student.name_en && (
+                <div
+                  style={{
+                    fontSize: "2.9mm",
+                    opacity: 0.7,
+                    marginTop: "0.8mm",
+                    whiteSpace: "nowrap",
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                  }}
+                >
+                  {student.name_en}
+                </div>
+              )}
+
+              {cls && (
+                <div
+                  style={{
+                    display: "inline-block",
+                    marginTop: "1.8mm",
+                    fontSize: "3.1mm",
+                    fontWeight: 700,
+                    padding: "0.9mm 2.6mm",
+                    borderRadius: "1.4mm",
+                    background: onImage ? "rgba(15,27,51,0.08)" : "rgba(255,255,255,0.14)",
+                    border: `0.2mm solid ${onImage ? "rgba(15,27,51,0.15)" : "rgba(239,227,200,0.35)"}`,
+                    color: onImage ? ink : "#efe3c8",
+                  }}
+                >
+                  {cls}
+                </div>
+              )}
+            </div>
+          </div>
+        ) : (
+          /* 작은 카드: 사진과 이름이 나란히. */
+          <div
+            style={{
+              flex: 1,
+              display: "flex",
+              alignItems: "center",
+              gap: "3.4mm",
+              marginTop: "2mm",
+              minHeight: 0,
+            }}
+          >
+            {withPhoto && (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={photoUrl as string}
+                alt=""
+                style={{
+                  width: "19mm",
+                  height: "24.4mm",
+                  objectFit: "cover",
+                  borderRadius: "1.6mm",
+                  flexShrink: 0,
+                  border: "0.35mm solid rgba(255,255,255,0.9)",
+                  boxShadow: "0 0.4mm 1.2mm rgba(0,0,0,0.25)",
+                  background: "#e2e8f0",
+                }}
+              />
             )}
 
-            {cls && (
+            <div style={{ minWidth: 0, flex: 1 }}>
               <div
                 style={{
-                  display: "inline-block",
-                  marginTop: "1.4mm",
-                  fontSize: "2.6mm",
-                  fontWeight: 700,
-                  padding: "0.7mm 2mm",
-                  borderRadius: "1.2mm",
-                  background: onImage ? "rgba(15,27,51,0.08)" : "rgba(255,255,255,0.14)",
-                  border: `0.2mm solid ${onImage ? "rgba(15,27,51,0.15)" : "rgba(239,227,200,0.35)"}`,
-                  color: onImage ? ink : "#efe3c8",
+                  fontSize: withPhoto ? "7.4mm" : "9mm",
+                  fontWeight: 900,
+                  lineHeight: 1.02,
+                  letterSpacing: "-0.15mm",
+                  whiteSpace: "nowrap",
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
                 }}
               >
-                {cls}
+                {student.name}
               </div>
-            )}
+
+              {student.name_en && (
+                <div
+                  style={{
+                    fontSize: "2.4mm",
+                    opacity: 0.7,
+                    marginTop: "0.6mm",
+                    whiteSpace: "nowrap",
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                  }}
+                >
+                  {student.name_en}
+                </div>
+              )}
+
+              {cls && (
+                <div
+                  style={{
+                    display: "inline-block",
+                    marginTop: "1.4mm",
+                    fontSize: "2.6mm",
+                    fontWeight: 700,
+                    padding: "0.7mm 2mm",
+                    borderRadius: "1.2mm",
+                    background: onImage ? "rgba(15,27,51,0.08)" : "rgba(255,255,255,0.14)",
+                    border: `0.2mm solid ${onImage ? "rgba(15,27,51,0.15)" : "rgba(239,227,200,0.35)"}`,
+                    color: onImage ? ink : "#efe3c8",
+                  }}
+                >
+                  {cls}
+                </div>
+              )}
+            </div>
           </div>
-        </div>
+        )}
 
         {/* ── 발: 바코드 (카드에서 가장 중요한 부분) ───────────────────── */}
         <div
           style={{
             background: "#fff",
-            borderRadius: "1.4mm",
+            borderRadius: big ? "1.8mm" : "1.4mm",
             // 좌우 여백은 스캐너가 바코드의 시작과 끝을 알아보는 데 필요합니다.
-            padding: "1mm 2.5mm 0.6mm",
+            padding: big ? "1.3mm 3mm 0.8mm" : "1mm 2.5mm 0.6mm",
+            marginTop: big ? "2.4mm" : 0,
             display: "flex",
             justifyContent: "center",
             lineHeight: 0,
@@ -270,9 +396,9 @@ export default function StudentCard({
         >
           <Barcode
             value={student.student_no}
-            moduleWidth={withPhoto ? 0.92 : 1.0}
-            height={withPhoto ? 26 : 30}
-            fontSize={8}
+            moduleWidth={big ? 1.15 : withPhoto ? 0.92 : 1.0}
+            height={big ? 36 : withPhoto ? 26 : 30}
+            fontSize={big ? 10 : 8}
           />
         </div>
       </div>

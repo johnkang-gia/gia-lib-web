@@ -3,6 +3,7 @@
 import { useMemo, useRef, useState } from "react";
 import StudentCard from "@/components/StudentCard";
 import StudentCardBack from "@/components/StudentCardBack";
+import { CARD, computeLayout, type CardSize, type Orientation, type PaperName } from "@/lib/cardSize";
 import { createClient } from "@/lib/supabase/client";
 import { formatDay } from "@/lib/dates";
 import type { LibSettings, LibStudent } from "@/lib/types";
@@ -60,6 +61,15 @@ export default function CardsClient({
    */
   const [fold, setFold] = useState(true);
   /**
+   * 카드 크기.
+   *
+   * 기본을 큰 카드로 둡니다. 쓰는 사람이 초등학생이라 신용카드 크기는 가방 안에서
+   * 사라집니다 - 잃어버린 카드를 다시 뽑는 일이 종이값보다 비쌉니다.
+   */
+  const [size, setSize] = useState<CardSize>("large");
+  const [paper, setPaper] = useState<PaperName>("A4");
+  const [orient, setOrient] = useState<Orientation>("portrait");
+  /**
    * 사진을 넣을지. 저장된 설정이 꺼져 있어도 **사진이 준비된 학생이 있으면 켠 채로 시작**합니다.
    * 이 설정은 사진 기능이 생기기 전에 만들어진 것이라 기본값이 '꺼짐'이었고, 그 탓에 사진을
    * 다 올려놓고도 이름만 인쇄되는 일이 있었습니다.
@@ -101,11 +111,18 @@ export default function CardsClient({
     });
   }, [students, department, className, keyword, view, photoMap, issuedMap]);
 
+  // 한 장에 몇 명분이 들어가는지 - 종이를 몇 장 쓸지 고르기 전에 보여줍니다.
+  const layout = computeLayout({ size, paper, orientation: orient, fold });
+  const sheetCapacity = layout.perPage;
+
   const allSelected = filtered.length > 0 && filtered.every((s) => selected.has(s.id));
   /** 지금 목록에서 사진이 있어 바로 뽑을 수 있는 학생 수. */
   const photoReady = filtered.filter((s) => photoMap[s.student_no]).length;
   const noPhotoCount = filtered.length - photoReady;
   const selectedList = students.filter((s) => selected.has(s.id));
+  // 접이식은 한 장에 앞뒤가 함께 나오고, 양면은 앞면 시트와 뒷면 시트가 따로 나옵니다.
+  const sheetsNeeded =
+    Math.ceil(selectedList.length / sheetCapacity) * (fold ? 1 : 2);
   const sample = selectedList[0] ?? filtered[0] ?? students[0];
 
   function toggleAll() {
@@ -288,6 +305,91 @@ export default function CardsClient({
               </button>
             </div>
 
+            {/* 카드 크기 */}
+            <div className="mt-4 inline-flex rounded-xl bg-slate-100 p-1 text-sm">
+              {(["normal", "large"] as CardSize[]).map((key) => (
+                <button
+                  key={key}
+                  type="button"
+                  onClick={() => {
+                    setSize(key);
+                    // 큰 카드를 고르는 순간 지금 방향에 안 들어갈 수 있습니다. 사람이 왜
+                    // 인쇄가 막혔는지 찾게 두지 않고 들어가는 방향으로 돌려줍니다.
+                    if (!computeLayout({ size: key, paper, orientation: orient, fold }).fits) {
+                      const other: Orientation = orient === "portrait" ? "landscape" : "portrait";
+                      if (computeLayout({ size: key, paper, orientation: other, fold }).fits) {
+                        setOrient(other);
+                      }
+                    }
+                  }}
+                  title={CARD[key].hint}
+                  className={`rounded-lg px-4 py-1.5 font-semibold transition ${
+                    size === key
+                      ? "bg-white text-slate-900 shadow-sm"
+                      : "text-slate-500 hover:text-slate-700"
+                  }`}
+                >
+                  {CARD[key].label}
+                </button>
+              ))}
+            </div>
+            <p className="mt-1.5 text-xs text-slate-400">{CARD[size].hint}</p>
+
+            {/* 용지 */}
+            <div className="mt-3 flex flex-wrap items-center gap-2">
+              <div className="inline-flex rounded-xl bg-slate-100 p-1 text-sm">
+                {(["A4", "A3"] as PaperName[]).map((key) => (
+                  <button
+                    key={key}
+                    type="button"
+                    onClick={() => setPaper(key)}
+                    className={`rounded-lg px-3.5 py-1.5 font-semibold transition ${
+                      paper === key
+                        ? "bg-white text-slate-900 shadow-sm"
+                        : "text-slate-500 hover:text-slate-700"
+                    }`}
+                  >
+                    {key}
+                  </button>
+                ))}
+              </div>
+              <div className="inline-flex rounded-xl bg-slate-100 p-1 text-sm">
+                {([
+                  { key: "portrait", label: "세로" },
+                  { key: "landscape", label: "가로" },
+                ] as { key: Orientation; label: string }[]).map((o) => (
+                  <button
+                    key={o.key}
+                    type="button"
+                    onClick={() => setOrient(o.key)}
+                    disabled={!computeLayout({ size, paper, orientation: o.key, fold }).fits}
+                    className={`rounded-lg px-3.5 py-1.5 font-semibold transition ${
+                      orient === o.key
+                        ? "bg-white text-slate-900 shadow-sm"
+                        : "text-slate-500 hover:text-slate-700"
+                    } disabled:opacity-35`}
+                    title={
+                      computeLayout({ size, paper, orientation: o.key, fold }).fits
+                        ? undefined
+                        : "이 크기는 이 방향 용지에 들어가지 않습니다"
+                    }
+                  >
+                    {o.label}
+                  </button>
+                ))}
+              </div>
+              {layout.fits ? (
+                <span className="text-xs text-slate-500">
+                  한 장에 <b className="text-slate-700">{sheetCapacity}명분</b>
+                  {selectedList.length > 0 && ` · 선택한 ${selectedList.length}명이면 ${sheetsNeeded}장`}
+                </span>
+              ) : (
+                <span className="text-xs font-semibold text-amber-700">
+                  이 조합은 용지에 들어가지 않습니다 — 방향을 바꾸거나 A3로 해주세요
+                </span>
+              )}
+            </div>
+
             {/* 앞뒤 뽑는 방식 - 뒤가 백지로 남지 않게. */}
             <div className="mt-3 inline-flex rounded-xl bg-slate-100 p-1 text-sm">
               <button
@@ -402,12 +504,14 @@ export default function CardsClient({
                 textColor={textColor}
                 photoUrl={photoMap[sample.student_no] ?? null}
                 showPhoto={withPhoto}
+                size={size}
                 preview
               />
               <p className="mt-3 mb-2 text-center text-xs font-semibold text-slate-400">뒷면</p>
               <StudentCardBack
                 libraryName={settings.library_name}
                 settings={settings}
+                size={size}
                 preview
               />
             </div>
@@ -475,13 +579,14 @@ export default function CardsClient({
 
         <button
           type="button"
-          disabled={selectedList.length === 0}
+          disabled={selectedList.length === 0 || !layout.fits}
           onClick={() =>
             window.open(
               `/print/cards?ids=${selectedList.map((s) => s.id).join(",")}` +
                 (withPhoto ? "&photo=1" : "") +
                 (useBg ? "&bg=1" : "") +
-                (fold ? "" : "&layout=flat"),
+                (fold ? "" : "&layout=flat") +
+                `&size=${size}&paper=${paper}&orient=${orient}`,
               "_blank"
             )
           }

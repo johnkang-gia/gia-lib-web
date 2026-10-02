@@ -5,6 +5,14 @@ import { createClient } from "@/lib/supabase/server";
 import { getSettings } from "@/lib/server/library";
 import { getStudentPhotoUrls } from "@/lib/server/photos";
 import { loadStudentsForCards } from "@/lib/server/students";
+import {
+  CARD,
+  computeLayout,
+  type CardSize,
+  type Layout,
+  type Orientation,
+  type PaperName,
+} from "@/lib/cardSize";
 import type { LibSettings, LibStudent } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -13,22 +21,28 @@ export const dynamic = "force-dynamic";
  * 학생 도서카드 인쇄 화면.
  *
  * ── 앞뒤를 어떻게 만드는가 ────────────────────────────────────────────────
- * 앞면만 뽑으면 뒤가 하얗게 남습니다. 뒷면까지 남색으로 만들려면 방법이 셋인데, 학교 프린터
- * 하나로 할 수 있는 것은 사실상 두 가지입니다.
+ * 앞면만 뽑으면 뒤가 하얗게 남습니다. 뒷면까지 남색으로 만들려면 방법이 둘입니다.
  *
  *   · **접이식**(기본) — 한 장에 뒷면과 앞면을 위아래로 붙여 뽑고, 가운데를 접어 코팅합니다.
  *     앞뒤 위치가 어긋날 수가 없습니다. 접히는 자리가 카드의 **윗변**이 되므로 자른 자국이
- *     세 변에만 남고, 종이가 두 겹이라 카드가 빳빳합니다. A4 한 장에 4명분.
- *   · **양면 인쇄** — 앞면 시트와 뒷면 시트를 따로 뽑습니다. A4 한 장에 10명분이라 종이가
- *     적게 들지만, 양면 인쇄는 앞뒤가 1~2mm 어긋나는 일이 흔하고 잘라 보면 티가 납니다.
- *     뒷면 시트는 좌우를 뒤집어 배치해 두었습니다(종이를 뒤집어 다시 넣는 방식 기준).
+ *     세 변에만 남고, 종이가 두 겹이라 카드가 빳빳합니다.
+ *   · **양면 인쇄** — 앞면 시트와 뒷면 시트를 따로 뽑습니다. 종이가 적게 들지만, 양면 인쇄는
+ *     앞뒤가 1~2mm 어긋나는 일이 흔하고 잘라 보면 티가 납니다. 뒷면 시트는 좌우를 뒤집어
+ *     배치해 두었습니다(종이를 뒤집어 다시 넣는 방식 기준).
  *
  * 접이식을 기본으로 둔 이유는 어긋날 일이 없어서입니다. 처음 만드는 사람이 실패하지 않는
  * 쪽을 기본으로 둡니다.
+ *
+ * ── 크기와 용지 ───────────────────────────────────────────────────────────
+ * 카드는 일반(86 × 54mm)과 큰 카드(86 × 108mm) 두 가지, 용지는 A4·A3를 세로·가로로 쓸 수
+ * 있습니다. 한 장에 몇 명분이 들어가는지는 계산해서 정합니다 - 열여섯 가지 조합을 손으로
+ * 적어두면 그중 하나는 반드시 틀리고, 틀린 쪽은 인쇄해 보기 전까지 아무도 모릅니다.
  */
 
-/** 접힌 변 모서리를 둥글게 자를 때 쓰는 반지름. 앞면 바깥 모서리(3.2mm)와 맞춥니다. */
-const FOLD_CORNER_R = 3.2;
+/** 접힌 변 모서리를 둥글게 자를 때 쓰는 반지름(mm). 바깥 모서리와 맞춥니다. */
+function cornerRadius(size: CardSize) {
+  return size === "large" ? 4 : 3.2;
+}
 
 /**
  * 접는 선 양 끝 네 곳에 그리는 4분원 자르기 안내선.
@@ -43,12 +57,19 @@ const FOLD_CORNER_R = 3.2;
 function CornerGuide({
   side,
   above,
+  size,
+  foldY,
+  cardW,
 }: {
   side: "left" | "right";
   /** 접는 선 위쪽(뒷면 칸)인지. */
   above: boolean;
+  size: CardSize;
+  /** 접는 선의 위치(조각 위에서부터, mm). */
+  foldY: number;
+  cardW: number;
 }) {
-  const r = FOLD_CORNER_R;
+  const r = cornerRadius(size);
   // 이 상자(r × r) 안에서 **카드 모서리**가 어느 꼭짓점인지 잡습니다.
   const cornerX = side === "left" ? 0 : r;
   const cornerY = above ? r : 0;
@@ -66,18 +87,13 @@ function CornerGuide({
       viewBox={`0 0 ${r} ${r}`}
       style={{
         position: "absolute",
-        top: above ? `calc(54mm - ${r}mm)` : "54mm",
-        left: side === "left" ? "0mm" : `calc(86mm - ${r}mm)`,
+        top: above ? `${foldY - r}mm` : `${foldY}mm`,
+        left: side === "left" ? "0mm" : `${cardW - r}mm`,
         pointerEvents: "none",
         overflow: "visible",
       }}
     >
-      <path
-        d={d}
-        fill="none"
-        stroke="rgba(15,27,51,0.5)"
-        strokeWidth={0.55}
-      />
+      <path d={d} fill="none" stroke="rgba(15,27,51,0.5)" strokeWidth={0.55} />
       <path
         d={d}
         fill="none"
@@ -98,6 +114,7 @@ function FoldPiece({
   showPhoto,
   bgUrl,
   textColor,
+  size,
 }: {
   student: LibStudent;
   settings: LibSettings;
@@ -106,15 +123,17 @@ function FoldPiece({
   showPhoto: boolean;
   bgUrl: string | null;
   textColor: string;
+  size: CardSize;
 }) {
+  const dim = CARD[size];
   return (
-    <div style={{ position: "relative", width: "86mm", height: "108mm" }}>
+    <div style={{ position: "relative", width: `${dim.w}mm`, height: `${dim.h * 2}mm` }}>
       {/*
         위 칸은 뒷면을 **180도 돌려서** 넣습니다. 가운데를 접어 뒤로 넘기면 그때 바로 서기
         때문입니다. 돌리지 않으면 뒷면 글씨가 거꾸로 선 카드가 나옵니다.
       */}
       <div style={{ transform: "rotate(180deg)", transformOrigin: "center" }}>
-        <StudentCardBack libraryName={libraryName} settings={settings} foldEdge="top" />
+        <StudentCardBack libraryName={libraryName} settings={settings} size={size} foldEdge="top" />
       </div>
       <StudentCard
         student={student}
@@ -123,15 +142,16 @@ function FoldPiece({
         textColor={textColor}
         photoUrl={photoUrl}
         showPhoto={showPhoto}
+        size={size}
         foldEdge="top"
       />
       {/* 접는 자리 표시 - 카드 바깥 여백에만 찍혀서 완성품에는 남지 않습니다. */}
-      {[-3.5, 86].map((left) => (
+      {[-3.5, dim.w].map((left) => (
         <span
           key={left}
           style={{
             position: "absolute",
-            top: "54mm",
+            top: `${dim.h}mm`,
             left: `${left}mm`,
             width: "3.5mm",
             height: "0.2mm",
@@ -139,21 +159,18 @@ function FoldPiece({
           }}
         />
       ))}
-
-      {/*
-        접히는 쪽 모서리를 둥글게 자르기 위한 안내선.
-
-        접힌 변(카드 윗변)의 두 모서리는 종이가 두 겹입니다. 접은 **뒤에** 두 겹을 함께
-        잘라야 앞뒤가 똑같이 둥글어집니다 - 접기 전에 각각 자르면 반드시 어긋납니다.
-        그래서 그 자리 색을 모서리 끝까지 채워 두었고(잘라도 흰 종이가 드러나지 않습니다),
-        어디를 자르면 되는지만 옅은 점선으로 표시합니다. 안내선을 따라 자르면 선도 함께
-        떨어져 나갑니다. 코너 라운더(모서리 펀치)가 있으면 그걸로 눌러도 됩니다.
-      */}
       {(["left", "right"] as const).map((side) => (
-        <CornerGuide key={`above-${side}`} side={side} above />
+        <CornerGuide key={`above-${side}`} side={side} above size={size} foldY={dim.h} cardW={dim.w} />
       ))}
       {(["left", "right"] as const).map((side) => (
-        <CornerGuide key={`below-${side}`} side={side} above={false} />
+        <CornerGuide
+          key={`below-${side}`}
+          side={side}
+          above={false}
+          size={size}
+          foldY={dim.h}
+          cardW={dim.w}
+        />
       ))}
     </div>
   );
@@ -162,15 +179,28 @@ function FoldPiece({
 export default async function PrintCardsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ ids?: string; photo?: string; bg?: string; layout?: string }>;
+  searchParams: Promise<{
+    ids?: string;
+    photo?: string;
+    bg?: string;
+    layout?: string;
+    size?: string;
+    paper?: string;
+    orient?: string;
+  }>;
 }) {
-  const { ids, photo, bg, layout } = await searchParams;
-  const idList = (ids ?? "").split(",").map((v) => v.trim()).filter(Boolean);
-  const wantPhoto = photo === "1";
+  const sp = await searchParams;
+  const idList = (sp.ids ?? "").split(",").map((v) => v.trim()).filter(Boolean);
+  const wantPhoto = sp.photo === "1";
   // 배경 그림은 골랐을 때만 씁니다(bg=1). 예전에 올려둔 그림 한 장이 새 GIA 디자인을 조용히
   // 덮어 버리던 문제 때문입니다.
-  const useBackground = bg === "1";
-  const fold = layout !== "flat";
+  const useBackground = sp.bg === "1";
+  const fold = sp.layout !== "flat";
+  const size: CardSize = sp.size === "large" ? "large" : "normal";
+  const paper: PaperName = sp.paper === "A3" ? "A3" : "A4";
+  const orientation: Orientation = sp.orient === "landscape" ? "landscape" : "portrait";
+
+  const lay: Layout = computeLayout({ size, paper, orientation, fold });
 
   const supabase = await createClient();
   const settings = await getSettings(supabase);
@@ -190,11 +220,9 @@ export default async function PrintCardsPage({
   const photos =
     wantPhoto && students.length > 0 ? await getStudentPhotoUrls(supabase, students) : {};
 
-  const perPage = fold ? 4 : 10;
-  const columns = 2;
   const pages: LibStudent[][] = [];
-  for (let i = 0; i < students.length; i += perPage) {
-    pages.push(students.slice(i, i + perPage));
+  for (let i = 0; i < students.length; i += lay.perPage) {
+    pages.push(students.slice(i, i + lay.perPage));
   }
 
   const missingPhoto = wantPhoto ? students.filter((s) => !photos[s.student_no]).length : 0;
@@ -203,44 +231,61 @@ export default async function PrintCardsPage({
   /** 종이를 뒤집어 다시 넣는 양면 인쇄에 맞도록 각 줄의 좌우를 바꿉니다. */
   function mirrored(page: LibStudent[]) {
     const out: LibStudent[] = [];
-    for (let i = 0; i < page.length; i += columns) {
-      out.push(...page.slice(i, i + columns).reverse());
+    for (let i = 0; i < page.length; i += lay.cols) {
+      out.push(...page.slice(i, i + lay.cols).reverse());
     }
     return out;
   }
 
   const sheetStyle = {
-    width: "210mm",
-    minHeight: "297mm",
-    padding: fold ? "12mm 14mm" : "12mm 14mm",
+    width: `${lay.pageW}mm`,
+    minHeight: `${lay.pageH}mm`,
+    padding: `${10}mm`,
     display: "grid",
-    gridTemplateColumns: "86mm 86mm",
-    gridAutoRows: fold ? "108mm" : "54mm",
-    columnGap: "10mm",
-    rowGap: fold ? "10mm" : "0mm",
+    gridTemplateColumns: `repeat(${lay.cols}, ${lay.pieceW}mm)`,
+    gridAutoRows: `${lay.pieceH}mm`,
+    justifyContent: "center",
+    columnGap: `${lay.columnGap}mm`,
+    rowGap: `${lay.rowGap}mm`,
     breakAfter: "page",
   } as const;
 
   return (
     <div className="min-h-screen bg-slate-100 py-6">
+      {/*
+        용지 크기는 브라우저 인쇄 설정이 아니라 문서가 정합니다. 사람이 매번 A3로 바꾸는 것을
+        잊으면 A3용으로 짠 배치가 A4에 눌려 들어가 전부 작아집니다.
+      */}
+      <style>{`@page { size: ${lay.pageRule}; margin: 0; }`}</style>
+
+      {!lay.fits && (
+        <p className="no-print mx-auto mb-6 max-w-[210mm] rounded-xl bg-amber-50 px-5 py-4 text-sm leading-relaxed text-amber-900 ring-1 ring-amber-200">
+          <b>{CARD[size].label}</b>를 접이식으로 뽑으려면 한 조각이{" "}
+          {CARD[size].h * 2}mm인데 {paper} {orientation === "landscape" ? "가로" : "세로"}는 그만큼
+          길지 않습니다. 용지를 <b>{orientation === "landscape" ? "세로" : "가로"}</b>로 돌리거나
+          A3로 바꿔주세요.
+        </p>
+      )}
+
       <div className="no-print mx-auto mb-6 max-w-[210mm] rounded-xl bg-white p-4 text-sm shadow-sm">
         <div className="flex items-center justify-between gap-4">
           <div>
             <p className="font-bold">
-              도서카드 {students.length}장 · A4 {sheetCount}장
+              도서카드 {students.length}장 · {paper} {orientation === "landscape" ? "가로" : "세로"}{" "}
+              {sheetCount}장 · {CARD[size].label}
               {wantPhoto ? " · 사진 포함" : ""} · {fold ? "접이식(앞뒤 한 장)" : "양면(따로 두 장)"}
             </p>
             <p className="mt-1 text-xs leading-relaxed text-slate-500">
               인쇄 설정에서 <b>배율 100%(실제 크기)</b>, <b>여백 없음</b>, 그리고{" "}
               <b>&lsquo;배경 그래픽&rsquo;</b>을 켜주세요. 두꺼운 종이(160~200g)가 알맞습니다.
+              용지는 <b>{paper}</b>로 맞춰져 있습니다(한 장에 {lay.perPage}명분).
             </p>
             {fold ? (
               <p className="mt-1 text-xs leading-relaxed text-slate-500">
                 자른 뒤 <b>가운데 표시선을 따라 반으로 접고</b>(뒷면이 뒤로 가게), 접힌 쪽
                 모서리 두 곳을 <b>점선을 따라 둥글게</b> 잘라주세요. 접은 상태에서 두 겹을 함께
-                잘라야 앞뒤가 똑같이 둥글어집니다. 모서리 색이 끝까지 채워져 있어 잘라도 흰
-                종이가 드러나지 않고, 안내선도 함께 떨어져 나갑니다. 그다음 코팅하면 네 모서리가
-                모두 둥근 앞뒤 남색 카드가 됩니다.
+                잘라야 앞뒤가 똑같이 둥글어집니다. 그다음 코팅하면 네 모서리가 모두 둥근 앞뒤
+                남색 카드가 됩니다.
               </p>
             ) : (
               <p className="mt-1 text-xs leading-relaxed text-slate-500">
@@ -273,6 +318,7 @@ export default async function PrintCardsPage({
                   showPhoto={wantPhoto}
                   bgUrl={useBackground ? settings.card_bg_url : null}
                   textColor={settings.card_text_color}
+                  size={size}
                 />
               ) : (
                 <StudentCard
@@ -283,6 +329,7 @@ export default async function PrintCardsPage({
                   textColor={settings.card_text_color}
                   photoUrl={photos[student.student_no] ?? null}
                   showPhoto={wantPhoto}
+                  size={size}
                 />
               )
             )}
@@ -296,6 +343,7 @@ export default async function PrintCardsPage({
                   key={`back-${student.id}`}
                   libraryName={settings.library_name}
                   settings={settings}
+                  size={size}
                 />
               ))}
             </div>
