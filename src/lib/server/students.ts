@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { LibStudent } from "@/lib/types";
+import { withDepartment } from "@/lib/department";
 
 /** 사진 경로까지 포함한 전체 칸. */
 const FULL = "id,student_no,name,name_en,grade,class_name,department,status,photo_path";
@@ -26,8 +27,8 @@ export async function loadStudentsForCards(supabase: SupabaseClient): Promise<Li
       .order("student_no", { ascending: true });
 
   const { data, error } = await query(FULL);
-  if (!error) return (data ?? []) as unknown as LibStudent[];
+  if (!error) return withDepartment((data ?? []) as unknown as LibStudent[]);
 
   const { data: basic } = await query(BASIC);
-  return (basic ?? []) as unknown as LibStudent[];
+  return withDepartment((basic ?? []) as unknown as LibStudent[]);
 }

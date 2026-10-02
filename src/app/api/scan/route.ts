@@ -5,6 +5,7 @@ import { addDaysKst, addDaysToDate, overdueDays, todayKst } from "@/lib/dates";
 import { isIsbn, isItemCode, isStudentCode, normalizeScan } from "@/lib/scan";
 import { findActiveLoans, findBook, findStudent, getSettings } from "@/lib/server/library";
 import { getStudentPhotoUrls } from "@/lib/server/photos";
+import { withDepartment } from "@/lib/department";
 import type {
   LibBookWithShelf,
   LibLoan,
@@ -109,7 +110,7 @@ export async function POST(request: Request) {
       .eq("status", "active")
       .order("name", { ascending: true })
       .limit(12);
-    const found = (data ?? []) as LibStudent[];
+    const found = withDepartment((data ?? []) as LibStudent[]);
 
     // 학생 이름으로 안 나오면 책 제목·지은이로 찾아봅니다.
     // 요청: "책검색은 메인페이지에서 가능하게 해주고" - 메인 화면 입력칸 하나로 학생도 책도

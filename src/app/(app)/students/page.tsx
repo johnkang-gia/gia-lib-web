@@ -2,6 +2,7 @@ import StudentsClient from "./StudentsClient";
 import { createClient } from "@/lib/supabase/server";
 import { todayKst } from "@/lib/dates";
 import type { LibStudent, StudentStat } from "@/lib/types";
+import { withDepartment } from "@/lib/department";
 
 export const dynamic = "force-dynamic";
 
@@ -34,5 +35,5 @@ export default async function StudentsPage() {
     }
   }
 
-  return <StudentsClient students={(students ?? []) as LibStudent[]} stats={stats} />;
+  return <StudentsClient students={withDepartment((students ?? []) as LibStudent[])} stats={stats} />;
 }

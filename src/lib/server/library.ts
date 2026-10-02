@@ -10,6 +10,7 @@ import {
   type LibStudent,
 } from "@/lib/types";
 import { isItemCode, isbnVariants, normalizeIsbn } from "@/lib/scan";
+import { withDepartment } from "@/lib/department";
 
 /**
  * 목록 화면과 스캔 처리에서 공통으로 쓰는 책 컬럼.
@@ -62,7 +63,9 @@ export async function findStudent(
     .select("id,student_no,name,name_en,grade,class_name,department,status,photo_path")
     .eq("student_no", studentNo)
     .maybeSingle();
-  return (data as LibStudent | null) ?? null;
+  const row = (data as LibStudent | null) ?? null;
+  // 부서는 운영앱과 같은 규칙으로(@/lib/department). 명부 칸을 그대로 쓰면 두 앱이 다른 부서를 말합니다.
+  return row ? withDepartment([row])[0] : null;
 }
 
 /** 한 학생이 지금 빌리고 있는 책들(반납예정일 빠른 순). */
