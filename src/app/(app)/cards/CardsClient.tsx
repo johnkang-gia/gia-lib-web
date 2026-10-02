@@ -418,6 +418,7 @@ export default function CardsClient({
               {layout.fits ? (
                 <span className="text-xs text-slate-500">
                   한 장에 <b className="text-slate-700">{sheetCapacity}명분</b>
+                  {layout.mixed && " (일부는 눕혀서)"}
                   {selectedList.length > 0 && ` · 선택한 ${selectedList.length}명이면 ${sheetsNeeded}장`}
                 </span>
               ) : (

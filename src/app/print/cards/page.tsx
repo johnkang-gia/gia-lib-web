@@ -12,6 +12,7 @@ import {
   type Layout,
   type Orientation,
   type PaperName,
+  type Slot,
 } from "@/lib/cardSize";
 import type { LibSettings, LibStudent } from "@/lib/types";
 
@@ -146,14 +147,14 @@ function FoldPiece({
         foldEdge="top"
       />
       {/* 접는 자리 표시 - 카드 바깥 여백에만 찍혀서 완성품에는 남지 않습니다. */}
-      {[-3.5, dim.w].map((left) => (
+      {[-2, dim.w].map((left) => (
         <span
           key={left}
           style={{
             position: "absolute",
             top: `${dim.h}mm`,
             left: `${left}mm`,
-            width: "3.5mm",
+            width: "2mm",
             height: "0.2mm",
             background: "#94a3b8",
           }}
@@ -220,35 +221,69 @@ export default async function PrintCardsPage({
   const photos =
     wantPhoto && students.length > 0 ? await getStudentPhotoUrls(supabase, students) : {};
 
+  const perPage = Math.max(1, lay.perPage);
   const pages: LibStudent[][] = [];
-  for (let i = 0; i < students.length; i += lay.perPage) {
-    pages.push(students.slice(i, i + lay.perPage));
+  for (let i = 0; i < students.length; i += perPage) {
+    pages.push(students.slice(i, i + perPage));
   }
 
   const missingPhoto = wantPhoto ? students.filter((s) => !photos[s.student_no]).length : 0;
   const sheetCount = fold ? pages.length : pages.length * 2;
 
-  /** 종이를 뒤집어 다시 넣는 양면 인쇄에 맞도록 각 줄의 좌우를 바꿉니다. */
-  function mirrored(page: LibStudent[]) {
-    const out: LibStudent[] = [];
-    for (let i = 0; i < page.length; i += lay.cols) {
-      out.push(...page.slice(i, i + lay.cols).reverse());
-    }
-    return out;
+  /**
+   * 뒷면 시트는 종이를 뒤집어 다시 넣는 것에 맞춰 **좌우를 뒤집어** 놓습니다.
+   * 자리마다 짝이 맞아야 하므로, 자리의 x를 종이 기준으로 뒤집은 순서로 학생을 배치합니다.
+   */
+  function backOrder(page: LibStudent[]) {
+    const inner = lay.pageW - lay.margin * 2;
+    const flipped = lay.slots.map((slot, index) => ({
+      index,
+      key: [
+        slot.y,
+        inner - (slot.x + (slot.rotated ? lay.pieceH : lay.pieceW)),
+      ] as [number, number],
+    }));
+    flipped.sort((a, b) => a.key[0] - b.key[0] || a.key[1] - b.key[1]);
+    return flipped.map((f) => page[f.index]).filter(Boolean);
   }
 
   const sheetStyle = {
+    position: "relative",
     width: `${lay.pageW}mm`,
-    minHeight: `${lay.pageH}mm`,
-    padding: `${10}mm`,
-    display: "grid",
-    gridTemplateColumns: `repeat(${lay.cols}, ${lay.pieceW}mm)`,
-    gridAutoRows: `${lay.pieceH}mm`,
-    justifyContent: "center",
-    columnGap: `${lay.columnGap}mm`,
-    rowGap: `${lay.rowGap}mm`,
+    height: `${lay.pageH}mm`,
     breakAfter: "page",
+    overflow: "hidden",
   } as const;
+
+  /** 조각 하나를 종이 위 제자리에 놓습니다. 눕힌 자리는 90도 돌려 넣습니다. */
+  function Place({ slot, children }: { slot: Slot; children: React.ReactNode }) {
+    return (
+      <div
+        style={{
+          position: "absolute",
+          left: `${lay.margin + slot.x}mm`,
+          top: `${lay.margin + slot.y}mm`,
+          width: `${slot.rotated ? lay.pieceH : lay.pieceW}mm`,
+          height: `${slot.rotated ? lay.pieceW : lay.pieceH}mm`,
+        }}
+      >
+        <div
+          style={
+            slot.rotated
+              ? {
+                  width: `${lay.pieceW}mm`,
+                  height: `${lay.pieceH}mm`,
+                  transformOrigin: "top left",
+                  transform: `translateX(${lay.pieceH}mm) rotate(90deg)`,
+                }
+              : undefined
+          }
+        >
+          {children}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-slate-100 py-6">
@@ -279,6 +314,12 @@ export default async function PrintCardsPage({
               인쇄 설정에서 <b>배율 100%(실제 크기)</b>, <b>여백 없음</b>, 그리고{" "}
               <b>&lsquo;배경 그래픽&rsquo;</b>을 켜주세요. 두꺼운 종이(160~200g)가 알맞습니다.
               용지는 <b>{paper}</b>로 맞춰져 있습니다(한 장에 {lay.perPage}명분).
+              {lay.mixed && (
+                <>
+                  {" "}종이를 아끼려고 일부 조각은 <b>옆으로 눕혀</b> 넣었습니다. 자르는 선은
+                  모두 직선이라 재단기로 그대로 자르실 수 있습니다.
+                </>
+              )}
             </p>
             {fold ? (
               <p className="mt-1 text-xs leading-relaxed text-slate-500">
@@ -307,44 +348,45 @@ export default async function PrintCardsPage({
         <div key={`sheet-${pageIndex}`}>
           {/* ── 앞면(접이식이면 뒷면까지 한 조각) ─────────────────────── */}
           <div className="print-sheet mx-auto mb-6 bg-white shadow-sm" style={sheetStyle}>
-            {page.map((student) =>
-              fold ? (
-                <FoldPiece
-                  key={student.id}
-                  student={student}
-                  settings={settings}
-                  libraryName={settings.library_name}
-                  photoUrl={photos[student.student_no] ?? null}
-                  showPhoto={wantPhoto}
-                  bgUrl={useBackground ? settings.card_bg_url : null}
-                  textColor={settings.card_text_color}
-                  size={size}
-                />
-              ) : (
-                <StudentCard
-                  key={student.id}
-                  student={student}
-                  libraryName={settings.library_name}
-                  bgUrl={useBackground ? settings.card_bg_url : null}
-                  textColor={settings.card_text_color}
-                  photoUrl={photos[student.student_no] ?? null}
-                  showPhoto={wantPhoto}
-                  size={size}
-                />
-              )
-            )}
+            {page.map((student, i) => (
+              <Place key={student.id} slot={lay.slots[i]}>
+                {fold ? (
+                  <FoldPiece
+                    student={student}
+                    settings={settings}
+                    libraryName={settings.library_name}
+                    photoUrl={photos[student.student_no] ?? null}
+                    showPhoto={wantPhoto}
+                    bgUrl={useBackground ? settings.card_bg_url : null}
+                    textColor={settings.card_text_color}
+                    size={size}
+                  />
+                ) : (
+                  <StudentCard
+                    student={student}
+                    libraryName={settings.library_name}
+                    bgUrl={useBackground ? settings.card_bg_url : null}
+                    textColor={settings.card_text_color}
+                    photoUrl={photos[student.student_no] ?? null}
+                    showPhoto={wantPhoto}
+                    size={size}
+                  />
+                )}
+              </Place>
+            ))}
           </div>
 
           {/* ── 뒷면 시트(양면 인쇄일 때만) ───────────────────────────── */}
           {!fold && (
             <div className="print-sheet mx-auto mb-6 bg-white shadow-sm" style={sheetStyle}>
-              {mirrored(page).map((student) => (
-                <StudentCardBack
-                  key={`back-${student.id}`}
-                  libraryName={settings.library_name}
-                  settings={settings}
-                  size={size}
-                />
+              {backOrder(page).map((student, i) => (
+                <Place key={`back-${student.id}`} slot={lay.slots[i]}>
+                  <StudentCardBack
+                    libraryName={settings.library_name}
+                    settings={settings}
+                    size={size}
+                  />
+                </Place>
               ))}
             </div>
           )}
