@@ -37,7 +37,8 @@ export default function StudentCard({
   size = "normal",
   foldEdge,
 }: {
-  student: Pick<LibStudent, "student_no" | "name" | "name_en" | "grade" | "class_name">;
+  /** 카드에 들어가는 것은 고유번호·이름뿐입니다(학년·반은 해마다 바뀌어 넣지 않습니다). */
+  student: Pick<LibStudent, "student_no" | "name" | "name_en">;
   libraryName: string;
   bgUrl?: string | null;
   textColor?: string;
@@ -52,7 +53,14 @@ export default function StudentCard({
    */
   foldEdge?: "top" | "bottom" | null;
 }) {
-  const cls = [student.grade, student.class_name].filter(Boolean).join(" ");
+  /*
+    학년·반은 카드에 넣지 않습니다.
+
+    카드는 한 번 뽑으면 **졸업할 때까지** 쓰는 물건입니다. 그런데 학년과 반은 해마다 바뀝니다.
+    카드에 적어 두면 해가 바뀔 때마다 전교생 카드를 다시 뽑아야 하고, 안 뽑으면 틀린 반이 적힌
+    카드를 들고 다니게 됩니다. 반이 필요한 자리(대출 창구)에서는 카드를 찍는 순간 화면에
+    지금 반이 뜹니다 - 종이에 굳혀 둘 이유가 없습니다.
+  */
   const withPhoto = showPhoto && Boolean(photoUrl);
   const onImage = Boolean(bgUrl);
   const ink = onImage ? textColor : "#ffffff";
@@ -184,20 +192,27 @@ export default function StudentCard({
             src="/logo-main.png"
             alt="GIA"
             style={{
-              height: big ? "5mm" : "4.6mm",
+              height: big ? "6.6mm" : "4.6mm",
               width: "auto",
               // 남색 배경에서는 로고를 흰색으로 뒤집어 얹습니다.
               filter: onImage ? "none" : "brightness(0) invert(1)",
               opacity: onImage ? 0.9 : 1,
             }}
           />
-          <div style={{ width: "0.25mm", height: big ? "4mm" : "3.6mm", background: ink, opacity: 0.3 }} />
+          <div
+            style={{
+              width: "0.25mm",
+              height: big ? "5.4mm" : "3.6mm",
+              background: ink,
+              opacity: 0.3,
+            }}
+          />
           <div style={{ minWidth: 0 }}>
             <div
               style={{
-                fontSize: big ? "2.8mm" : "2.5mm",
+                fontSize: big ? "3.6mm" : "2.5mm",
                 fontWeight: 800,
-                letterSpacing: "0.35mm",
+                letterSpacing: big ? "0.45mm" : "0.35mm",
                 color: onImage ? ink : "#efe3c8",
                 whiteSpace: "nowrap",
               }}
@@ -206,7 +221,7 @@ export default function StudentCard({
             </div>
             <div
               style={{
-                fontSize: big ? "2.1mm" : "1.9mm",
+                fontSize: big ? "2.5mm" : "1.9mm",
                 opacity: 0.65,
                 marginTop: "0.2mm",
                 whiteSpace: "nowrap",
@@ -227,9 +242,10 @@ export default function StudentCard({
               flexDirection: "column",
               alignItems: "center",
               justifyContent: "center",
-              gap: "2.4mm",
+              gap: "3.4mm",
               minHeight: 0,
-              paddingTop: "2mm",
+              // 머리글과 사진이 붙어 보이던 것을 벌립니다.
+              paddingTop: "6mm",
             }}
           >
             {withPhoto && (
@@ -239,8 +255,8 @@ export default function StudentCard({
                 alt=""
                 style={{
                   // 여권 규격(35:45)과 같은 비율.
-                  width: "40mm",
-                  height: "51.4mm",
+                  width: "35mm",
+                  height: "45mm",
                   objectFit: "cover",
                   borderRadius: "2mm",
                   flexShrink: 0,
@@ -281,23 +297,6 @@ export default function StudentCard({
                 </div>
               )}
 
-              {cls && (
-                <div
-                  style={{
-                    display: "inline-block",
-                    marginTop: "1.8mm",
-                    fontSize: "3.1mm",
-                    fontWeight: 700,
-                    padding: "0.9mm 2.6mm",
-                    borderRadius: "1.4mm",
-                    background: onImage ? "rgba(15,27,51,0.08)" : "rgba(255,255,255,0.14)",
-                    border: `0.2mm solid ${onImage ? "rgba(15,27,51,0.15)" : "rgba(239,227,200,0.35)"}`,
-                    color: onImage ? ink : "#efe3c8",
-                  }}
-                >
-                  {cls}
-                </div>
-              )}
             </div>
           </div>
         ) : (
@@ -360,23 +359,6 @@ export default function StudentCard({
                 </div>
               )}
 
-              {cls && (
-                <div
-                  style={{
-                    display: "inline-block",
-                    marginTop: "1.4mm",
-                    fontSize: "2.6mm",
-                    fontWeight: 700,
-                    padding: "0.7mm 2mm",
-                    borderRadius: "1.2mm",
-                    background: onImage ? "rgba(15,27,51,0.08)" : "rgba(255,255,255,0.14)",
-                    border: `0.2mm solid ${onImage ? "rgba(15,27,51,0.15)" : "rgba(239,227,200,0.35)"}`,
-                    color: onImage ? ink : "#efe3c8",
-                  }}
-                >
-                  {cls}
-                </div>
-              )}
             </div>
           </div>
         )}

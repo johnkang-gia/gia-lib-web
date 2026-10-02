@@ -403,6 +403,12 @@ export default function ScanClient({
   // 독서 단계·이번 달 목표·응원 문구 (요청: "독서를 더 하고싶고 재미있게 할 수 있는 요소")
   const level = readingLevel(student?.stats.total ?? 0);
   const goal = monthlyProgress(student?.stats.month ?? 0);
+  // 해마다 읽은 권수 - 오래된 해부터.
+  const years = student
+    ? Object.entries(student.stats.byYear ?? {}).sort((a, b) => a[0].localeCompare(b[0]))
+    : [];
+  const yearMax = Math.max(1, ...years.map(([, n]) => n));
+
   const filledCategories = student
     ? CATEGORIES.filter((cat) => (student.stats.byCategory[cat.key] ?? 0) > 0).length
     : 0;
@@ -714,6 +720,29 @@ export default function ScanClient({
                   </div>
                 ))}
               </div>
+
+              {/*
+                해마다 몇 권을 읽었는지.
+
+                카드는 한 번 뽑으면 졸업할 때까지 같은 것을 씁니다. 그러면 기록도 졸업까지
+                이어져야 합니다. 누적 한 숫자만 보여주면 "3학년 때 몇 권 읽었더라"를 알 수
+                없고, 해마다 늘어나는 막대를 보는 것이 아이에게도 훨씬 재미있습니다.
+              */}
+              {years.length > 1 && (
+                <div className="rounded-2xl bg-slate-50 px-4 py-3">
+                  <p className="mb-2 text-xs font-bold text-slate-500">해마다 읽은 책</p>
+                  <div className="space-y-1.5">
+                    {years.map(([y, n]) => (
+                      <div key={y} className="flex items-center gap-2">
+                        <span className="w-10 shrink-0 font-mono text-xs text-slate-400">{y}</span>
+                        <span className="h-2.5 min-w-[2px] rounded-full bg-gia-gold"
+                          style={{ width: `${Math.round((n / yearMax) * 100)}%` }} />
+                        <span className="shrink-0 text-xs font-bold text-slate-600">{n}권</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
 
               <p className="mt-auto text-center text-base font-semibold text-gia-navy">{cheer}</p>
             </div>

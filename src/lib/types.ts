@@ -137,6 +137,19 @@ export type LibSettings = {
   card_text_color: string;
   /** 도서카드에 학생 사진을 넣을지. */
   card_show_photo: boolean;
+  /**
+   * 도서카드 뒷면 문구.
+   *
+   * 카드는 한 번 뽑으면 졸업할 때까지 씁니다. 그 사이에 규칙도 문구도 바뀌는데, 바뀔 것이
+   * 분명한 글을 코드에 두면 바뀌는 날 아무도 못 고칩니다. 그래서 학교가 직접 고칩니다.
+   */
+  card_back_title: string;
+  card_back_note: string;
+  card_back_found: string;
+  /** 규칙 세 줄(권수·기간·연장)을 뒷면에 넣을지. */
+  card_back_show_rules: boolean;
+  /** 이름 적는 줄을 넣을지(큰 카드). */
+  card_back_name_line: boolean;
   /** 마지막으로 확정한 도서정리 기준(예: '대상-분류-작가'). */
   plan_rule: string | null;
   /** 그 계획을 확정한 시각. */
@@ -164,6 +177,11 @@ export const DEFAULT_SETTINGS: LibSettings = {
   card_bg_url: null,
   card_text_color: "#10203a",
   card_show_photo: false,
+  card_back_title: "도서관 이용 안내",
+  card_back_note: "연장은 책을 가지고 왔을 때만 됩니다. 빌린 책이 늦으면 새로 빌릴 수 없습니다.",
+  card_back_found: "주우셨다면 아래로 전해 주세요",
+  card_back_show_rules: true,
+  card_back_name_line: true,
   plan_rule: null,
   plan_made_at: null,
   updated_at: "",
@@ -183,6 +201,13 @@ export type ReadingStats = {
   byCategory: Record<string, number>;
   /** 영어책을 몇 권 읽었는지(국제학교라 따로 셉니다). */
   englishCount: number;
+  /**
+   * 해마다 몇 권을 빌렸는지(2026: 31, 2027: 44 …).
+   *
+   * 카드는 졸업할 때까지 같은 것을 씁니다. 그러면 기록도 졸업까지 이어져야 합니다. 누적
+   * 한 숫자만 보여주면 "6학년 때 몇 권 읽었더라"를 알 수 없습니다.
+   */
+  byYear: Record<string, number>;
 };
 
 /** 학생별 이용 통계 - 지금 빌린 권수 / 그중 연체 / 누적 대출 횟수. */

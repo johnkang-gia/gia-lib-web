@@ -30,7 +30,18 @@ export default function StudentCardBack({
   foldEdge,
 }: {
   libraryName: string;
-  settings: Pick<LibSettings, "loan_days" | "max_books" | "max_renew" | "allow_renew">;
+  settings: Pick<
+    LibSettings,
+    | "loan_days"
+    | "max_books"
+    | "max_renew"
+    | "allow_renew"
+    | "card_back_title"
+    | "card_back_note"
+    | "card_back_found"
+    | "card_back_show_rules"
+    | "card_back_name_line"
+  >;
   preview?: boolean;
   size?: CardSize;
   /** 접이식으로 뽑을 때 접히는 쪽 변. 그 변의 모서리를 각지게 만듭니다. */
@@ -46,6 +57,16 @@ export default function StudentCardBack({
       : foldEdge === "bottom"
         ? `${corner} ${corner} 0 0`
         : corner;
+
+  // 문구는 학교가 설정에서 고칩니다. 값이 아직 없는 DB(그 SQL 적용 전)에서도 빈 카드가
+  // 나오지 않도록 기본 문구를 받쳐 둡니다.
+  const title = settings.card_back_title?.trim() || "도서관 이용 안내";
+  const note =
+    settings.card_back_note?.trim() ||
+    "연장은 책을 가지고 왔을 때만 됩니다. 빌린 책이 늦으면 새로 빌릴 수 없습니다.";
+  const found = settings.card_back_found?.trim() || "주우셨다면 아래로 전해 주세요";
+  const showRules = settings.card_back_show_rules !== false;
+  const nameLine = settings.card_back_name_line !== false;
 
   const rules: { label: string; value: string }[] = [
     { label: "한 번에", value: `${settings.max_books}권` },
@@ -141,7 +162,7 @@ export default function StudentCardBack({
             color: "#efe3c8",
           }}
         >
-          도서관 이용 안내
+          {title}
         </div>
         <div
           style={{
@@ -152,7 +173,8 @@ export default function StudentCardBack({
           }}
         />
 
-        {/* 규칙 세 줄 - 숫자가 커야 멀리서도 읽힙니다. */}
+        {/* 규칙 세 줄 - 숫자가 커야 멀리서도 읽힙니다. 설정에서 뺄 수도 있습니다. */}
+        {showRules && (
         <div
           style={{
             marginTop: big ? "4mm" : "2.6mm",
@@ -187,6 +209,7 @@ export default function StudentCardBack({
             </div>
           ))}
         </div>
+        )}
 
         <div
           style={{
@@ -197,14 +220,14 @@ export default function StudentCardBack({
             maxWidth: big ? "70mm" : "56mm",
           }}
         >
-          연장은 책을 가지고 왔을 때만 됩니다. 빌린 책이 늦으면 새로 빌릴 수 없습니다.
+          {note}
         </div>
 
         {/*
           이름 적는 줄 - 큰 카드에만. 코팅하기 전에 아이가 제 이름을 적어 넣으면 그 카드는
           '내 것'이 됩니다. 잃어버린 카드가 돌아올 확률이 조금 올라갑니다.
         */}
-        {big && (
+        {big && nameLine && (
           <div style={{ marginTop: "5mm" }}>
             <div style={{ fontSize: "2.4mm", opacity: 0.5 }}>이름</div>
             <div
@@ -221,7 +244,7 @@ export default function StudentCardBack({
         <div style={{ marginTop: "auto", display: "flex", alignItems: "flex-end", gap: "2mm" }}>
           <div style={{ minWidth: 0, flex: 1 }}>
             <div style={{ fontSize: big ? "2.3mm" : "1.9mm", opacity: 0.45 }}>
-              주우셨다면 아래로 전해 주세요
+              {found}
             </div>
             <div
               style={{

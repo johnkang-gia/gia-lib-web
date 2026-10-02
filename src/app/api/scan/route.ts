@@ -333,6 +333,8 @@ async function readingStats(
   const rows = (data ?? []) as unknown as Row[];
 
   const byCategory: Record<string, number> = {};
+  // 해마다 몇 권인지 - 카드가 졸업까지 가므로 기록도 졸업까지 이어집니다.
+  const byYear: Record<string, number> = {};
   let englishCount = 0;
   let month = 0;
   let year = 0;
@@ -344,6 +346,10 @@ async function readingStats(
     const day = row.borrowed_at ? kstDate(row.borrowed_at) : "";
     if (day && day >= monthStart) month += 1;
     if (day && day >= yearStart) year += 1;
+    if (day) {
+      const y = day.slice(0, 4);
+      byYear[y] = (byYear[y] ?? 0) + 1;
+    }
 
     const cat = row.book?.category;
     if (cat) byCategory[cat] = (byCategory[cat] ?? 0) + 1;
@@ -355,7 +361,7 @@ async function readingStats(
     }
   }
 
-  return { total: rows.length, month, year, lastTitle, byCategory, englishCount };
+  return { total: rows.length, month, year, lastTitle, byCategory, englishCount, byYear };
 }
 
 /** 저장된 시각(UTC)을 한국 날짜(YYYY-MM-DD)로 바꿉니다. */

@@ -78,6 +78,28 @@ export default function CardsClient({
     settings.card_show_photo || Object.keys(photos).length > 0
   );
   const [busy, setBusy] = useState<string | null>(null);
+  /**
+   * 뒷면 문구와 대출 규칙.
+   *
+   * 설정 화면까지 가지 않고 **뒷면 미리보기 바로 옆에서** 고칩니다. 글을 고치는 사람은
+   * 결과를 보면서 고치고 싶어 합니다 - 다른 화면에서 고치고 돌아와 확인하는 일을 두 번
+   * 반복하면 결국 안 고칩니다.
+   */
+  const [backOpen, setBackOpen] = useState(false);
+  const [back, setBack] = useState({
+    card_back_title: settings.card_back_title ?? "도서관 이용 안내",
+    card_back_note:
+      settings.card_back_note ??
+      "연장은 책을 가지고 왔을 때만 됩니다. 빌린 책이 늦으면 새로 빌릴 수 없습니다.",
+    card_back_found: settings.card_back_found ?? "주우셨다면 아래로 전해 주세요",
+    card_back_show_rules: settings.card_back_show_rules !== false,
+    card_back_name_line: settings.card_back_name_line !== false,
+    max_books: settings.max_books,
+    loan_days: settings.loan_days,
+    max_renew: settings.max_renew,
+    allow_renew: settings.allow_renew,
+  });
+  const [backSaved, setBackSaved] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const bgInputRef = useRef<HTMLInputElement>(null);
   const photoInputRef = useRef<HTMLInputElement>(null);
@@ -261,6 +283,21 @@ export default function CardsClient({
   async function saveCardOption(changes: Partial<LibSettings>) {
     const { error: err } = await supabase.from("lib_settings").update(changes).eq("id", 1);
     if (err) setError(err.message);
+  }
+
+  /** 뒷면 문구와 대출 규칙을 저장합니다. 두 가지가 한 화면에 있으니 한 번에 보냅니다. */
+  async function saveBack() {
+    setBusy("back");
+    setError(null);
+    setBackSaved(null);
+    const { error: err } = await supabase.from("lib_settings").update(back).eq("id", 1);
+    setBusy(null);
+    if (err) {
+      // 어느 칸이 없는지 그대로 보여줍니다 - 대개 뒷면 문구 SQL이 아직 안 들어간 경우입니다.
+      setError(`저장하지 못했습니다: ${err.message}`);
+      return;
+    }
+    setBackSaved("저장했습니다. 다음에 뽑는 카드부터 적용됩니다.");
   }
 
   async function clearBackground() {
@@ -510,10 +547,134 @@ export default function CardsClient({
               <p className="mt-3 mb-2 text-center text-xs font-semibold text-slate-400">뒷면</p>
               <StudentCardBack
                 libraryName={settings.library_name}
-                settings={settings}
+                settings={{ ...settings, ...back }}
                 size={size}
                 preview
               />
+            </div>
+          )}
+        </div>
+
+        {/* ── 뒷면에 들어가는 글 · 대출 규칙 ───────────────────────────── */}
+        <div className="mt-5 border-t border-slate-100 pt-4">
+          <button
+            type="button"
+            onClick={() => setBackOpen((v) => !v)}
+            className="flex items-center gap-2 text-sm font-bold text-slate-700 hover:text-slate-900"
+          >
+            <span>{backOpen ? "▾" : "▸"}</span>
+            카드 뒷면 글 고치기
+            <span className="font-normal text-xs text-slate-400">
+              이용 안내 문구와 권수 · 기간 · 연장
+            </span>
+          </button>
+
+          {backOpen && (
+            <div className="mt-3 grid gap-4 lg:grid-cols-2">
+              <div className="space-y-3">
+                <label className="block">
+                  <span className="mb-1 block text-xs font-semibold text-slate-500">제목</span>
+                  <input
+                    value={back.card_back_title}
+                    onChange={(e) => setBack({ ...back, card_back_title: e.target.value })}
+                    className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                  />
+                </label>
+                <label className="block">
+                  <span className="mb-1 block text-xs font-semibold text-slate-500">안내 문장</span>
+                  <textarea
+                    value={back.card_back_note}
+                    onChange={(e) => setBack({ ...back, card_back_note: e.target.value })}
+                    rows={3}
+                    className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm leading-relaxed"
+                  />
+                </label>
+                <label className="block">
+                  <span className="mb-1 block text-xs font-semibold text-slate-500">
+                    주웠을 때 안내
+                  </span>
+                  <input
+                    value={back.card_back_found}
+                    onChange={(e) => setBack({ ...back, card_back_found: e.target.value })}
+                    className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                  />
+                </label>
+              </div>
+
+              <div className="space-y-3">
+                <div>
+                  <p className="mb-1.5 text-xs font-semibold text-slate-500">
+                    대출 규칙 — 카드 뒷면과 실제 대출에 함께 쓰입니다
+                  </p>
+                  <div className="grid grid-cols-3 gap-2">
+                    {([
+                      { key: "max_books", label: "한 번에(권)" },
+                      { key: "loan_days", label: "빌리는 기간(일)" },
+                      { key: "max_renew", label: "연장(회)" },
+                    ] as const).map((f) => (
+                      <label key={f.key} className="block">
+                        <span className="mb-1 block text-[11px] text-slate-400">{f.label}</span>
+                        <input
+                          type="number"
+                          min={0}
+                          value={back[f.key]}
+                          onChange={(e) =>
+                            setBack({ ...back, [f.key]: Math.max(0, Number(e.target.value) || 0) })
+                          }
+                          className="w-full rounded-lg border border-slate-300 px-2 py-2 text-sm tabular-nums"
+                        />
+                      </label>
+                    ))}
+                  </div>
+                  <p className="mt-1.5 text-[11px] leading-relaxed text-amber-700">
+                    여기서 바꾸면 <b>실제 대출 규칙도 함께 바뀝니다.</b> 이미 뽑아 둔 카드에는
+                    옛 숫자가 그대로 적혀 있으니, 크게 바꾸실 때는 카드를 다시 뽑는 편이
+                    낫습니다.
+                  </p>
+                </div>
+
+                <label className="flex items-center gap-2 text-sm text-slate-600">
+                  <input
+                    type="checkbox"
+                    checked={back.allow_renew}
+                    onChange={(e) => setBack({ ...back, allow_renew: e.target.checked })}
+                    className="h-4 w-4"
+                  />
+                  연장 허용
+                </label>
+                <label className="flex items-center gap-2 text-sm text-slate-600">
+                  <input
+                    type="checkbox"
+                    checked={back.card_back_show_rules}
+                    onChange={(e) => setBack({ ...back, card_back_show_rules: e.target.checked })}
+                    className="h-4 w-4"
+                  />
+                  뒷면에 규칙 숫자 넣기
+                </label>
+                <label className="flex items-center gap-2 text-sm text-slate-600">
+                  <input
+                    type="checkbox"
+                    checked={back.card_back_name_line}
+                    onChange={(e) => setBack({ ...back, card_back_name_line: e.target.checked })}
+                    className="h-4 w-4"
+                  />
+                  이름 적는 줄 넣기 (큰 카드)
+                </label>
+
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => void saveBack()}
+                    disabled={busy === "back"}
+                    className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
+                  >
+                    {busy === "back" ? "저장 중…" : "저장"}
+                  </button>
+                  {backSaved && (
+                    <span className="text-xs font-semibold text-emerald-700">{backSaved}</span>
+                  )}
+                </div>
+              </div>
             </div>
           )}
         </div>
