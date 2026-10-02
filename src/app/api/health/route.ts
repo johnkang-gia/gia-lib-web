@@ -31,7 +31,14 @@ const REQUIRED: { table: string; columns: string[] }[] = [
     columns: ["id", "code", "name", "color", "sort_order", "kind", "capacity", "plan_audience", "plan_category"],
   },
   { table: "lib_loans", columns: ["id", "book_id", "student_no", "due_date", "status", "renew_count", "reshelved_at"] },
-  { table: "lib_settings", columns: ["id", "loan_days", "max_books", "max_renew", "plan_rule", "plan_made_at"] },
+  {
+    table: "lib_settings",
+    columns: [
+      "id", "loan_days", "max_books", "max_renew", "plan_rule", "plan_made_at",
+      // 도서카드 뒷면 문구(운영앱 20261107000000_library_card_back_text.sql). 없으면 고친 글이 저장되지 않습니다.
+      "card_back_title", "card_back_note", "card_back_found", "card_back_show_rules", "card_back_name_line",
+    ],
+  },
   { table: "lib_label_levels", columns: ["level", "color", "name", "audience"] },
   // photo_path 는 도서카드에 사진을 넣기 위해 뷰에 더한 칸입니다. 이 칸이 없으면 카드에
   // 사진이 안 들어갑니다(명부 자체는 사진 없이 그대로 나옵니다).
