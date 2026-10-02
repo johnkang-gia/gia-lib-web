@@ -1,6 +1,6 @@
 import Barcode from "@/components/Barcode";
 import { CARD, type CardSize } from "@/lib/cardSize";
-import type { LibStudent } from "@/lib/types";
+import type { CardNameStyle, LibStudent } from "@/lib/types";
 
 /**
  * 학생 도서카드 앞면.
@@ -35,6 +35,7 @@ export default function StudentCard({
   showPhoto = false,
   preview = false,
   size = "normal",
+  nameStyle = "ko",
   foldEdge,
 }: {
   /** 카드에 들어가는 것은 고유번호·이름뿐입니다(학년·반은 해마다 바뀌어 넣지 않습니다). */
@@ -47,6 +48,8 @@ export default function StudentCard({
   /** 화면 미리보기용 - 인쇄 시트가 아니라 단독으로 보여줄 때 그림자를 넣습니다. */
   preview?: boolean;
   size?: CardSize;
+  /** 이름을 어떻게 적을지. 아이마다 다를 수 있습니다. */
+  nameStyle?: CardNameStyle;
   /**
    * 접이식으로 뽑을 때 **접히는 쪽 변**. 그 변의 모서리를 각지게 만듭니다.
    * 둥근 모서리 두 개가 맞닿은 채로 접히면 카드 윗변에 흰 홈이 남습니다.
@@ -65,6 +68,33 @@ export default function StudentCard({
   const onImage = Boolean(bgUrl);
   const ink = onImage ? textColor : "#ffffff";
   const big = size === "large";
+
+  /*
+    이름 두 줄 정하기.
+
+    영어 이름이 없는 아이에게 '영어만'을 골라 두면 이름 칸이 비어 버립니다. 그 카드는
+    누구 것인지 알 수 없는 종이가 되므로, 영어가 없으면 조용히 한글로 돌아갑니다 -
+    설정이 잘못돼도 못 쓰는 카드가 나오지는 않게 합니다.
+  */
+  const ko = student.name;
+  const en = (student.name_en ?? "").trim();
+  const style: CardNameStyle = nameStyle === "ko" || !en ? "ko" : nameStyle;
+  const mainName = style === "ko" ? ko : en;
+  const subName = style === "ko" ? en : style === "en" ? ko : "";
+
+  /*
+    긴 이름은 글자를 줄입니다.
+
+    "Maya Thompson"은 "김단우"보다 네 배 넓습니다. 한 크기로 박아 두면 영어 이름인 아이의
+    카드만 글자가 잘리거나 테두리에 닿습니다. 잘라서 말줄임표를 붙이는 것은 최악입니다 -
+    이름이 틀린 카드가 되기 때문입니다. 그래서 길이에 따라 글자를 줄여 **끝까지 다 들어가게**
+    합니다.
+  */
+  function nameSize(base: number): string {
+    const n = mainName.length;
+    const ratio = n > 16 ? 0.6 : n > 13 ? 0.7 : n > 10 ? 0.82 : n > 7 ? 0.92 : 1;
+    return `${Math.round(base * ratio * 100) / 100}mm`;
+  }
   const dim = CARD[size];
 
   const corner = big ? "4mm" : "3.2mm";
@@ -270,7 +300,7 @@ export default function StudentCard({
             <div style={{ minWidth: 0, width: "100%", textAlign: "center" }}>
               <div
                 style={{
-                  fontSize: withPhoto ? "10mm" : "14mm",
+                  fontSize: nameSize(withPhoto ? 10 : 14),
                   fontWeight: 900,
                   lineHeight: 1.02,
                   letterSpacing: "-0.2mm",
@@ -279,10 +309,10 @@ export default function StudentCard({
                   textOverflow: "ellipsis",
                 }}
               >
-                {student.name}
+                {mainName}
               </div>
 
-              {student.name_en && (
+              {subName && (
                 <div
                   style={{
                     fontSize: "2.9mm",
@@ -293,7 +323,7 @@ export default function StudentCard({
                     textOverflow: "ellipsis",
                   }}
                 >
-                  {student.name_en}
+                  {subName}
                 </div>
               )}
 
@@ -332,7 +362,7 @@ export default function StudentCard({
             <div style={{ minWidth: 0, flex: 1 }}>
               <div
                 style={{
-                  fontSize: withPhoto ? "7.4mm" : "9mm",
+                  fontSize: nameSize(withPhoto ? 7.4 : 9),
                   fontWeight: 900,
                   lineHeight: 1.02,
                   letterSpacing: "-0.15mm",
@@ -341,10 +371,10 @@ export default function StudentCard({
                   textOverflow: "ellipsis",
                 }}
               >
-                {student.name}
+                {mainName}
               </div>
 
-              {student.name_en && (
+              {subName && (
                 <div
                   style={{
                     fontSize: "2.4mm",
@@ -355,7 +385,7 @@ export default function StudentCard({
                     textOverflow: "ellipsis",
                   }}
                 >
-                  {student.name_en}
+                  {subName}
                 </div>
               )}
 

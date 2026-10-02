@@ -122,6 +122,20 @@ export type LibStudent = {
   photo_path?: string | null;
 };
 
+/**
+ * 카드에 이름을 어떻게 적을지.
+ *
+ * 국제학교라 아이마다 사정이 다릅니다. 한국 이름이 본명인 아이는 한글이 커야 하고,
+ * 영어 이름이 본명인 아이는 음차로 적어 둔 한글을 크게 박으면 오히려 어색합니다.
+ */
+export type CardNameStyle = "ko" | "en" | "en_only";
+
+export const CARD_NAME_STYLES: { key: CardNameStyle; label: string; hint: string }[] = [
+  { key: "ko", label: "한글 (영어)", hint: "한글을 크게, 영어를 작게" },
+  { key: "en", label: "영어 (한글)", hint: "영어를 크게, 한글을 작게" },
+  { key: "en_only", label: "영어만", hint: "한글 표기를 넣지 않습니다" },
+];
+
 export type LibSettings = {
   id: number;
   library_name: string;
@@ -137,6 +151,8 @@ export type LibSettings = {
   card_text_color: string;
   /** 도서카드에 학생 사진을 넣을지. */
   card_show_photo: boolean;
+  /** 도서카드 이름 표기의 학교 기본값. 아이마다 다르게 하려면 lib_card_prefs 에 적습니다. */
+  card_name_style: CardNameStyle;
   /**
    * 도서카드 뒷면 문구.
    *
@@ -177,6 +193,7 @@ export const DEFAULT_SETTINGS: LibSettings = {
   card_bg_url: null,
   card_text_color: "#10203a",
   card_show_photo: false,
+  card_name_style: "ko",
   card_back_title: "도서관 이용 안내",
   card_back_note: "연장은 책을 가지고 왔을 때만 됩니다. 빌린 책이 늦으면 새로 빌릴 수 없습니다.",
   card_back_found: "주우셨다면 아래로 전해 주세요",

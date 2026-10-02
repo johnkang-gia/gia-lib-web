@@ -6,7 +6,7 @@ import StudentCardBack from "@/components/StudentCardBack";
 import { CARD, computeLayout, type CardSize, type Orientation, type PaperName } from "@/lib/cardSize";
 import { createClient } from "@/lib/supabase/client";
 import { formatDay } from "@/lib/dates";
-import type { LibSettings, LibStudent } from "@/lib/types";
+import { CARD_NAME_STYLES, type CardNameStyle, type LibSettings, type LibStudent } from "@/lib/types";
 
 const TEXT_COLORS = ["#10203a", "#ffffff", "#0f766e", "#7c2d12", "#4c1d95"];
 
@@ -24,12 +24,15 @@ export default function CardsClient({
   photos,
   issued,
   settings,
+  nameStyles,
 }: {
   students: LibStudent[];
   photos: Record<string, string>;
   /** 학생별 발급 현황 - 몇 번 뽑았는지, 마지막이 언제인지. */
   issued: Record<string, IssueStatus>;
   settings: LibSettings;
+  /** 아이마다 따로 정해 둔 이름 표기. 없는 아이는 학교 기본값을 씁니다. */
+  nameStyles: Record<string, CardNameStyle>;
 }) {
   const supabase = createClient();
   const [department, setDepartment] = useState("전체");
@@ -100,6 +103,17 @@ export default function CardsClient({
     allow_renew: settings.allow_renew,
   });
   const [backSaved, setBackSaved] = useState<string | null>(null);
+  /**
+   * 이름 표기.
+   *
+   * 국제학교라 아이마다 다릅니다. 한국 이름이 본명인 아이는 한글이 커야 하고, 영어 이름이
+   * 본명인 아이는 음차로 적어 둔 한글을 크게 박으면 그 아이 카드만 이상해집니다. 그래서
+   * 학교 기본값을 두되 아이마다 덮어쓸 수 있게 합니다 - 대부분은 기본값으로 두고 몇 명만
+   * 바꾸면 되므로, 전교생을 하나하나 고르게 만들지 않습니다.
+   */
+  const [defaultStyle, setDefaultStyle] = useState<CardNameStyle>(settings.card_name_style ?? "ko");
+  const [styles, setStyles] = useState<Record<string, CardNameStyle>>(nameStyles);
+  const styleOf = (no: string): CardNameStyle => styles[no] ?? defaultStyle;
   const [error, setError] = useState<string | null>(null);
   const bgInputRef = useRef<HTMLInputElement>(null);
   const photoInputRef = useRef<HTMLInputElement>(null);
@@ -300,6 +314,40 @@ export default function CardsClient({
     setBackSaved("저장했습니다. 다음에 뽑는 카드부터 적용됩니다.");
   }
 
+  /** 학교 기본값을 바꿉니다. 아이마다 따로 정해 둔 것은 그대로 남습니다. */
+  async function saveDefaultStyle(next: CardNameStyle) {
+    setDefaultStyle(next);
+    const { error: err } = await supabase
+      .from("lib_settings")
+      .update({ card_name_style: next })
+      .eq("id", 1);
+    if (err) setError(`기본 표기를 저장하지 못했습니다: ${err.message}`);
+  }
+
+  /**
+   * 아이 몇 명의 이름 표기를 바꿉니다.
+   *
+   * 화면을 먼저 바꾸고 저장합니다 - 백 명을 한 번에 바꿀 때 저장을 기다리며 멈춰 있으면
+   * 고르는 일이 되지 않습니다. 저장이 실패하면 그때 되돌리고 알려 줍니다.
+   */
+  async function setNameStyle(studentNos: string[], next: CardNameStyle) {
+    if (studentNos.length === 0) return;
+    const before = styles;
+    setStyles((prev) => {
+      const out = { ...prev };
+      for (const no of studentNos) out[no] = next;
+      return out;
+    });
+    const { error: err } = await supabase.from("lib_card_prefs").upsert(
+      studentNos.map((no) => ({ student_no: no, name_style: next, updated_at: new Date().toISOString() })),
+      { onConflict: "student_no" }
+    );
+    if (err) {
+      setStyles(before);
+      setError(`이름 표기를 저장하지 못했습니다: ${err.message}`);
+    }
+  }
+
   async function clearBackground() {
     setBgUrl(null);
     setUseBg(false);
@@ -371,6 +419,31 @@ export default function CardsClient({
               ))}
             </div>
             <p className="mt-1.5 text-xs text-slate-400">{CARD[size].hint}</p>
+
+            {/* 이름 표기 기본값 */}
+            <div className="mt-3 flex flex-wrap items-center gap-2">
+              <span className="text-xs font-semibold text-slate-500">이름 표기 기본값</span>
+              <div className="inline-flex rounded-xl bg-slate-100 p-1 text-sm">
+                {CARD_NAME_STYLES.map((opt) => (
+                  <button
+                    key={opt.key}
+                    type="button"
+                    onClick={() => void saveDefaultStyle(opt.key)}
+                    title={opt.hint}
+                    className={`rounded-lg px-3 py-1.5 font-semibold transition ${
+                      defaultStyle === opt.key
+                        ? "bg-white text-slate-900 shadow-sm"
+                        : "text-slate-500 hover:text-slate-700"
+                    }`}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
+              <span className="text-xs text-slate-400">
+                아래 목록에서 아이마다 따로 정할 수 있습니다
+              </span>
+            </div>
 
             {/* 용지 */}
             <div className="mt-3 flex flex-wrap items-center gap-2">
@@ -543,6 +616,7 @@ export default function CardsClient({
                 photoUrl={photoMap[sample.student_no] ?? null}
                 showPhoto={withPhoto}
                 size={size}
+                nameStyle={styleOf(sample.student_no)}
                 preview
               />
               <p className="mt-3 mb-2 text-center text-xs font-semibold text-slate-400">뒷면</p>
@@ -729,6 +803,31 @@ export default function CardsClient({
           {allSelected ? "선택 해제" : `전체 선택 (${filtered.length}명)`}
         </button>
 
+        {selectedList.length > 0 && (
+          <span className="flex items-center gap-1 rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-xs">
+            <span className="text-slate-500">선택한 {selectedList.length}명을</span>
+            {CARD_NAME_STYLES.map((opt) => (
+              <button
+                key={opt.key}
+                type="button"
+                onClick={() =>
+                  void setNameStyle(
+                    selectedList
+                      .filter((s) => opt.key === "ko" || (s.name_en ?? "").trim())
+                      .map((s) => s.student_no),
+                    opt.key
+                  )
+                }
+                title={opt.hint}
+                className="rounded bg-slate-100 px-1.5 py-0.5 font-bold text-slate-600 transition hover:bg-slate-800 hover:text-white"
+              >
+                {opt.key === "ko" ? "한글" : opt.key === "en" ? "영어+한글" : "영어만"}
+              </button>
+            ))}
+            <span className="text-slate-400">로</span>
+          </span>
+        )}
+
         <button
           type="button"
           onClick={selectWithPhoto}
@@ -804,13 +903,14 @@ export default function CardsClient({
               <th className="px-3 py-2.5 font-semibold">이름</th>
               <th className="px-3 py-2.5 font-semibold">학년 / 반</th>
               <th className="px-3 py-2.5 font-semibold">부서</th>
+              <th className="px-3 py-2.5 font-semibold">이름 표기</th>
               <th className="px-3 py-2.5 font-semibold">발급</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100">
             {filtered.length === 0 && (
               <tr>
-                <td colSpan={7} className="px-4 py-12 text-center text-slate-400">
+                <td colSpan={8} className="px-4 py-12 text-center text-slate-400">
                   조건에 맞는 학생이 없습니다. 학생 명부는 운영앱(gia-ops)에서 관리합니다.
                 </td>
               </tr>
@@ -870,6 +970,33 @@ export default function CardsClient({
                   {[student.grade, student.class_name].filter(Boolean).join(" ") || "-"}
                 </td>
                 <td className="px-3 py-2 text-slate-500">{student.department ?? "-"}</td>
+                <td className="px-3 py-2">
+                  {/*
+                    영어 이름이 없는 아이에게 영어 표기를 고르면 이름 칸이 비어 버립니다.
+                    그래서 아예 고를 수 없게 막고, 왜 못 고르는지 알려 줍니다.
+                  */}
+                  <div className="flex gap-0.5">
+                    {CARD_NAME_STYLES.map((opt) => {
+                      const needsEn = opt.key !== "ko";
+                      const hasEn = Boolean((student.name_en ?? "").trim());
+                      const on = styleOf(student.student_no) === opt.key;
+                      return (
+                        <button
+                          key={opt.key}
+                          type="button"
+                          disabled={needsEn && !hasEn}
+                          onClick={() => void setNameStyle([student.student_no], opt.key)}
+                          title={needsEn && !hasEn ? "영어 이름이 없습니다" : opt.hint}
+                          className={`rounded px-1.5 py-0.5 text-[11px] font-bold transition disabled:opacity-30 ${
+                            on ? "bg-slate-800 text-white" : "bg-slate-100 text-slate-500 hover:bg-slate-200"
+                          }`}
+                        >
+                          {opt.key === "ko" ? "한글" : opt.key === "en" ? "영어+한글" : "영어만"}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </td>
                 <td className="px-3 py-2">
                   {issuedMap[student.student_no] ? (
                     <span className="whitespace-nowrap text-xs">

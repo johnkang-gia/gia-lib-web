@@ -5,6 +5,7 @@ import { createClient } from "@/lib/supabase/server";
 import { getSettings } from "@/lib/server/library";
 import { getStudentPhotoUrls } from "@/lib/server/photos";
 import { loadStudentsForCards } from "@/lib/server/students";
+import { getCardNameStyles } from "@/lib/server/cardPrefs";
 import {
   CARD,
   computeLayout,
@@ -14,7 +15,7 @@ import {
   type PaperName,
   type Slot,
 } from "@/lib/cardSize";
-import type { LibSettings, LibStudent } from "@/lib/types";
+import type { CardNameStyle, LibSettings, LibStudent } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
@@ -116,6 +117,7 @@ function FoldPiece({
   bgUrl,
   textColor,
   size,
+  nameStyle,
 }: {
   student: LibStudent;
   settings: LibSettings;
@@ -125,6 +127,7 @@ function FoldPiece({
   bgUrl: string | null;
   textColor: string;
   size: CardSize;
+  nameStyle: CardNameStyle;
 }) {
   const dim = CARD[size];
   return (
@@ -144,6 +147,7 @@ function FoldPiece({
         photoUrl={photoUrl}
         showPhoto={showPhoto}
         size={size}
+        nameStyle={nameStyle}
         foldEdge="top"
       />
       {/* 접는 자리 표시 - 카드 바깥 여백에만 찍혀서 완성품에는 남지 않습니다. */}
@@ -204,7 +208,13 @@ export default async function PrintCardsPage({
   const lay: Layout = computeLayout({ size, paper, orientation, fold });
 
   const supabase = await createClient();
-  const settings = await getSettings(supabase);
+  const [settings, nameStyles] = await Promise.all([
+    getSettings(supabase),
+    getCardNameStyles(supabase),
+  ]);
+  /** 아이마다 정해 둔 것이 있으면 그것, 없으면 학교 기본값. */
+  const styleOf = (studentNo: string): CardNameStyle =>
+    nameStyles[studentNo] ?? settings.card_name_style ?? "ko";
 
   let students: LibStudent[] = [];
   if (idList.length > 0) {
@@ -360,6 +370,7 @@ export default async function PrintCardsPage({
                     bgUrl={useBackground ? settings.card_bg_url : null}
                     textColor={settings.card_text_color}
                     size={size}
+                    nameStyle={styleOf(student.student_no)}
                   />
                 ) : (
                   <StudentCard
@@ -370,6 +381,7 @@ export default async function PrintCardsPage({
                     photoUrl={photos[student.student_no] ?? null}
                     showPhoto={wantPhoto}
                     size={size}
+                    nameStyle={styleOf(student.student_no)}
                   />
                 )}
               </Place>

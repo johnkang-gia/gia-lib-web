@@ -3,6 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { getSettings } from "@/lib/server/library";
 import { getStudentPhotoUrls } from "@/lib/server/photos";
 import { loadStudentsForCards } from "@/lib/server/students";
+import { getCardNameStyles } from "@/lib/server/cardPrefs";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 export const dynamic = "force-dynamic";
@@ -35,14 +36,23 @@ async function loadIssueStatus(supabase: SupabaseClient) {
 export default async function CardsPage() {
   const supabase = await createClient();
 
-  const [students, issued, settings] = await Promise.all([
+  const [students, issued, settings, nameStyles] = await Promise.all([
     loadStudentsForCards(supabase),
     loadIssueStatus(supabase),
     getSettings(supabase),
+    getCardNameStyles(supabase),
   ]);
 
   // 운영앱이 올려둔 사진을 그대로 씁니다(비공개 버킷이라 서명 주소를 받아옵니다).
   const photos = await getStudentPhotoUrls(supabase, students);
 
-  return <CardsClient students={students} issued={issued} photos={photos} settings={settings} />;
+  return (
+    <CardsClient
+      students={students}
+      issued={issued}
+      photos={photos}
+      settings={settings}
+      nameStyles={nameStyles}
+    />
+  );
 }
