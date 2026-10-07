@@ -178,12 +178,18 @@ function primaryRank(value: string | null, rule: PlanRule) {
  * @param rule       분류 기준 순서
  * @param freshShelf 분류가 바뀔 때 새 칸에서 시작할지. 켜면 칸마다 한 분류만 들어가 찾기
  *                   쉬워지지만 칸이 더 많이 필요합니다.
+ * @param fillTarget 칸을 얼마나 채울지(0~1). 1이면 꽉 채웁니다.
+ *
+ * 꽉 채우면 안 되는 이유: 책은 계속 들어옵니다. 새 책 한 권이 들어올 때마다 그 칸부터 끝까지
+ * 전부 한 칸씩 밀어야 한다면, 정리는 한 번 하고 두 번 다시 못 합니다. 손가락이 들어갈 틈도
+ * 있어야 아이가 책을 뽑고 꽂습니다. 기본값 0.8은 "다섯 칸 중 한 칸은 비워 둔다"는 뜻입니다.
  */
 export function buildPlan(
   books: PlanBook[],
   zones: PlanZone[],
   rule: PlanRule,
-  freshShelf: boolean
+  freshShelf: boolean,
+  fillTarget = 0.8
 ): PlanResult {
   // ── ① 덩어리로 묶기 ────────────────────────────────────────────────────
   const groupMap = new Map<string, PlanGroup>();
@@ -249,8 +255,19 @@ export function buildPlan(
   let zi = 0;
   const leftover: PlanBook[] = [];
 
-  const roomLeft = (zp: ZonePlan) =>
-    zp.zone.capacity === null ? Number.POSITIVE_INFINITY : zp.zone.capacity - zp.books.length;
+  /**
+   * 이 칸에 몇 권 더 들어갈 수 있는지.
+   *
+   * 수용량을 그대로 쓰지 않고 fillTarget 만큼만 씁니다 - 새 책이 들어올 자리와 손이 들어갈
+   * 틈을 남겨 둡니다. 적어도 한 권은 들어가게 해서, 여유율을 낮게 잡아도 칸이 통째로 비어
+   * 버리지는 않게 합니다.
+   */
+  const usable = (zone: PlanZone) =>
+    zone.capacity === null
+      ? Number.POSITIVE_INFINITY
+      : Math.max(1, Math.floor(zone.capacity * fillTarget));
+
+  const roomLeft = (zp: ZonePlan) => usable(zp.zone) - zp.books.length;
 
   for (const group of groups) {
     // 분류마다 새 칸에서 시작하기: 지금 칸에 이미 다른 분류가 들어 있으면 다음 칸으로 넘깁니다.

@@ -4,6 +4,18 @@
 /** 학생 고유번호(운영앱 wr_students.student_no) - 예: GIA-2026-0001 */
 export const STUDENT_CODE_RE = /^GIA-\d{4}-\d+$/i;
 
+/**
+ * 이 책의 고유 번호 자리에 **상품코드가 들어가 있는지**.
+ *
+ * 상품코드는 '책 한 권'이 아니라 '상품 한 줄'을 가리켜서, 시리즈 1권과 5권의 번호가
+ * 똑같습니다. 그런 책은 도서관 라벨을 새로 붙여야 비로소 한 권씩 구별됩니다.
+ */
+export function hasProductCodeAsId(book: { item_code: string | null; isbn?: string | null }) {
+  const code = (book.item_code ?? "").trim();
+  if (!code) return false;
+  return !ITEM_CODE_RE.test(code);
+}
+
 /** 이 책이 라벨을 붙여야 하는 책인지(자체 번호가 발급된 책). */
 export function needsLabel(book: { item_code: string | null }) {
   return Boolean(book.item_code && ITEM_CODE_RE.test(book.item_code));

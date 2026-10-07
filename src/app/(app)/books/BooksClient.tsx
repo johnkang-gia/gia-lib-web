@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import BookRegisterDialog from "@/components/BookRegisterDialog";
 import MobileQrDialog from "@/components/MobileQrDialog";
 import { createClient } from "@/lib/supabase/client";
-import { formatIsbn, needsLabel } from "@/lib/scan";
+import { formatIsbn, hasProductCodeAsId, needsLabel } from "@/lib/scan";
 import { AUDIENCES } from "@/lib/audience";
 import { CATEGORIES, categoryOf } from "@/lib/categories";
 import type { LibBook, LibBookWithShelf, LibLocation } from "@/lib/types";
@@ -23,6 +23,15 @@ export default function BooksClient({
   const [keyword, setKeyword] = useState("");
   const [onlyLabel, setOnlyLabel] = useState(false);
   const [onlyNoShelf, setOnlyNoShelf] = useState(false);
+  /**
+   * 상품코드로 등록된 책만 보기.
+   *
+   * 전집·학습만화는 시리즈 전체가 같은 상품코드를 씁니다. 그래서 여러 권을 찍으면 한 줄에
+   * 합쳐져 등록됐습니다 - 실제로는 다른 책인데요. 이 목록이 "다시 확인해야 할 책"입니다.
+   */
+  const [onlyProduct, setOnlyProduct] = useState(false);
+  const [splitting, setSplitting] = useState<string | null>(null);
+  const [splitMsg, setSplitMsg] = useState<string | null>(null);
   const [category, setCategory] = useState("전체");
   // 라벨 등급·구역·대상으로 걸러서 한꺼번에 고르기 좋게 합니다(정리할 때 이 조합을 씁니다).
   const [level, setLevel] = useState("전체");
@@ -58,10 +67,44 @@ export default function BooksClient({
     router.refresh();
   }
 
+  /**
+   * 상품코드로 한 줄에 합쳐진 책을 권수만큼 따로 떼어냅니다.
+   *
+   * 되돌리기 어려운 일이라 한 번 물어봅니다. 떼어낸 뒤에는 각 줄에 도서관 라벨 번호가 하나씩
+   * 붙으므로, 라벨을 인쇄해 책에 붙이면 그때부터 한 권씩 구별됩니다.
+   */
+  async function splitBook(book: LibBook) {
+    const n = book.total_copies;
+    const ok = window.confirm(
+      `'${book.title}' ${n}권을 ${n}줄로 떼어냅니다.\n\n` +
+        "각 줄에 도서관 라벨 번호가 하나씩 발급됩니다. 라벨을 인쇄해 책에 붙인 뒤, 제목을 실제 권 제목으로 고쳐주세요.\n\n" +
+        "되돌리려면 손으로 다시 합쳐야 합니다. 진행할까요?"
+    );
+    if (!ok) return;
+    setSplitting(book.id);
+    setSplitMsg(null);
+    try {
+      const res = await fetch("/api/books/split", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ bookId: book.id }),
+      });
+      const json = (await res.json()) as { count?: number; error?: string };
+      if (!res.ok) throw new Error(json.error ?? "떼어내지 못했습니다.");
+      setSplitMsg(`${json.count}줄로 떼어냈습니다. 라벨을 인쇄해 붙여주세요.`);
+      router.refresh();
+    } catch (e) {
+      setSplitMsg(e instanceof Error ? e.message : "떼어내지 못했습니다.");
+    } finally {
+      setSplitting(null);
+    }
+  }
+
   const filtered = useMemo(() => {
     const kw = keyword.trim().toLowerCase();
     return books.filter((book) => {
       if (onlyLabel && !needsLabel(book)) return false;
+      if (onlyProduct && !hasProductCodeAsId(book)) return false;
       if (onlyNoShelf && book.location_id) return false;
       if (category === "미분류" && book.category) return false;
       if (category !== "전체" && category !== "미분류" && book.category !== category) return false;
@@ -78,7 +121,7 @@ export default function BooksClient({
       } ${book.category ?? ""} ${book.shelf?.code ?? ""} ${book.shelf?.name ?? ""}`.toLowerCase();
       return hay.includes(kw);
     });
-  }, [books, keyword, onlyLabel, onlyNoShelf, category, level, zone, audience]);
+  }, [books, keyword, onlyLabel, onlyProduct, onlyNoShelf, category, level, zone, audience]);
 
   // 자체 라벨 번호가 있는 책은 그 번호로, ISBN만 있는 책은 ISBN으로 바코드를 만들어 인쇄합니다
   // (요청: "isbn 번호만 있고 바코드는 없는 경우도 있어, 이경우에도 바코드 생성할 수 있게").
@@ -186,6 +229,19 @@ export default function BooksClient({
             {selected.size >= filtered.length ? "선택 해제" : "이 목록 전체 선택"}
           </button>
         )}
+        <label
+          className="flex items-center gap-1.5 text-sm text-slate-600"
+          title="시리즈 전체가 같은 번호를 쓰는 바코드로 등록된 책 — 한 줄에 합쳐졌을 수 있습니다"
+        >
+          <input
+            type="checkbox"
+            checked={onlyProduct}
+            onChange={(e) => setOnlyProduct(e.target.checked)}
+            className="h-4 w-4"
+          />
+          상품코드로 등록된 책만
+        </label>
+
         <label className="flex items-center gap-1.5 text-sm text-slate-600">
           <input
             type="checkbox"
@@ -195,6 +251,12 @@ export default function BooksClient({
           />
           구역 미지정만
         </label>
+
+        {splitMsg && (
+          <span className="rounded-lg bg-slate-900 px-3 py-1.5 text-xs font-semibold text-white">
+            {splitMsg}
+          </span>
+        )}
 
         <span className="text-sm text-slate-400">
           {filtered.length}종 · 총 {filtered.reduce((sum, b) => sum + b.total_copies, 0)}권
@@ -401,6 +463,13 @@ export default function BooksClient({
                       >
                         🏷 {book.item_code}
                       </span>
+                    ) : hasProductCodeAsId(book) ? (
+                      <span
+                        className="rounded bg-rose-100 px-1.5 py-0.5 font-semibold text-rose-800"
+                        title="상품코드 — 시리즈가 같은 번호를 함께 쓸 수 있어 이 책만 가리키지 못합니다"
+                      >
+                        ⚠ {book.item_code}
+                      </span>
                     ) : book.item_code ? (
                       <span className="rounded bg-slate-100 px-1.5 py-0.5 text-slate-600">
                         {book.item_code}
@@ -451,13 +520,26 @@ export default function BooksClient({
                     )}
                   </td>
                   <td className="px-3 py-2 text-right">
-                    <button
-                      type="button"
-                      onClick={() => setEditing(book)}
-                      className="rounded border border-slate-300 px-2 py-1 text-xs font-medium hover:bg-slate-50"
-                    >
-                      수정
-                    </button>
+                    <div className="flex justify-end gap-1">
+                      {hasProductCodeAsId(book) && (
+                        <button
+                          type="button"
+                          disabled={splitting === book.id}
+                          onClick={() => void splitBook(book)}
+                          title="이 줄이 사실 여러 권의 다른 책이면, 권수만큼 따로 떼어내고 각각 도서관 라벨을 발급합니다"
+                          className="rounded border border-rose-300 bg-rose-50 px-2 py-1 text-xs font-semibold text-rose-700 hover:bg-rose-100 disabled:opacity-50"
+                        >
+                          {splitting === book.id ? "…" : `따로 떼기 ${book.total_copies}권`}
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => setEditing(book)}
+                        className="rounded border border-slate-300 px-2 py-1 text-xs font-medium hover:bg-slate-50"
+                      >
+                        수정
+                      </button>
+                    </div>
                   </td>
                 </tr>
               );

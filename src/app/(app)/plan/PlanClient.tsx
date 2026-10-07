@@ -39,11 +39,20 @@ export default function PlanClient({
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  // 정리 후에 쓸 칸 = '정식' 구역. 임시구역은 비워지는 것이 목표라 배정 대상이 아닙니다.
+  /**
+   * 정리 후에 쓸 칸.
+   *
+   * 원래는 '정식' 구역만 썼습니다. 임시구역은 비워지는 것이 목표라고 봤기 때문입니다. 그런데
+   * 실제로는 **임시구역이 곧 지금 쓰고 있는 책장**입니다. 책을 다른 책장으로 옮길 것이 아니라
+   * 같은 책장 안에서 자리만 바로잡는 경우가 훨씬 흔합니다(2-1부터 2-5 안에서 시리즈끼리 모으기).
+   * 그래서 임시구역도 정리 대상으로 쓸 수 있게 열어 둡니다.
+   */
+  const [useTempZones, setUseTempZones] = useState(true);
+
   const targetZones = useMemo<PlanZone[]>(
     () =>
       locations
-        .filter((l) => l.kind !== "임시")
+        .filter((l) => (useTempZones ? true : l.kind !== "임시"))
         .map((l) => ({
           id: l.id,
           code: l.code,
@@ -52,14 +61,22 @@ export default function PlanClient({
           sort_order: l.sort_order,
           capacity: l.capacity,
         })),
-    [locations]
+    [locations, useTempZones]
   );
 
   const tempZones = locations.filter((l) => l.kind === "임시");
 
+  /**
+   * 칸을 얼마나 채울지.
+   *
+   * 꽉 채우면 새 책 한 권이 들어올 때마다 그 칸부터 끝까지 전부 밀어야 합니다. 정리는 한 번
+   * 하고 두 번 다시 못 하게 됩니다. 기본 80%는 "다섯 칸 중 한 칸은 비워 둔다"는 뜻입니다.
+   */
+  const [fillTarget, setFillTarget] = useState(0.8);
+
   const plan = useMemo(
-    () => buildPlan(books, targetZones, rule, freshShelf),
-    [books, targetZones, rule, freshShelf]
+    () => buildPlan(books, targetZones, rule, freshShelf, fillTarget),
+    [books, targetZones, rule, freshShelf, fillTarget]
   );
 
   const noCapacity = targetZones.filter((z) => z.capacity === null).length;
@@ -113,10 +130,8 @@ export default function PlanClient({
         <p className="text-4xl">🗂️</p>
         <h1 className="mt-3 text-lg font-bold">정리해 넣을 칸이 아직 없습니다</h1>
         <p className="mx-auto mt-2 max-w-lg text-sm leading-relaxed text-slate-500">
-          지금 등록된 구역은 {tempZones.length}개이고 전부 <b>임시</b> 구역입니다. 임시구역은
-          &lsquo;지금 무작정 꽂아둔 자리&rsquo;라 정리 목적지가 될 수 없습니다.
-          <br />
-          구역 관리에서 정리 후에 쓸 칸들을 <b>정식</b>으로 만들어 주세요.
+          구역 관리에서 책장 칸을 먼저 만들어 주세요. 지금 쓰고 있는 임시구역을 그대로
+          정리 대상으로 쓸 수 있습니다.
         </p>
         <button
           type="button"
@@ -139,6 +154,42 @@ export default function PlanClient({
           <b>지금 꽂혀 있는 자리는 바뀌지 않습니다</b> — 실제로 책을 옮기고 스캔했을 때 바뀝니다.
           그래서 정리하는 며칠 동안에도 학생이 찾는 책의 위치를 정확히 알려줄 수 있습니다.
         </p>
+        {/*
+          임시구역을 그대로 쓸지.
+
+          책을 다른 책장으로 옮기는 것이 아니라 **같은 책장 안에서 자리만 바로잡는** 경우가
+          훨씬 흔합니다(2-1부터 2-5 안에서 시리즈끼리 모으기). 그래서 기본은 '그대로 쓰기'입니다.
+        */}
+        <div className="mt-4 flex flex-wrap items-center gap-4">
+          <label className="flex items-center gap-2 text-sm text-slate-600">
+            <input
+              type="checkbox"
+              checked={useTempZones}
+              onChange={(e) => setUseTempZones(e.target.checked)}
+              className="h-4 w-4"
+            />
+            지금 쓰는 임시구역을 그대로 정리 대상으로
+            <span className="text-xs text-slate-400">({tempZones.length}칸)</span>
+          </label>
+
+          <label className="flex items-center gap-2 text-sm text-slate-600">
+            <span>칸을 채우는 정도</span>
+            <select
+              value={fillTarget}
+              onChange={(e) => setFillTarget(Number(e.target.value))}
+              className="rounded-lg border border-slate-300 px-2 py-1 text-sm"
+            >
+              <option value={0.7}>70% — 아주 여유 있게</option>
+              <option value={0.8}>80% — 여유 있게 (권장)</option>
+              <option value={0.9}>90% — 빡빡하게</option>
+              <option value={1}>100% — 꽉</option>
+            </select>
+            <span className="text-xs text-slate-400">
+              새 책이 들어올 자리와 손이 들어갈 틈을 남깁니다
+            </span>
+          </label>
+        </div>
+
         {settings.plan_made_at && (
           <p className="mt-2 inline-block rounded-lg bg-slate-100 px-3 py-1.5 text-xs text-slate-500">
             마지막 확정: {new Date(settings.plan_made_at).toLocaleString("ko-KR")} ·{" "}

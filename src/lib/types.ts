@@ -45,6 +45,13 @@ export type LibBook = {
   isbn: string | null;
   /** ISBN이 없는 책에만 발급하는 자체 라벨 번호(GIA-B-00001). */
   item_code: string | null;
+  /**
+   * 책에 찍혀 있던 상품코드(UPC 등).
+   *
+   * ISBN이 아니고, 전집·학습만화는 시리즈 전체가 같은 번호를 씁니다. 그래서 이 번호만으로는
+   * 어느 권인지 알 수 없습니다 - 찾기용 단서로만 쓰고, 책을 가리키는 번호로는 쓰지 않습니다.
+   */
+  product_code?: string | null;
   title: string;
   author: string | null;
   publisher: string | null;

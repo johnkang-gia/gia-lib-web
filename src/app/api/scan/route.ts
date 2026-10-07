@@ -3,7 +3,13 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/server";
 import { addDaysKst, addDaysToDate, overdueDays, todayKst } from "@/lib/dates";
 import { isIsbn, isItemCode, isStudentCode, normalizeScan } from "@/lib/scan";
-import { findActiveLoans, findBook, findStudent, getSettings } from "@/lib/server/library";
+import {
+  findActiveLoans,
+  findBook,
+  findBooksByProductCode,
+  findStudent,
+  getSettings,
+} from "@/lib/server/library";
 import { getStudentPhotoUrls } from "@/lib/server/photos";
 import { withDepartment } from "@/lib/department";
 import type {
@@ -162,7 +168,29 @@ export async function POST(request: Request) {
   }
 
   // ── ② 책을 찍은 경우 ────────────────────────────────────────────────────
-  const book = await findBook(supabase, code);
+  let book = await findBook(supabase, code);
+
+  /*
+    ISBN으로도 도서관 라벨로도 못 찾았으면 상품코드일 수 있습니다.
+
+    상품코드는 '책 한 권'이 아니라 '상품 한 줄'을 가리켜서, 전집·학습만화는 시리즈 전체가
+    같은 번호를 씁니다. 그러니 **하나를 골라 돌려주면 늘 1권만 나옵니다.** 여럿이 나오면
+    고르게 하는 것이 유일하게 정직한 방법이고, 그 책들에 도서관 라벨을 붙이면 다음부터는
+    이 화면을 거치지 않습니다.
+  */
+  if (!book) {
+    const candidates = await findBooksByProductCode(supabase, code);
+    if (candidates.length > 1) {
+      return NextResponse.json<ScanResult>({
+        kind: "book_choices",
+        query: code,
+        books: candidates.map((b) => ({ ...b, onLoan: 0 })),
+        message: `이 바코드는 ${candidates.length}권이 함께 쓰는 상품코드입니다 — 어느 책인지 골라주세요`,
+      });
+    }
+    if (candidates.length === 1) book = candidates[0];
+  }
+
   if (!book) {
     return NextResponse.json<ScanResult>({
       kind: "unknown_book",

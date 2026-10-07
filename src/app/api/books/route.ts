@@ -68,7 +68,17 @@ export async function POST(request: Request) {
   // 책에 찍힌 바코드가 ISBN이 아니면(UPC 등) 그 값을 식별번호로 함께 저장해 둡니다.
   // 그래야 다음에 그 바코드를 찍었을 때도 같은 책으로 찾힙니다.
   const scanCode = body.scan_code ? normalizeScan(body.scan_code).replace(/[^0-9A-Z-]/g, "") : "";
-  let itemCode: string | null = scanCode && scanCode !== isbn ? scanCode : null;
+  /*
+    찍힌 바코드가 ISBN이 아니면 **상품코드**입니다. 예전에는 이 번호를 그 책의 고유 번호
+    (item_code)로 썼는데, 상품코드는 '책 한 권'이 아니라 '상품 한 줄'을 가리킵니다. 전집과
+    학습만화는 시리즈 전체가 같은 번호라서, 2권을 찍으면 1권이 나오고 등록할 때도 "같은 책을
+    또 찍었다"가 되어 권수만 올라갔습니다 - 실제로는 다른 책인데 한 줄로 합쳐졌습니다.
+
+    그래서 상품코드는 찾기용 단서(product_code)로만 적어 두고, 고유 번호는 아래에서 도서관
+    라벨(GIA-B-00001)을 새로 발급해 줍니다. 그 라벨을 붙이면 비로소 한 권씩 구별됩니다.
+  */
+  const productCode: string | null = scanCode && scanCode !== isbn ? scanCode : null;
+  let itemCode: string | null = null;
 
   // ── 같은 책이 이미 있으면 새로 만들지 않고 보유 권수를 올립니다 ──────────────
   // 요청: "같은 책이 여러권 있을때 자동으로 장수를 늘려서 등록해줘".
@@ -114,7 +124,7 @@ export async function POST(request: Request) {
 
   // 라벨을 붙여야 하는 책(책에 바코드가 인쇄되어 있지 않음)이거나, ISBN도 찍을 바코드도 없는
   // 책이면 자체 번호(GIA-B-00001)를 발급합니다. 이 번호가 있는 책이 곧 "라벨 인쇄 대상"입니다.
-  if (body.need_label || (!isbn && !itemCode)) {
+  if (body.need_label || !isbn) {
     const { data, error } = await supabase.rpc("lib_next_item_code");
     if (error || !data) {
       return NextResponse.json(
@@ -130,6 +140,7 @@ export async function POST(request: Request) {
     .insert({
       isbn: isbn || null,
       item_code: itemCode,
+      product_code: productCode,
       title,
       author: body.author?.trim() || null,
       publisher: body.publisher?.trim() || null,

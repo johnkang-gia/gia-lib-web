@@ -120,6 +120,28 @@ export async function findBook(
   return (byItem as unknown as LibBookWithShelf | null) ?? null;
 }
 
+/**
+ * 상품코드로 책들을 찾습니다 - **여러 권이 나올 수 있습니다.**
+ *
+ * 전집·학습만화는 시리즈 전체가 같은 상품코드를 씁니다. 그래서 이 번호로는 어느 권인지
+ * 알 수 없고, 하나를 골라 돌려주면 늘 1권만 나옵니다. 나온 만큼 그대로 돌려주고, 여럿이면
+ * 화면에서 사람이 고르게 합니다.
+ */
+export async function findBooksByProductCode(
+  supabase: SupabaseClient,
+  code: string
+): Promise<LibBookWithShelf[]> {
+  const digits = code.replace(/[^0-9A-Za-z-]/g, "");
+  if (!digits) return [];
+  const { data } = await supabase
+    .from("lib_books")
+    .select("*, shelf:lib_locations(*)")
+    .or(`product_code.eq.${digits},item_code.eq.${digits}`)
+    .order("series_no", { ascending: true, nullsFirst: false })
+    .limit(30);
+  return (data ?? []) as unknown as LibBookWithShelf[];
+}
+
 /** 구역 코드(A-1)로 구역 찾기 - 대소문자를 가리지 않습니다. */
 export async function findLocation(
   supabase: SupabaseClient,
