@@ -8,12 +8,17 @@ import { guessSeries } from "@/lib/series";
  * ISBN으로 책 정보(제목·저자·출판사·표지)를 인터넷에서 찾아옵니다.
  *
  * 여러 곳을 순서대로 시도하고, 먼저 찾아지는 곳의 값을 씁니다.
- *   1) 알라딘   - 한국 책 정보가 가장 정확하고 표지 이미지가 좋습니다(무료 키 필요)
- *   2) 국립중앙도서관 - 국내 발행 도서 공식 서지정보(무료 키 필요)
+ *   1) 국립중앙도서관 - 국내 발행 도서 공식 서지정보. KDC 분류 번호를 주는 유일한 곳이라
+ *                      독서 도감 분류가 제대로 채워집니다(무료 키 필요)
+ *   2) 카카오 책 검색 - 한국 책 표지와 제목이 가장 잘 나옵니다. 키 발급이 즉시라 가장 먼저
+ *                      넣기 좋습니다(무료 키 필요)
  *   3) 구글 북스 - 키 없이 동작하고 영어 원서에 강합니다
  *   4) 오픈라이브러리 - 마지막 보루
- * 키가 없으면 그 단계는 조용히 건너뜁니다. 즉 키를 하나도 넣지 않아도 3)4)로 대부분의 책이
- * 조회됩니다.
+ * 키가 없으면 그 단계는 조용히 건너뜁니다. 즉 키를 하나도 넣지 않아도 3)4)로 영어책은
+ * 대부분 조회됩니다. 다만 한국 아동서는 3)4)가 매우 약해서, 1)이나 2) 중 하나는 꼭 필요합니다.
+ *
+ * **알라딘은 뺐습니다.** 알라딘 OpenAPI가 2026년 10월 말 종료되기 때문입니다. 종료된 뒤에도
+ * 호출하면 그만큼 기다렸다가 실패하므로, 다음 단계로 넘어가는 시간만 늘어납니다.
  */
 export async function lookupIsbn(isbn: string): Promise<BookLookup | null> {
   const clean = isbn.replace(/[^0-9X]/gi, "").toUpperCase();
@@ -21,7 +26,7 @@ export async function lookupIsbn(isbn: string): Promise<BookLookup | null> {
 
   // 오래된 책은 10자리로 적혀 있고 조회처마다 받아주는 형태가 달라서, 두 형태를 모두 시도합니다.
   const forms = isbnVariants(clean);
-  const steps = [fromAladin, fromNationalLibrary, fromGoogleBooks, fromOpenLibrary];
+  const steps = [fromNationalLibrary, fromKakao, fromGoogleBooks, fromOpenLibrary];
 
   for (const step of steps) {
     for (const form of forms) {
@@ -39,6 +44,36 @@ export async function lookupIsbn(isbn: string): Promise<BookLookup | null> {
   return null;
 }
 
+/**
+ * 카카오 책 검색.
+ *
+ * 알라딘을 대신합니다. 키가 **즉시 발급**되고(승인 대기 없음) 한국 책 제목·표지가 잘 나옵니다.
+ * 다만 분류를 주지 않아서, 독서 도감 칸은 제목으로 추측하게 됩니다 - 분류까지 제대로 채우려면
+ * 국립중앙도서관 키를 함께 넣는 편이 좋습니다.
+ */
+async function fromKakao(isbn: string): Promise<BookLookup | null> {
+  const key = process.env.KAKAO_REST_API_KEY;
+  if (!key) return null;
+  const url = `https://dapi.kakao.com/v3/search/book?target=isbn&query=${encodeURIComponent(isbn)}`;
+  const json = await fetchJson(url, 6000, { Authorization: `KakaoAK ${key}` });
+  const doc = json?.documents?.[0];
+  if (!doc?.title) return null;
+  const authors = Array.isArray(doc.authors) ? doc.authors.join(", ") : null;
+  return withAudience({
+    isbn,
+    title: String(doc.title).trim(),
+    author: authors || null,
+    publisher: doc.publisher ? String(doc.publisher).trim() : null,
+    pub_year: yearOf(doc.datetime),
+    cover_url: doc.thumbnail ? String(doc.thumbnail).replace(/^http:/, "https:") : null,
+    language: guessLanguage(`${doc.title} ${authors ?? ""}`),
+    // 카카오는 분류를 주지 않습니다. 책 소개 글이라도 넘겨 두면 제목만 볼 때보다 낫습니다.
+    rawCategory: null,
+    category: guessCategory(doc.contents ? String(doc.contents).slice(0, 200) : null),
+    source: "카카오 책",
+  });
+}
+
 /** 제목/저자에 한글이 섞여 있으면 한국어 책으로 봅니다. */
 function guessLanguage(text: string): "한국어" | "영어" | "기타" {
   if (/[가-힣]/.test(text)) return "한국어";
@@ -52,11 +87,11 @@ function yearOf(value: string | null | undefined) {
   return match ? match[0] : null;
 }
 
-async function fetchJson(url: string, timeoutMs = 6000) {
+async function fetchJson(url: string, timeoutMs = 6000, headers?: Record<string, string>) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    const res = await fetch(url, { signal: controller.signal, cache: "no-store" });
+    const res = await fetch(url, { signal: controller.signal, cache: "no-store", headers });
     if (!res.ok) return null;
     return await res.json();
   } finally {
@@ -80,31 +115,6 @@ function withAudience(
     series: series.series,
     seriesNo: series.seriesNo,
   };
-}
-
-async function fromAladin(isbn: string): Promise<BookLookup | null> {
-  const key = process.env.ALADIN_TTB_KEY;
-  if (!key) return null;
-  const url =
-    `https://www.aladin.co.kr/ttb/api/ItemLookUp.aspx?ttbkey=${encodeURIComponent(key)}` +
-    `&itemIdType=${isbn.length === 13 ? "ISBN13" : "ISBN"}&ItemId=${isbn}` +
-    `&output=js&Version=20131101&Cover=Big`;
-  const json = await fetchJson(url);
-  const item = json?.item?.[0];
-  if (!item?.title) return null;
-  return withAudience({
-    isbn,
-    title: String(item.title).trim(),
-    author: item.author ? String(item.author).trim() : null,
-    publisher: item.publisher ? String(item.publisher).trim() : null,
-    pub_year: yearOf(item.pubDate),
-    cover_url: item.cover ? String(item.cover) : null,
-    language: guessLanguage(`${item.title} ${item.author ?? ""}`),
-    // 알라딘은 "국내도서>어린이>동화" 처럼 분류를 자세히 줍니다 - 도감 칸으로 옮깁니다.
-    rawCategory: item.categoryName ? String(item.categoryName) : null,
-    category: guessCategory(item.categoryName ? String(item.categoryName) : null),
-    source: "알라딘",
-  }, item.seriesInfo?.seriesName ? String(item.seriesInfo.seriesName) : null);
 }
 
 async function fromNationalLibrary(isbn: string): Promise<BookLookup | null> {
