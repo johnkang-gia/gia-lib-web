@@ -9,8 +9,8 @@ import { createClient } from "@/lib/supabase/client";
 import { formatIsbn, isBookBarcode, normalizeScan } from "@/lib/scan";
 import type { BookLookup, LibBook, LibLocation } from "@/lib/types";
 import type { CoverRead } from "@/lib/ai/readCover";
-import { FULL, pad } from "@/lib/coverBox";
-import { cropImage } from "@/lib/cropImage";
+import type { Box } from "@/lib/coverBox";
+import { cropImage, refineBox } from "@/lib/cropImage";
 import { useScanFocus } from "@/lib/useScanFocus";
 import HealthBanner from "@/components/HealthBanner";
 
@@ -85,6 +85,8 @@ export default function BatchClient({ locations }: { locations: LibLocation[] })
     message?: string;
     /** 배경을 잘라낸 표지. 찍는 즉시 자동으로 만들어 둡니다. */
     cropped: { blob: Blob; preview: string } | null;
+    /** 테두리까지 맞춘 표지 범위 - 사람이 고칠 때 여기서 시작합니다. */
+    box: Box | null;
     /** 이 사진을 그 책의 표지로 쓸지. 출판사 표지가 있는 후보가 있으면 기본으로 끕니다. */
     usePhoto: boolean;
   } | null>(null);
@@ -370,16 +372,19 @@ export default function BatchClient({ locations }: { locations: LibLocation[] })
       setCoverTitle(json.read.title);
       /*
         배경을 바로 잘라냅니다. 읽는 쪽이 표지 네모를 함께 집어 주므로 추가 비용이 없고,
-        사람이 누를 것도 없습니다. 못 집었으면 사진 전체로 두고 화면에서 끌어 맞추게 합니다.
-        2% 넓혀 잘라내는 이유는 coverBox.pad 에 적어 두었습니다.
+        사람이 누를 것도 없습니다. 다만 그 네모는 위아래로 수십 px 헐렁하거나(책상이 따라
+        들어옴) 반대로 파고들어서(글자가 잘림), 실제 책 테두리에 다시 맞춘 뒤 자릅니다 -
+        측정값과 방법은 snapBox 에 적어 두었습니다.
       */
-      const cropped = await cropImage(dataUrl, pad(json.read.box ?? FULL)).catch(() => null);
+      const box = await refineBox(dataUrl, json.read.box).catch(() => json.read?.box ?? null);
+      const cropped = box ? await cropImage(dataUrl, box).catch(() => null) : null;
       setCover({
         shot: dataUrl,
         read: json.read,
         candidates,
         message: json.message,
         cropped: cropped ? { blob: cropped.blob, preview: cropped.preview } : null,
+        box,
         /*
           출판사가 올린 표지가 있는 후보가 있으면 그쪽이 보통 더 깔끔합니다(정면·균일한 조명).
           그래서 그때는 꺼 두고, 그런 후보가 없을 때만 켭니다 - 표지 없는 책이 남지 않게.
@@ -923,7 +928,7 @@ export default function BatchClient({ locations }: { locations: LibLocation[] })
                 {editCrop ? (
                   <CoverCrop
                     src={cover.shot}
-                    initial={cover.read.box}
+                    initial={cover.box}
                     label="이 범위로 자르기"
                     onCancel={() => setEditCrop(false)}
                     onDone={(blob, preview) => {

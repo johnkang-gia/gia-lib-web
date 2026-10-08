@@ -5,6 +5,7 @@ import CoverShot from "@/components/CoverShot";
 import CoverCrop from "@/components/CoverCrop";
 import { createClient } from "@/lib/supabase/client";
 import type { Box } from "@/lib/coverBox";
+import { refineBox } from "@/lib/cropImage";
 import type { LibBook } from "@/lib/types";
 
 /**
@@ -62,7 +63,8 @@ export default function BookCoverShotDialog({
         );
         setBox(null);
       } else {
-        setBox(json.read.box);
+        // 모델이 집어 준 네모는 위아래가 밀려 있습니다 - 실제 책 테두리에 맞춰 고칩니다.
+        setBox(await refineBox(dataUrl, json.read.box).catch(() => json.read?.box ?? null));
         if (json.titleMatches === false && json.read.title) {
           // 막지는 않습니다 - 개정판처럼 제목이 조금 다른 경우가 실제로 있습니다.
           setWarn(
