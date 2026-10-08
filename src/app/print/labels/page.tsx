@@ -1,5 +1,6 @@
 import Barcode from "@/components/Barcode";
 import PrintButton from "@/components/PrintButton";
+import RecordPrintJob from "@/components/RecordPrintJob";
 import { createClient } from "@/lib/supabase/server";
 import { getLocations } from "@/lib/server/library";
 import type { LibBook, LibLocation } from "@/lib/types";
@@ -26,12 +27,30 @@ export const dynamic = "force-dynamic";
 export default async function PrintLabelsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ ids?: string }>;
+  searchParams: Promise<{ ids?: string; job?: string }>;
 }) {
-  const { ids } = await searchParams;
-  const idList = (ids ?? "").split(",").map((v) => v.trim()).filter(Boolean);
+  const { ids, job } = await searchParams;
 
   const supabase = await createClient();
+
+  /*
+    두 가지 길로 들어옵니다.
+      · ids=... - 장서 관리에서 책을 골라 바로 누른 경우
+      · job=... - 저장된 인쇄 기록에서 누른 경우(다른 컴퓨터에서 뽑을 때)
+
+    기록으로 여는 길이 있는 이유는, 주소에 uuid 수십 개를 싣고 다닐 수 없기 때문입니다.
+    긴 주소는 메신저로 옮기다 잘리고, 받아주는 길이도 서버마다 달라 어느 날 조용히 실패합니다.
+  */
+  let idList = (ids ?? "").split(",").map((v) => v.trim()).filter(Boolean);
+  if (job) {
+    const { data } = await supabase
+      .from("lib_print_jobs")
+      .select("targets")
+      .eq("id", job)
+      .maybeSingle();
+    idList = ((data?.targets as string[] | undefined) ?? []).filter(Boolean);
+  }
+
   const [locations, booksRes] = await Promise.all([
     getLocations(supabase),
     idList.length > 0
@@ -66,8 +85,17 @@ export default async function PrintLabelsPage({
   // 묶음 안에서는 제목순 - 책장 앞에 서서 눈으로 훑기 좋은 순서입니다.
   for (const g of groups) g.books.sort((x, y) => x.title.localeCompare(y.title, "ko"));
 
+  /*
+    이 화면을 연 것만으로 기록이 남습니다. 프린터가 안 잡히는 건 뽑으려고 누른 다음에
+    알게 되고, 그때는 "저장" 버튼을 눌러 둘 기회가 이미 지난 뒤입니다.
+  */
+  const jobTitle = groups.length
+    ? `${groups[0].zone?.code ?? "자리 미정"}${groups.length > 1 ? ` 외 ${groups.length - 1}칸` : ""} · 라벨 ${books.length}장`
+    : `라벨 ${books.length}장`;
+
   return (
     <div className="min-h-screen bg-slate-100 py-6">
+      <RecordPrintJob kind="labels" title={jobTitle} targets={books.map((b) => b.id)} />
       <style>{`@page { size: A4; margin: 10mm; }`}</style>
 
       <div className="no-print mx-auto mb-6 max-w-[210mm] rounded-xl bg-white p-4 text-sm shadow-sm">

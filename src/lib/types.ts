@@ -390,3 +390,25 @@ export type LibLabelLevel = {
   sort_order: number;
   updated_at: string;
 };
+
+/**
+ * 인쇄 기록 - "무엇을 어떤 설정으로 뽑으려 했는지".
+ *
+ * 프린터가 없는 자리에서 고르고, 프린터가 있는 컴퓨터에서 로그인해 그대로 뽑기 위한 것입니다.
+ */
+export type LibPrintJob = {
+  id: string;
+  kind: "labels" | "cards";
+  title: string;
+  /** 라벨이면 책 id, 도서카드면 학생 고유번호. */
+  targets: string[];
+  /** 인쇄 화면의 선택들(용지·크기·사진 포함 여부 등). */
+  options: Record<string, string>;
+  signature: string;
+  note: string | null;
+  created_by: string | null;
+  created_at: string;
+  opened_at: string;
+  /** 사람이 "뽑았다"고 표시한 시각. */
+  printed_at: string | null;
+};

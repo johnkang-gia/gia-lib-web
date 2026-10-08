@@ -2,6 +2,7 @@ import PrintButton from "@/components/PrintButton";
 import StudentCard from "@/components/StudentCard";
 import StudentCardBack from "@/components/StudentCardBack";
 import { createClient } from "@/lib/supabase/server";
+import RecordPrintJob from "@/components/RecordPrintJob";
 import { getSettings } from "@/lib/server/library";
 import { getStudentPhotoUrls } from "@/lib/server/photos";
 import { loadStudentsForCards } from "@/lib/server/students";
@@ -186,6 +187,8 @@ export default async function PrintCardsPage({
 }: {
   searchParams: Promise<{
     ids?: string;
+    /** 저장된 인쇄 기록에서 열 때. 주소에 학생 번호를 다 싣지 않아도 됩니다. */
+    job?: string;
     photo?: string;
     bg?: string;
     layout?: string;
@@ -195,7 +198,7 @@ export default async function PrintCardsPage({
   }>;
 }) {
   const sp = await searchParams;
-  const idList = (sp.ids ?? "").split(",").map((v) => v.trim()).filter(Boolean);
+  let idList = (sp.ids ?? "").split(",").map((v) => v.trim()).filter(Boolean);
   const wantPhoto = sp.photo === "1";
   // 배경 그림은 골랐을 때만 씁니다(bg=1). 예전에 올려둔 그림 한 장이 새 GIA 디자인을 조용히
   // 덮어 버리던 문제 때문입니다.
@@ -208,6 +211,20 @@ export default async function PrintCardsPage({
   const lay: Layout = computeLayout({ size, paper, orientation, fold });
 
   const supabase = await createClient();
+
+  /*
+    저장된 기록에서 열린 경우. 인쇄 설정(용지·크기·사진 포함 여부)은 주소에 그대로 실려
+    오므로, 여기서는 "누구를 뽑을지"만 기록에서 가져옵니다.
+  */
+  if (sp.job) {
+    const { data } = await supabase
+      .from("lib_print_jobs")
+      .select("targets")
+      .eq("id", sp.job)
+      .maybeSingle();
+    idList = ((data?.targets as string[] | undefined) ?? []).filter(Boolean);
+  }
+
   const [settings, nameStyles] = await Promise.all([
     getSettings(supabase),
     getCardNameStyles(supabase),
@@ -295,8 +312,30 @@ export default async function PrintCardsPage({
     );
   }
 
+  /*
+    이 화면을 연 것만으로 기록이 남습니다. 카드는 설정이 여럿이라(사진 포함 여부·용지·크기·
+    접이식) 그 조합까지 함께 저장해 두어야, 다른 컴퓨터에서 눌렀을 때 같은 종이가 나옵니다.
+  */
+  const jobOptions = {
+    photo: wantPhoto ? "1" : "0",
+    bg: useBackground ? "1" : "0",
+    layout: fold ? "fold" : "flat",
+    size,
+    paper,
+    orient: orientation,
+  };
+  const jobTitle =
+    `도서카드 ${students.length}명 · ${CARD[size].label.replace(/\s*\(.*\)/, "")}` +
+    ` ${paper}${orientation === "landscape" ? " 가로" : ""}${wantPhoto ? " · 사진" : ""}`;
+
   return (
     <div className="min-h-screen bg-slate-100 py-6">
+      <RecordPrintJob
+        kind="cards"
+        title={jobTitle}
+        targets={students.map((s) => s.id)}
+        options={jobOptions}
+      />
       {/*
         용지 크기는 브라우저 인쇄 설정이 아니라 문서가 정합니다. 사람이 매번 A3로 바꾸는 것을
         잊으면 A3용으로 짠 배치가 A4에 눌려 들어가 전부 작아집니다.

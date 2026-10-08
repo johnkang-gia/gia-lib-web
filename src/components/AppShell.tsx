@@ -33,6 +33,12 @@ const MENU_GROUPS: {
     items: [
       { href: "/batch", label: "여러 권 등록", icon: "⚡", desc: "바코드 연속 스캔 → 한 칸에" },
       { href: "/books", label: "장서 관리", icon: "📚", desc: "책 목록 · 수정 · 라벨 인쇄" },
+      {
+        href: "/print-jobs",
+        label: "인쇄 기록",
+        icon: "🖨️",
+        desc: "뽑을 목록 저장 · 다른 컴퓨터에서 인쇄",
+      },
     ],
   },
   {
