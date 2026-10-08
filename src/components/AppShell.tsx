@@ -176,7 +176,18 @@ export default function AppShell({
         </div>
       )}
 
-      <main className={isScan ? "flex flex-1 flex-col" : "mx-auto w-full max-w-6xl px-4 py-6"}>
+      {/*
+        화면 폭.
+
+        1024px(max-w-6xl)로 묶어 두었더니 장서 관리처럼 열이 많은 표에서 좌우가 크게 남고
+        제목은 한 글자씩 끊겨 내려갔습니다. 넓은 화면을 그대로 쓰되, 아주 큰 모니터에서
+        한 줄이 지나치게 길어지지 않도록 1600px에서만 멈춥니다.
+      */}
+      <main
+        className={
+          isScan ? "flex flex-1 flex-col" : "mx-auto w-full max-w-[1600px] px-4 py-6 sm:px-6"
+        }
+      >
         {children}
       </main>
 

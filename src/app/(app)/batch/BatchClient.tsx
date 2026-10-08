@@ -54,6 +54,8 @@ export default function BatchClient({ locations }: { locations: LibLocation[] })
   const [locationId, setLocationId] = useState("");
   const [items, setItems] = useState<Item[]>([]);
   const [value, setValue] = useState("");
+  /** 바코드 없는 책을 담을 때 적는 제목. */
+  const [manualTitle, setManualTitle] = useState("");
   const [camera, setCamera] = useState(false);
   // 이번에 담는 책들이 모두 "바코드가 인쇄되어 있지 않은 책"인 경우(라벨을 뽑아 붙일 예정).
   const [needLabel, setNeedLabel] = useState(false);
@@ -229,6 +231,61 @@ export default function BatchClient({ locations }: { locations: LibLocation[] })
   );
 
   /** "같은 책이 여러 권" 이라고 답했을 때 - 담긴 권수를 바로 올립니다. */
+  /**
+   * 담긴 책이 있는데 창을 닫거나 새로고침하면 전부 사라집니다.
+   *
+   * 백 권을 찍어 둔 상태에서 실수로 뒤로 가기를 누르면 그 수고가 통째로 날아갑니다.
+   * 브라우저가 대신 물어보게 해 둡니다(화면 안에서 메뉴를 누르는 경우는 아래 goAway 가 봅니다).
+   */
+  useEffect(() => {
+    if (items.length === 0) return;
+    const onLeave = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = "";
+    };
+    window.addEventListener("beforeunload", onLeave);
+    return () => window.removeEventListener("beforeunload", onLeave);
+  }, [items.length]);
+
+  /**
+   * 바코드가 없는 책을 목록에 바로 담습니다.
+   *
+   * 요청: "책을 등록하다가 코드만 있는 경우 다시 또 페이지를 옮겨가야 하는 게 번거로워".
+   *
+   * 책을 한 칸씩 빼서 쭉 찍어 나가는 중에 바코드 없는 책이 한 권 나오면, 지금까지는 다른
+   * 화면으로 가야 했습니다. 돌아오면 담아둔 목록이 사라지고, 칸의 어디까지 했는지도 잃습니다.
+   * 그래서 제목만 받아 여기서 바로 담고, 등록할 때 도서관 라벨 번호를 발급받습니다.
+   */
+  function addNoBarcode(title: string) {
+    const name = title.trim();
+    if (!name) return;
+    const key = `manual-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+    setItems((prev) => [
+      {
+        key,
+        code: "",
+        isbn: "",
+        scanCode: null,
+        title: name,
+        author: "",
+        publisher: "",
+        pub_year: "",
+        cover_url: "",
+        language: /[가-힣]/.test(name) ? "한국어" : "영어",
+        category: "",
+        audience: "",
+        series: "",
+        seriesNo: "",
+        labelNo: nextLabelNo(),
+        copies: 1,
+        status: "준비",
+        note: "바코드 없음 - 라벨 발급",
+        existingId: null,
+      },
+      ...prev,
+    ]);
+  }
+
   function addCopies(code: string, times: number) {
     setItems((prev) =>
       prev.map((it) => (it.code === code ? { ...it, copies: it.copies + times } : it))
@@ -442,6 +499,7 @@ export default function BatchClient({ locations }: { locations: LibLocation[] })
           <button
             type="button"
             onClick={() => {
+              if (!window.confirm("지금 목록을 비우고 새로 시작합니다. 계속할까요?")) return;
               setDone(null);
               codesRef.current.clear();
               setItems([]);
@@ -570,6 +628,44 @@ export default function BatchClient({ locations }: { locations: LibLocation[] })
             spellCheck={false}
           />
         )}
+
+        {/*
+          바코드 없는 책을 여기서 바로 담습니다.
+
+          책을 한 칸씩 빼서 쭉 찍어 나가는 중에 바코드 없는 책이 한 권 나오면, 지금까지는
+          다른 화면으로 가야 했습니다. 돌아오면 담아둔 목록이 사라지고 칸의 어디까지 했는지도
+          잃습니다. 제목만 적어 넣으면 등록할 때 도서관 라벨 번호를 발급받습니다.
+        */}
+        <div className="mt-3 flex flex-wrap items-center gap-2 rounded-xl bg-slate-50 px-3 py-2.5">
+          <span className="text-xs font-semibold text-slate-500">바코드 없는 책</span>
+          <input
+            value={manualTitle}
+            onChange={(e) => setManualTitle(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.preventDefault();
+                addNoBarcode(manualTitle);
+                setManualTitle("");
+                setTimeout(refocus, 30);
+              }
+            }}
+            placeholder="책 제목을 적고 Enter — 라벨은 등록 후 한 번에 인쇄합니다"
+            className="min-w-[16rem] flex-1 rounded-lg border border-slate-300 px-3 py-1.5 text-sm"
+            autoComplete="off"
+          />
+          <button
+            type="button"
+            disabled={!manualTitle.trim()}
+            onClick={() => {
+              addNoBarcode(manualTitle);
+              setManualTitle("");
+              setTimeout(refocus, 30);
+            }}
+            className="rounded-lg bg-slate-700 px-3 py-1.5 text-sm font-semibold text-white disabled:opacity-40"
+          >
+            담기
+          </button>
+        </div>
       </section>
 
       {/* ── 같은 바코드를 또 찍었을 때 ─────────────────────────────────── */}
@@ -610,6 +706,15 @@ export default function BatchClient({ locations }: { locations: LibLocation[] })
           <button
             type="button"
             onClick={() => {
+              // 찍은 것을 통째로 버리는 일입니다. 되돌릴 방법이 없어 한 번 묻습니다.
+              if (
+                !window.confirm(
+                  `담긴 책 ${items.length}권을 전부 지웁니다.\n\n` +
+                    "지우면 되돌릴 수 없고, 처음부터 다시 찍어야 합니다. 정말 비울까요?"
+                )
+              ) {
+                return;
+              }
               codesRef.current.clear();
               setItems([]);
             }}
