@@ -3,6 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { readCover, type CoverRead } from "@/lib/ai/readCover";
 import { lookupIsbn, searchBooksByTitle } from "@/lib/isbn";
 import type { BookLookup } from "@/lib/types";
+import { titlesLookSame } from "@/lib/coverBox";
 
 export const dynamic = "force-dynamic";
 // 표지 읽기 + 제목 검색까지 합쳐 10초 안쪽이지만, 인터넷이 느린 날을 위해 여유를 둡니다.
@@ -37,11 +38,58 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "로그인이 필요합니다." }, { status: 401 });
   }
 
-  let body: { image?: string; mediaType?: string };
+  let body: {
+    image?: string;
+    mediaType?: string;
+    /**
+     * "box" 면 제목 검색을 건너뜁니다. 이미 등록된 책에 표지만 붙일 때 쓰며, 그때는
+     * 어느 책인지 이미 알고 있으므로 후보를 찾을 이유가 없습니다(2~3초 빨라집니다).
+     */
+    only?: "box";
+    /**
+     * 이미 등록된 책의 제목. 찍은 표지가 그 책이 맞는지 봐 주려고 받습니다 - 엉뚱한 표지가
+     * 붙으면 나중에 알아챌 방법이 사실상 없습니다.
+     */
+    expectTitle?: string;
+    /**
+     * 사진 없이 **제목만** 다시 찾는 경우(화면에서 읽어낸 제목을 사람이 고쳐 넣고 다시
+     * 누를 때). 표지에서 읽은 제목은 꾸민 글씨 때문에 한 글자가 틀리는 일이 있고, 그러면
+     * 검색이 0건이 됩니다. 사진을 다시 찍게 하는 대신 글자를 고쳐 다시 찾게 합니다.
+     */
+    title?: string;
+    author?: string;
+  };
   try {
-    body = (await request.json()) as { image?: string; mediaType?: string };
+    body = (await request.json()) as typeof body;
   } catch {
     return NextResponse.json({ error: "사진을 받지 못했습니다." }, { status: 400 });
+  }
+
+  // 사진 없이 제목만 다시 찾는 경우 - 읽기(유료)를 거치지 않으므로 비용도 들지 않습니다.
+  if (!body.image && body.title) {
+    const title = body.title.trim();
+    if (title.length < 2) {
+      return NextResponse.json({ error: "제목을 두 글자 이상 적어주세요." }, { status: 400 });
+    }
+    const candidates = await searchBooksByTitle(title, body.author ?? null).catch(
+      () => [] as BookLookup[]
+    );
+    const read: CoverRead = {
+      title,
+      author: body.author ?? null,
+      publisher: null,
+      series: null,
+      volume: null,
+      isbn: null,
+      readable: true,
+      note: null,
+      box: null,
+    };
+    return NextResponse.json({
+      read,
+      candidates,
+      message: candidates.length === 0 ? "그 제목으로 찾은 책이 없습니다." : undefined,
+    });
   }
 
   const parsed = parseImage(body.image ?? "", body.mediaType);
@@ -57,6 +105,16 @@ export async function POST(request: Request) {
     // 키가 없는 경우는 사람이 손쓸 수 있는 문제라 따로 알립니다(503: 아직 준비 안 됨).
     const missingKey = message.includes("ANTHROPIC_API_KEY");
     return NextResponse.json({ error: message }, { status: missingKey ? 503 : 502 });
+  }
+
+  // 이미 등록된 책에 표지만 붙이는 경우 - 어느 책인지 알고 있으니 후보를 찾지 않습니다.
+  if (body.only === "box") {
+    const expect = (body.expectTitle ?? "").trim();
+    return NextResponse.json({
+      read,
+      candidates: [],
+      titleMatches: expect && read.title ? titlesLookSame(expect, read.title) : null,
+    });
   }
 
   if (!read.readable || !read.title) {

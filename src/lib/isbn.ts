@@ -143,15 +143,26 @@ async function byTitleKakao(query: string): Promise<BookLookup[]> {
   return docs.map((d) => kakaoDoc(d)).filter((b): b is BookLookup => b !== null);
 }
 
+/**
+ * 구글 북스 제목 검색.
+ *
+ * 먼저 따옴표로 묶어 **그 제목 그대로**를 찾습니다. 정확하지만 글자 하나만 달라도 0건이
+ * 나옵니다 - 표지에서 읽은 제목은 한 글자가 틀리는 일이 실제로 있습니다(꾸민 글씨). 0건이면
+ * 따옴표를 떼고 한 번 더 찾습니다. 이쪽은 엉뚱한 책이 섞여 나오지만, 점수를 매겨 정렬하고
+ * 사람이 표지를 보고 고르므로 "아무것도 안 나옴"보다 낫습니다.
+ */
 async function byTitleGoogleBooks(query: string): Promise<BookLookup[]> {
-  const url =
-    `https://www.googleapis.com/books/v1/volumes?maxResults=10&q=intitle:` +
-    encodeURIComponent(`"${query}"`);
-  const json = await fetchJson(url);
-  const items = Array.isArray(json?.items) ? json.items : [];
-  return items
-    .map((item: { volumeInfo?: Record<string, unknown> }) => googleVolume(item?.volumeInfo, null))
-    .filter((b: BookLookup | null): b is BookLookup => b !== null);
+  for (const q of [`intitle:"${query}"`, `intitle:${query}`]) {
+    const json = await fetchJson(
+      `https://www.googleapis.com/books/v1/volumes?maxResults=10&q=${encodeURIComponent(q)}`
+    );
+    const items = Array.isArray(json?.items) ? json.items : [];
+    const out = items
+      .map((item: { volumeInfo?: Record<string, unknown> }) => googleVolume(item?.volumeInfo, null))
+      .filter((b: BookLookup | null): b is BookLookup => b !== null);
+    if (out.length > 0) return out;
+  }
+  return [];
 }
 
 /* ──────────────────────────────────────────────────────────────────────────

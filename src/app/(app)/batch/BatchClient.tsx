@@ -4,10 +4,13 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import BarcodeScanner from "@/components/BarcodeScanner";
 import CoverShot from "@/components/CoverShot";
+import CoverCrop from "@/components/CoverCrop";
 import { createClient } from "@/lib/supabase/client";
 import { formatIsbn, isBookBarcode, normalizeScan } from "@/lib/scan";
 import type { BookLookup, LibBook, LibLocation } from "@/lib/types";
 import type { CoverRead } from "@/lib/ai/readCover";
+import { FULL, pad } from "@/lib/coverBox";
+import { cropImage } from "@/lib/cropImage";
 import { useScanFocus } from "@/lib/useScanFocus";
 import HealthBanner from "@/components/HealthBanner";
 
@@ -38,6 +41,14 @@ type Item = {
   note: string;
   /** 이미 등록된 책이면 그 id - 등록 대신 구역만 바꿉니다. */
   existingId: string | null;
+  /**
+   * 직접 찍은 표지 사진(배경을 잘라낸 것). 등록할 때 저장소에 올리고 그 주소를 표지로 씁니다.
+   * 출판사 표지가 있어도 이쪽이 있으면 이쪽을 씁니다 - 사람이 "이 사진을 표지로" 를 고른
+   * 경우에만 담기기 때문입니다.
+   */
+  coverBlob: Blob | null;
+  /** 목록에 보여줄 작은 미리보기(올리기 전이라 아직 주소가 없습니다). */
+  coverPreview: string;
 };
 
 /**
@@ -72,7 +83,22 @@ export default function BatchClient({ locations }: { locations: LibLocation[] })
     read: CoverRead;
     candidates: BookLookup[];
     message?: string;
+    /** 배경을 잘라낸 표지. 찍는 즉시 자동으로 만들어 둡니다. */
+    cropped: { blob: Blob; preview: string } | null;
+    /** 이 사진을 그 책의 표지로 쓸지. 출판사 표지가 있는 후보가 있으면 기본으로 끕니다. */
+    usePhoto: boolean;
   } | null>(null);
+  /** 자동으로 잡은 표지 범위를 손으로 고치는 중인지. */
+  const [editCrop, setEditCrop] = useState(false);
+  /**
+   * 화면에서 고칠 수 있는 제목.
+   *
+   * 표지의 꾸민 글씨(손글씨체·그림 속 글자)는 한 글자가 틀리게 읽히는 일이 있습니다. 그런데
+   * 제목 검색은 한 글자만 달라도 0건이 되어, 사람 눈에는 제목이 멀쩡히 보이는데 후보가
+   * 하나도 없는 상황이 됩니다. 사진을 다시 찍게 하는 건 답이 아닙니다(다시 찍어도 같은
+   * 글씨입니다). 그래서 글자를 고쳐 다시 찾게 합니다.
+   */
+  const [coverTitle, setCoverTitle] = useState("");
   const [coverError, setCoverError] = useState<string | null>(null);
   const [camera, setCamera] = useState(false);
   // 이번에 담는 책들이 모두 "바코드가 인쇄되어 있지 않은 책"인 경우(라벨을 뽑아 붙일 예정).
@@ -133,7 +159,7 @@ export default function BatchClient({ locations }: { locations: LibLocation[] })
 
   /** 찍힌 값 하나를 목록에 추가하고, 뒤이어 책 정보를 채웁니다. */
   const add = useCallback(
-    async (raw: string) => {
+    async (raw: string, shotCover?: { blob: Blob; preview: string }) => {
       const code = normalizeScan(raw);
       if (!code) return;
 
@@ -172,6 +198,8 @@ export default function BatchClient({ locations }: { locations: LibLocation[] })
             status: "찾는중",
             note: "",
             existingId: null,
+            coverBlob: shotCover?.blob ?? null,
+            coverPreview: shotCover?.preview ?? "",
           },
           ...prev,
         ];
@@ -294,6 +322,8 @@ export default function BatchClient({ locations }: { locations: LibLocation[] })
         copies: 1,
         note: "바코드 없음 - 라벨 발급",
         existingId: null,
+        coverBlob: null,
+        coverPreview: "",
         // 표지에서 읽어낸 값이 있으면 위의 빈 칸들을 덮어씁니다.
         ...extra,
         // 아래 값은 덮어쓰지 않습니다 - 라벨 번호는 여기서만 하나씩 올라가고,
@@ -319,6 +349,7 @@ export default function BatchClient({ locations }: { locations: LibLocation[] })
     setCoverBusy(true);
     setCoverError(null);
     setCover(null);
+    setEditCrop(false);
     try {
       const res = await fetch("/api/books/cover", {
         method: "POST",
@@ -335,11 +366,25 @@ export default function BatchClient({ locations }: { locations: LibLocation[] })
         setCoverError(json.error ?? `표지를 읽지 못했습니다 (HTTP ${res.status})`);
         return;
       }
+      const candidates = json.candidates ?? [];
+      setCoverTitle(json.read.title);
+      /*
+        배경을 바로 잘라냅니다. 읽는 쪽이 표지 네모를 함께 집어 주므로 추가 비용이 없고,
+        사람이 누를 것도 없습니다. 못 집었으면 사진 전체로 두고 화면에서 끌어 맞추게 합니다.
+        2% 넓혀 잘라내는 이유는 coverBox.pad 에 적어 두었습니다.
+      */
+      const cropped = await cropImage(dataUrl, pad(json.read.box ?? FULL)).catch(() => null);
       setCover({
         shot: dataUrl,
         read: json.read,
-        candidates: json.candidates ?? [],
+        candidates,
         message: json.message,
+        cropped: cropped ? { blob: cropped.blob, preview: cropped.preview } : null,
+        /*
+          출판사가 올린 표지가 있는 후보가 있으면 그쪽이 보통 더 깔끔합니다(정면·균일한 조명).
+          그래서 그때는 꺼 두고, 그런 후보가 없을 때만 켭니다 - 표지 없는 책이 남지 않게.
+        */
+        usePhoto: !candidates.some((b) => b.cover_url),
       });
     } catch (e) {
       setCoverError(
@@ -350,13 +395,56 @@ export default function BatchClient({ locations }: { locations: LibLocation[] })
     }
   }
 
-  /** 후보 하나를 골라 목록에 담습니다. */
+  /** 고친 제목으로 후보를 다시 찾습니다(사진을 다시 읽지 않으므로 비용이 들지 않습니다). */
+  async function researchTitle() {
+    const title = coverTitle.trim();
+    if (title.length < 2 || !cover) return;
+    setCoverBusy(true);
+    setCoverError(null);
+    try {
+      const res = await fetch("/api/books/cover", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title, author: cover.read.author }),
+      });
+      const json = (await res.json()) as {
+        candidates?: BookLookup[];
+        message?: string;
+        error?: string;
+      };
+      if (!res.ok) {
+        setCoverError(json.error ?? "다시 찾지 못했습니다.");
+        return;
+      }
+      const candidates = json.candidates ?? [];
+      setCover((prev) =>
+        prev
+          ? {
+              ...prev,
+              read: { ...prev.read, title },
+              candidates,
+              message: json.message,
+              // 출판사 표지가 있는 후보가 새로 나왔으면 찍은 사진은 기본으로 끕니다.
+              usePhoto: prev.usePhoto && !candidates.some((b) => b.cover_url),
+            }
+          : prev
+      );
+    } catch (e) {
+      setCoverError(e instanceof Error ? e.message : "다시 찾지 못했습니다.");
+    } finally {
+      setCoverBusy(false);
+    }
+  }
+
+  /** 후보 하나를 골라 목록에 담습니다(쓰기로 한 경우 찍은 표지도 함께). */
   function takeCandidate(book: BookLookup) {
+    const photo = cover?.usePhoto ? (cover.cropped ?? null) : null;
     setCover(null);
+    setEditCrop(false);
     if (book.isbn) {
       // ISBN이 있으면 바코드를 찍은 것과 똑같은 길로 보냅니다 - 이미 담겼는지, 장서에 있는
       // 책인지 확인하는 일을 그 길이 전부 하고 있습니다.
-      void add(book.isbn);
+      void add(book.isbn, photo ?? undefined);
       return;
     }
     addNoBarcode(book.title, {
@@ -370,6 +458,8 @@ export default function BatchClient({ locations }: { locations: LibLocation[] })
       series: book.series ?? "",
       seriesNo: book.seriesNo != null ? String(book.seriesNo) : "",
       note: `바코드 없음 - 라벨 발급 · ${book.source}`,
+      coverBlob: photo?.blob ?? null,
+      coverPreview: photo?.preview ?? "",
     });
   }
 
@@ -426,6 +516,24 @@ export default function BatchClient({ locations }: { locations: LibLocation[] })
     }
   }
 
+  /**
+   * 찍은 표지를 저장소에 올리고 주소를 돌려줍니다.
+   *
+   * 등록할 때 한 번에 올립니다 - 찍는 즉시 올리면, 결국 등록하지 않고 버린 사진까지 저장소에
+   * 쌓입니다(지우는 사람은 아무도 없습니다).
+   */
+  async function uploadCover(blob: Blob, name: string) {
+    const safe = name.replace(/[^0-9A-Za-z-]/g, "") || `shot-${Date.now()}`;
+    const path = `covers/${safe}.jpg`;
+    const { error } = await supabase.storage
+      .from("library")
+      .upload(path, blob, { upsert: true, contentType: "image/jpeg" });
+    if (error) throw new Error(error.message);
+    const { data } = supabase.storage.from("library").getPublicUrl(path);
+    // 같은 주소에 새 사진을 올리면 브라우저가 옛 사진을 계속 보여줍니다 - 뒤에 표를 붙입니다.
+    return `${data.publicUrl}?v=${Date.now()}`;
+  }
+
   /** 목록 전체를 한꺼번에 등록합니다. */
   async function saveAll() {
     setSaving(true);
@@ -442,6 +550,23 @@ export default function BatchClient({ locations }: { locations: LibLocation[] })
         continue;
       }
 
+      /*
+        직접 찍은 표지가 있으면 먼저 올립니다. 올리다 실패해도 **책 등록은 그대로 진행**합니다 -
+        표지 한 장 때문에 백 권 등록이 멈추면 안 되고, 표지는 장서 관리에서 다시 찍을 수
+        있습니다.
+      */
+      let coverUrl = item.cover_url;
+      let coverNote = "";
+      if (item.coverBlob) {
+        try {
+          coverUrl = await uploadCover(item.coverBlob, item.isbn || item.labelNo || item.key);
+        } catch (e) {
+          coverNote = ` · 표지 사진은 올리지 못했습니다(${
+            e instanceof Error ? e.message : "오류"
+          })`;
+        }
+      }
+
       try {
         const res = await fetch("/api/books", {
           method: "POST",
@@ -453,7 +578,7 @@ export default function BatchClient({ locations }: { locations: LibLocation[] })
             author: item.author,
             publisher: item.publisher,
             pub_year: item.pub_year,
-            cover_url: item.cover_url,
+            cover_url: coverUrl,
             language: item.language,
             category: item.category || null,
             // 대상 연령은 등록할 때 묻지 않습니다(요청: "이미 연령별로 구분이 된거 같아서
@@ -486,7 +611,8 @@ export default function BatchClient({ locations }: { locations: LibLocation[] })
           added += item.copies;
           ids.push(json.book.id);
           patchItem(item.key, {
-            note: item.copies > 1 ? `${item.copies}권으로 등록 완료` : "등록 완료",
+            note:
+              (item.copies > 1 ? `${item.copies}권으로 등록 완료` : "등록 완료") + coverNote,
           });
         }
       } catch (e) {
@@ -790,18 +916,67 @@ export default function BatchClient({ locations }: { locations: LibLocation[] })
 
             {cover && (
               <div className="gia-pop rounded-2xl border-2 border-gia-gold bg-amber-50/60 p-4">
-                <div className="flex gap-3">
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img
+                {/*
+                  찍은 사진에서 배경을 잘라낸 표지. 요청: "표지를 찍으면 자동으로 책 표지
+                  이외에는 잘려서 깔끔하게 책 표지만 들어갈 수 있도록".
+                */}
+                {editCrop ? (
+                  <CoverCrop
                     src={cover.shot}
-                    alt="방금 찍은 표지"
-                    className="h-24 w-auto rounded-lg border border-amber-200 object-contain"
+                    initial={cover.read.box}
+                    label="이 범위로 자르기"
+                    onCancel={() => setEditCrop(false)}
+                    onDone={(blob, preview) => {
+                      setCover((prev) =>
+                        prev ? { ...prev, cropped: { blob, preview }, usePhoto: true } : prev
+                      );
+                      setEditCrop(false);
+                    }}
                   />
+                ) : (
+                <div className="flex gap-3">
+                  <div className="shrink-0">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={cover.cropped?.preview ?? cover.shot}
+                      alt="방금 찍은 표지"
+                      className="h-28 w-auto rounded-lg border border-amber-200 bg-white object-contain"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setEditCrop(true)}
+                      className="mt-1 block w-full text-center text-[11px] text-slate-500 hover:underline"
+                    >
+                      범위 고치기
+                    </button>
+                  </div>
                   <div className="min-w-0 flex-1">
-                    <p className="text-xs font-semibold text-slate-500">표지에서 읽은 제목</p>
-                    <p className="text-lg font-bold break-words text-gia-navy">
-                      {cover.read.title || "— 읽지 못했습니다"}
+                    <p className="text-xs font-semibold text-slate-500">
+                      표지에서 읽은 제목 <span className="font-normal">(틀렸으면 고쳐주세요)</span>
                     </p>
+                    <div className="mt-0.5 flex flex-wrap items-center gap-2">
+                      <input
+                        value={coverTitle}
+                        onChange={(e) => setCoverTitle(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") {
+                            e.preventDefault();
+                            void researchTitle();
+                          }
+                        }}
+                        placeholder="읽지 못했습니다 — 제목을 적어주세요"
+                        className="min-w-[12rem] flex-1 rounded-lg border border-amber-300 bg-white px-3 py-1.5 text-lg font-bold text-gia-navy"
+                        autoComplete="off"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => void researchTitle()}
+                        disabled={coverBusy || coverTitle.trim().length < 2}
+                        className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm font-semibold text-slate-600 disabled:opacity-40"
+                      >
+                        {coverBusy ? "찾는 중…" : "이 제목으로 다시 찾기"}
+                      </button>
+                    </div>
                     <p className="mt-0.5 text-sm text-slate-600">
                       {[cover.read.author, cover.read.publisher, cover.read.series]
                         .filter(Boolean)
@@ -810,8 +985,31 @@ export default function BatchClient({ locations }: { locations: LibLocation[] })
                     {cover.message && (
                       <p className="mt-1 text-sm text-amber-800">{cover.message}</p>
                     )}
+
+                    {/*
+                      요청: "찍은 거 바로 표지 등록할 수 있게". 출판사 표지가 있는 후보가
+                      있으면 기본으로 꺼 둡니다 - 정면에서 균일한 조명으로 찍은 출판사 표지가
+                      보통 더 깔끔합니다. 그런 후보가 없으면 켜 둡니다(표지 없는 책이 남지
+                      않게).
+                    */}
+                    {cover.cropped && (
+                      <label className="mt-2 flex w-fit items-center gap-2 rounded-lg bg-white/70 px-2.5 py-1.5 text-sm font-semibold text-slate-700">
+                        <input
+                          type="checkbox"
+                          checked={cover.usePhoto}
+                          onChange={(e) =>
+                            setCover((prev) =>
+                              prev ? { ...prev, usePhoto: e.target.checked } : prev
+                            )
+                          }
+                          className="h-4 w-4"
+                        />
+                        이 사진을 표지로 쓰기
+                      </label>
+                    )}
                   </div>
                 </div>
+                )}
 
                 {cover.candidates.length > 0 && (
                   <>
@@ -862,18 +1060,23 @@ export default function BatchClient({ locations }: { locations: LibLocation[] })
                 )}
 
                 <div className="mt-4 flex flex-wrap gap-2">
-                  {cover.read.title && (
+                  {coverTitle.trim() && (
                     <button
                       type="button"
                       onClick={() => {
                         const read = cover.read;
+                        const title = coverTitle.trim();
+                        const photo = cover.usePhoto ? (cover.cropped ?? null) : null;
                         setCover(null);
-                        addNoBarcode(read.title, {
+                        setEditCrop(false);
+                        addNoBarcode(title, {
                           author: read.author ?? "",
                           publisher: read.publisher ?? "",
                           series: read.series ?? "",
                           seriesNo: read.volume ?? "",
                           note: "바코드 없음 - 라벨 발급 · 표지에서 읽음",
+                          coverBlob: photo?.blob ?? null,
+                          coverPreview: photo?.preview ?? "",
                         });
                       }}
                       className="rounded-xl bg-slate-700 px-4 py-2 text-sm font-bold text-white"
@@ -971,9 +1174,16 @@ export default function BatchClient({ locations }: { locations: LibLocation[] })
           <ul className="divide-y divide-slate-100">
             {items.map((item) => (
               <li key={item.key} className="flex items-start gap-3 px-4 py-3">
-                {item.cover_url ? (
+                {item.coverPreview || item.cover_url ? (
                   // eslint-disable-next-line @next/next/no-img-element
-                  <img src={item.cover_url} alt="" className="h-14 w-10 shrink-0 rounded object-cover" />
+                  <img
+                    src={item.coverPreview || item.cover_url}
+                    alt=""
+                    className={`h-14 w-10 shrink-0 rounded object-cover ${
+                      item.coverPreview ? "ring-2 ring-gia-gold" : ""
+                    }`}
+                    title={item.coverPreview ? "직접 찍은 표지 - 등록할 때 함께 올립니다" : undefined}
+                  />
                 ) : (
                   <div className="flex h-14 w-10 shrink-0 items-center justify-center rounded bg-slate-100 text-sm">
                     📘

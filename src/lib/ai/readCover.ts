@@ -20,6 +20,8 @@
  * 손으로 치는 시간과 비교할 수준이 아닙니다.
  */
 
+import { toBox, type Box } from "@/lib/coverBox";
+
 /** 운영앱과 같은 모델을 씁니다(표지 한 장 읽기에는 가장 저렴한 쪽이 충분합니다). */
 const MODEL = "claude-haiku-4-5-20251001";
 
@@ -38,6 +40,11 @@ export type CoverRead = {
   readable: boolean;
   /** 못 읽은 이유나 사람이 확인할 점(흐림·가림·외국어 등). */
   note: string | null;
+  /**
+   * 사진에서 책 표지가 차지하는 네모(비율 0~1). 배경을 잘라내는 데 씁니다.
+   * 못 찾았으면 null - 그때는 사진 전체를 쓰고 사람이 끌어서 맞춥니다.
+   */
+  box: Box | null;
 };
 
 const SYSTEM = `당신은 학교 도서관의 장서 담당자입니다. 책 표지 사진 한 장을 보고, 도서관
@@ -54,8 +61,15 @@ const SYSTEM = `당신은 학교 도서관의 장서 담당자입니다. 책 표
   그런지 한국어 한 문장으로 적습니다.
 - 책 표지가 아닌 사진(사람·책장 전체·빈 종이 등)이면 readable 을 false 로 합니다.
 
+box 는 사진에서 **책 표지만** 차지하는 네모입니다. 사진 왼쪽 위를 (0,0), 오른쪽 아래를
+(1,1) 로 보고 소수로 적습니다. x·y 는 왼쪽 위 꼭지점, w·h 는 너비·높이입니다.
+- 표지의 네 변에 맞춥니다. 책을 든 손·책상·배경은 넣지 않습니다.
+- 표지 일부가 사진 밖으로 나갔으면 보이는 부분만 적습니다.
+- 표지가 어디까지인지 알 수 없으면 box 를 null 로 둡니다. 어림짐작으로 적으면 제목이
+  잘려 나갑니다.
+
 오직 JSON 하나만 답합니다. 설명·머리말·코드블록 표시를 붙이지 마세요:
-{"title":"","author":null,"publisher":null,"series":null,"volume":null,"isbn":null,"readable":true,"note":null}`;
+{"title":"","author":null,"publisher":null,"series":null,"volume":null,"isbn":null,"readable":true,"note":null,"box":{"x":0.0,"y":0.0,"w":1.0,"h":1.0}}`;
 
 /**
  * 표지 사진 하나를 읽습니다.
@@ -89,7 +103,7 @@ export async function readCover(base64: string, mediaType: string): Promise<Cove
       },
       body: JSON.stringify({
         model: MODEL,
-        max_tokens: 400,
+        max_tokens: 500,
         system: SYSTEM,
         messages: [
           {
@@ -122,11 +136,8 @@ export async function readCover(base64: string, mediaType: string): Promise<Cove
   } catch {
     throw new Error(`표지 읽기 응답을 해석할 수 없습니다(코드 ${status}).`);
   }
-  if (json.error) {
-    throw new Error(`표지 읽기 오류: ${json.error.message || "알 수 없는 오류"}`);
-  }
-  if (status !== 200) {
-    throw new Error(`표지 읽기 오류(코드 ${status}).`);
+  if (json.error || status !== 200) {
+    throw new Error(explain(json.error?.message ?? "", status));
   }
 
   // 텍스트 블록을 모두 이어붙입니다. 한 블록만 보면 답이 나뉘어 왔을 때 잘립니다.
@@ -140,6 +151,40 @@ export async function readCover(base64: string, mediaType: string): Promise<Cove
 }
 
 /**
+ * API 가 돌려준 영어 오류를 **사람이 손쓸 수 있는 한국어 문장**으로 바꿉니다.
+ *
+ * 처음에는 원문을 그대로 화면에 띄웠습니다. 실제로 처음 켠 날 받은 메시지가 이것이었습니다:
+ * "Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing...".
+ * 화면 앞에 선 사람은 이걸 읽고 "내가 키를 잘못 넣었나"를 먼저 의심합니다 - 키는 맞는데
+ * 잔액이 없는 것이고, 할 일은 충전 한 번입니다. 그 차이를 알려주지 않으면 키를 지우고 다시
+ * 넣는 데 시간을 씁니다.
+ *
+ * 원문도 뒤에 붙여 둡니다. 여기서 못 알아본 오류를 찾을 때 그게 유일한 단서입니다.
+ */
+function explain(raw: string, status: number): string {
+  const text = raw.toLowerCase();
+  if (text.includes("credit balance") || text.includes("billing")) {
+    return (
+      "표지 읽기를 쓸 수 있는 잔액이 없습니다. console.anthropic.com → Plans & Billing 에서 " +
+      "크레딧을 충전해 주세요(표지 한 장당 4원쯤입니다). 그동안 제목은 손으로 적어 담을 수 있습니다."
+    );
+  }
+  if (status === 401 || text.includes("authentication") || text.includes("invalid x-api-key")) {
+    return "표지 읽기 키(ANTHROPIC_API_KEY)가 올바르지 않습니다. Vercel 환경변수의 값을 다시 확인해 주세요.";
+  }
+  if (status === 403 || text.includes("permission")) {
+    return "이 키로는 표지 읽기를 쓸 수 없습니다(권한 없음). 다른 키로 바꿔 주세요.";
+  }
+  if (status === 429 || text.includes("rate limit")) {
+    return "표지 읽기 요청이 한꺼번에 너무 많습니다. 몇 초 뒤에 다시 찍어주세요.";
+  }
+  if (status === 529 || text.includes("overloaded")) {
+    return "표지 읽기 서버가 지금 붐빕니다. 잠시 뒤에 다시 찍어주세요.";
+  }
+  return `표지를 읽지 못했습니다(코드 ${status}). ${raw.slice(0, 200)}`;
+}
+
+/**
  * 답에서 JSON 을 꺼냅니다.
  *
  * "오직 JSON" 이라고 일러두어도 ```json 울타리나 앞말이 붙어 오는 일이 있습니다. 그때마다
@@ -150,13 +195,13 @@ function parseReply(text: string): CoverRead {
   const start = text.indexOf("{");
   const end = text.lastIndexOf("}");
   if (start < 0 || end <= start) {
-    return { title: "", author: null, publisher: null, series: null, volume: null, isbn: null, readable: false, note: "표지에서 글씨를 찾지 못했습니다." };
+    return { title: "", author: null, publisher: null, series: null, volume: null, isbn: null, readable: false, note: "표지에서 글씨를 찾지 못했습니다.", box: null };
   }
   let data: Record<string, unknown>;
   try {
     data = JSON.parse(text.slice(start, end + 1)) as Record<string, unknown>;
   } catch {
-    return { title: "", author: null, publisher: null, series: null, volume: null, isbn: null, readable: false, note: "표지 읽기 결과를 해석하지 못했습니다. 다시 찍어주세요." };
+    return { title: "", author: null, publisher: null, series: null, volume: null, isbn: null, readable: false, note: "표지 읽기 결과를 해석하지 못했습니다. 다시 찍어주세요.", box: null };
   }
 
   const str = (key: string): string | null => {
@@ -182,5 +227,7 @@ function parseReply(text: string): CoverRead {
     isbn: isbnDigits.length === 10 || isbnDigits.length === 13 ? isbnDigits : null,
     readable: data.readable !== false && title.length > 0,
     note: str("note"),
+    // 못 쓸 값은 toBox 가 null 로 걸러냅니다 - 배경이 남는 게 표지가 잘리는 것보다 낫습니다.
+    box: toBox(data.box),
   };
 }

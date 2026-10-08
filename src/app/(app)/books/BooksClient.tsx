@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import BookRegisterDialog from "@/components/BookRegisterDialog";
 import MobileQrDialog from "@/components/MobileQrDialog";
+import BookCoverShotDialog from "@/components/BookCoverShotDialog";
 import { createClient } from "@/lib/supabase/client";
 import { formatIsbn, hasProductCodeAsId, needsLabel } from "@/lib/scan";
 import { AUDIENCES } from "@/lib/audience";
@@ -23,6 +24,17 @@ export default function BooksClient({
   const [keyword, setKeyword] = useState("");
   const [onlyLabel, setOnlyLabel] = useState(false);
   const [onlyNoShelf, setOnlyNoShelf] = useState(false);
+  /**
+   * 표지 없는 책만 보기.
+   *
+   * 요청: "등록한 책이 표지가 없다면 노트북 카메라를 사용해서 표지를 바로 등록할 수 있도록".
+   * ISBN이 없거나 인터넷 목록에 없는 책은 조회로 표지를 받을 수 없어서 📘 아이콘만 남습니다.
+   * 초등학생은 제목보다 표지로 책을 기억하므로, 이 목록을 한 번 비우고 가면 책 찾기가
+   * 훨씬 쉬워집니다.
+   */
+  const [onlyNoCover, setOnlyNoCover] = useState(false);
+  /** 지금 표지를 찍는 중인 책. */
+  const [shooting, setShooting] = useState<LibBook | null>(null);
   /**
    * 상품코드로 등록된 책만 보기.
    *
@@ -144,6 +156,7 @@ export default function BooksClient({
       if (onlyLabel && !needsLabel(book)) return false;
       if (onlyProduct && !hasProductCodeAsId(book)) return false;
       if (onlyNoShelf && book.location_id) return false;
+      if (onlyNoCover && book.cover_url) return false;
       if (category === "미분류" && book.category) return false;
       if (category !== "전체" && category !== "미분류" && book.category !== category) return false;
       if (level === "없음" && book.label_level != null) return false;
@@ -159,7 +172,7 @@ export default function BooksClient({
       } ${book.category ?? ""} ${book.shelf?.code ?? ""} ${book.shelf?.name ?? ""}`.toLowerCase();
       return hay.includes(kw);
     });
-  }, [books, keyword, onlyLabel, onlyProduct, onlyNoShelf, category, level, zone, audience]);
+  }, [books, keyword, onlyLabel, onlyProduct, onlyNoShelf, onlyNoCover, category, level, zone, audience]);
 
   // 자체 라벨 번호가 있는 책은 그 번호로, ISBN만 있는 책은 ISBN으로 바코드를 만들어 인쇄합니다
   // (요청: "isbn 번호만 있고 바코드는 없는 경우도 있어, 이경우에도 바코드 생성할 수 있게").
@@ -170,6 +183,8 @@ export default function BooksClient({
   const needLabelBooks = books.filter((book) => needsLabel(book));
   /** 상품코드가 고유 번호 자리에 들어가 있는 책들 - 다시 봐야 할 목록입니다. */
   const productBooks = books.filter((book) => hasProductCodeAsId(book));
+  /** 표지 사진이 없는 책 수 - 몇 권 남았는지 보이면 끝까지 채우게 됩니다. */
+  const noCoverCount = books.filter((book) => !book.cover_url).length;
 
   function toggle(id: string) {
     setSelected((prev) => {
@@ -290,6 +305,19 @@ export default function BooksClient({
             className="h-4 w-4"
           />
           구역 미지정만
+        </label>
+
+        <label
+          className="flex items-center gap-1.5 text-sm text-slate-600"
+          title="표지 사진이 없는 책 — 책 아래 📷 를 누르면 노트북 카메라로 바로 찍어 붙일 수 있습니다"
+        >
+          <input
+            type="checkbox"
+            checked={onlyNoCover}
+            onChange={(e) => setOnlyNoCover(e.target.checked)}
+            className="h-4 w-4"
+          />
+          표지 없는 책만 ({noCoverCount})
         </label>
 
         {splitMsg && (
@@ -543,14 +571,32 @@ export default function BooksClient({
                   </td>
                   <td className="px-3 py-2">
                     <div className="flex items-start gap-2">
-                      {book.cover_url ? (
-                        // eslint-disable-next-line @next/next/no-img-element
-                        <img src={book.cover_url} alt="" className="h-12 w-9 rounded object-cover" />
-                      ) : (
-                        <div className="flex h-12 w-9 items-center justify-center rounded bg-slate-100 text-sm">
-                          📘
-                        </div>
-                      )}
+                      {/*
+                        표지를 노트북 카메라로 바로 찍어 붙입니다. 표지가 없는 책은 버튼을
+                        눈에 띄게 두고, 있는 책은 작게 둡니다(다시 찍고 싶을 때만 씁니다).
+                      */}
+                      <div className="shrink-0">
+                        {book.cover_url ? (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img src={book.cover_url} alt="" className="h-12 w-9 rounded object-cover" />
+                        ) : (
+                          <div className="flex h-12 w-9 items-center justify-center rounded bg-slate-100 text-sm">
+                            📘
+                          </div>
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => setShooting(book)}
+                          title={book.cover_url ? "표지 다시 찍기" : "노트북 카메라로 표지 찍기"}
+                          className={`mt-1 w-9 rounded py-0.5 text-[11px] font-semibold ${
+                            book.cover_url
+                              ? "text-slate-300 hover:bg-slate-100 hover:text-slate-500"
+                              : "bg-gia-navy text-white"
+                          }`}
+                        >
+                          📷
+                        </button>
+                      </div>
                       <div className="min-w-0">
                         {/*
                           제목은 자르지 않습니다. 좁은 칸에 밀어 넣으면 '마법천자' 처럼 끊겨서
@@ -670,6 +716,17 @@ export default function BooksClient({
           locations={locations}
           onClose={() => setEditing(null)}
           onSaved={() => router.refresh()}
+        />
+      )}
+
+      {shooting && (
+        <BookCoverShotDialog
+          book={shooting}
+          onClose={() => setShooting(null)}
+          onSaved={() => {
+            setShooting(null);
+            router.refresh();
+          }}
         />
       )}
     </div>
