@@ -44,6 +44,120 @@ export async function lookupIsbn(isbn: string): Promise<BookLookup | null> {
   return null;
 }
 
+/* ──────────────────────────────────────────────────────────────────────────
+   제목으로 찾기
+   ────────────────────────────────────────────────────────────────────────── */
+
+/**
+ * 제목(과 저자)으로 책을 찾습니다. 여러 후보를 **고르라고** 돌려줍니다.
+ *
+ * 표지 사진에서 읽은 제목을 여기에 넣으면 ISBN·출판사·표지 그림이 붙은 제대로 된 서지사항이
+ * 나옵니다. 그러면 바코드가 없던 책도 **ISBN 이 있는 책**으로 등록되고, 라벨 인쇄 화면이 그
+ * ISBN 으로 바코드를 만들어 줍니다 - 다음부터는 스캐너로 그냥 찍힙니다.
+ *
+ * ── 왜 하나만 돌려주지 않는가 ────────────────────────────────────────────
+ * 제목 검색은 ISBN 검색과 달리 **틀릴 수 있습니다.** 같은 제목의 다른 책, 개정판, 세트
+ * 상품이 섞여 나옵니다. 여기서 1등을 자동으로 집어넣으면 엉뚱한 ISBN이 책에 박히고, 그걸
+ * 사람이 알아채는 건 몇 달 뒤 누가 그 책을 빌릴 때입니다. 그래서 점수 순으로 몇 개를
+ * 돌려주고 **사람이 한 번 누르게** 합니다 - 표지 그림이 함께 뜨므로 손에 든 책과 맞는지
+ * 0.5초면 압니다.
+ */
+export async function searchBooksByTitle(
+  title: string,
+  author?: string | null
+): Promise<BookLookup[]> {
+  const query = title.trim();
+  if (query.length < 2) return [];
+
+  const results = await Promise.allSettled([byTitleKakao(query), byTitleGoogleBooks(query)]);
+  const all: BookLookup[] = [];
+  for (const r of results) if (r.status === "fulfilled") all.push(...r.value);
+
+  // 같은 책이 두 곳에서 다 나오면 하나로 묶습니다. 먼저 담긴 쪽(카카오)이 한국 책 정보가
+  // 좋으므로 그대로 둡니다.
+  const seen = new Set<string>();
+  const unique: BookLookup[] = [];
+  for (const book of all) {
+    const key = book.isbn ? canonicalIsbn(book.isbn) : `t:${fold(book.title)}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    unique.push(book);
+  }
+
+  return unique
+    .map((book) => ({ book, score: score(query, author, book) }))
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 5)
+    .map((x) => x.book);
+}
+
+/** 비교용으로 글자를 접습니다 - 띄어쓰기·괄호·기호 차이로 다른 책이 되지 않게. */
+function fold(text: string): string {
+  return text
+    .toLowerCase()
+    .replace(/[\s ]+/g, "")
+    .replace(/[^0-9a-z가-힣]/g, "");
+}
+
+/**
+ * 후보가 손에 든 책일 가능성에 점수를 줍니다.
+ *
+ * 표지에서 읽은 제목은 부제나 시리즈 이름이 붙거나 빠지는 일이 흔하므로, 글자가 똑같지
+ * 않아도 한쪽이 다른 쪽으로 시작하면 높게 봅니다.
+ */
+function score(query: string, author: string | null | undefined, book: BookLookup): number {
+  const q = fold(query);
+  const t = fold(book.title);
+  let point = 0;
+  if (q === t) point = 100;
+  else if (t.startsWith(q) || q.startsWith(t)) point = 72;
+  else if (t.includes(q) || q.includes(t)) point = 55;
+  else {
+    // 글자 단위로 얼마나 겹치는지 - 제목이 길게 다른 경우를 걸러냅니다.
+    const chars = new Set(q.split(""));
+    let hit = 0;
+    for (const ch of new Set(t.split(""))) if (chars.has(ch)) hit += 1;
+    point = Math.round((hit / Math.max(1, chars.size)) * 40);
+  }
+
+  const wanted = fold(author ?? "");
+  if (wanted && book.author) {
+    const got = fold(book.author);
+    // 사람 이름은 "글 김영주", "김영주 지음" 처럼 적히는 쪽이 달라서 포함 관계로 봅니다.
+    if (got.includes(wanted) || wanted.includes(got)) point += 18;
+  }
+  // 표지가 있으면 사람이 눈으로 확인할 수 있어 조금 올려 둡니다(확인 못 하는 후보보다 유용).
+  if (book.cover_url) point += 4;
+  if (book.isbn) point += 4;
+  return point;
+}
+
+async function byTitleKakao(query: string): Promise<BookLookup[]> {
+  const key = process.env.KAKAO_REST_API_KEY;
+  if (!key) return [];
+  const url =
+    `https://dapi.kakao.com/v3/search/book?target=title&size=10&query=` +
+    encodeURIComponent(query);
+  const json = await fetchJson(url, 6000, { Authorization: `KakaoAK ${key}` });
+  const docs: KakaoDoc[] = Array.isArray(json?.documents) ? json.documents : [];
+  return docs.map((d) => kakaoDoc(d)).filter((b): b is BookLookup => b !== null);
+}
+
+async function byTitleGoogleBooks(query: string): Promise<BookLookup[]> {
+  const url =
+    `https://www.googleapis.com/books/v1/volumes?maxResults=10&q=intitle:` +
+    encodeURIComponent(`"${query}"`);
+  const json = await fetchJson(url);
+  const items = Array.isArray(json?.items) ? json.items : [];
+  return items
+    .map((item: { volumeInfo?: Record<string, unknown> }) => googleVolume(item?.volumeInfo, null))
+    .filter((b: BookLookup | null): b is BookLookup => b !== null);
+}
+
+/* ──────────────────────────────────────────────────────────────────────────
+   조회처별 변환 - ISBN 조회와 제목 검색이 같은 변환을 씁니다
+   ────────────────────────────────────────────────────────────────────────── */
+
 /**
  * 카카오 책 검색.
  *
@@ -56,11 +170,32 @@ async function fromKakao(isbn: string): Promise<BookLookup | null> {
   if (!key) return null;
   const url = `https://dapi.kakao.com/v3/search/book?target=isbn&query=${encodeURIComponent(isbn)}`;
   const json = await fetchJson(url, 6000, { Authorization: `KakaoAK ${key}` });
-  const doc = json?.documents?.[0];
+  const found = kakaoDoc(json?.documents?.[0]);
+  // ISBN 으로 찾은 경우에는 찾은 번호를 그대로 씁니다(카카오는 10·13을 함께 주기도 합니다).
+  return found ? { ...found, isbn } : null;
+}
+
+type KakaoDoc = {
+  title?: string;
+  authors?: string[];
+  publisher?: string;
+  datetime?: string;
+  thumbnail?: string;
+  contents?: string;
+  isbn?: string;
+};
+
+function kakaoDoc(doc: KakaoDoc | undefined | null): BookLookup | null {
   if (!doc?.title) return null;
   const authors = Array.isArray(doc.authors) ? doc.authors.join(", ") : null;
+  // 카카오는 "8990982693 9788990982698" 처럼 두 번호를 띄어쓰기로 붙여 줍니다.
+  const numbers = String(doc.isbn ?? "")
+    .split(/\s+/)
+    .map((v) => v.replace(/[^0-9X]/gi, "").toUpperCase())
+    .filter((v) => v.length === 10 || v.length === 13);
+  const isbn = numbers.find((v) => v.length === 13) ?? numbers[0] ?? "";
   return withAudience({
-    isbn,
+    isbn: isbn ? canonicalIsbn(isbn) : "",
     title: String(doc.title).trim(),
     author: authors || null,
     publisher: doc.publisher ? String(doc.publisher).trim() : null,
@@ -143,24 +278,50 @@ async function fromNationalLibrary(isbn: string): Promise<BookLookup | null> {
 
 async function fromGoogleBooks(isbn: string): Promise<BookLookup | null> {
   const json = await fetchJson(`https://www.googleapis.com/books/v1/volumes?q=isbn:${isbn}`);
-  const info = json?.items?.[0]?.volumeInfo;
-  if (!info?.title) return null;
-  const title = [info.title, info.subtitle].filter(Boolean).join(": ");
-  const authors = Array.isArray(info.authors) ? info.authors.join(", ") : null;
-  const cover: string | null =
-    info.imageLinks?.thumbnail ?? info.imageLinks?.smallThumbnail ?? null;
+  return googleVolume(json?.items?.[0]?.volumeInfo, isbn);
+}
+
+/**
+ * 구글 북스의 volumeInfo 한 건을 우리 형식으로 바꿉니다.
+ * @param fallbackIsbn ISBN 으로 조회한 경우 그 번호. 제목으로 검색한 경우에는 null 이고,
+ *                     이때는 응답 안의 식별자에서 ISBN 을 꺼냅니다.
+ */
+function googleVolume(info: unknown, fallbackIsbn: string | null): BookLookup | null {
+  const v = info as
+    | {
+        title?: string;
+        subtitle?: string;
+        authors?: string[];
+        publisher?: string;
+        publishedDate?: string;
+        imageLinks?: { thumbnail?: string; smallThumbnail?: string };
+        language?: string;
+        categories?: string[];
+        industryIdentifiers?: { type?: string; identifier?: string }[];
+      }
+    | undefined
+    | null;
+  if (!v?.title) return null;
+  const title = [v.title, v.subtitle].filter(Boolean).join(": ");
+  const authors = Array.isArray(v.authors) ? v.authors.join(", ") : null;
+  const cover: string | null = v.imageLinks?.thumbnail ?? v.imageLinks?.smallThumbnail ?? null;
+  const ids = Array.isArray(v.industryIdentifiers) ? v.industryIdentifiers : [];
+  const fromIds =
+    ids.find((i) => i.type === "ISBN_13")?.identifier ??
+    ids.find((i) => i.type === "ISBN_10")?.identifier ??
+    "";
+  const isbn = fallbackIsbn ?? (fromIds ? canonicalIsbn(fromIds.replace(/[^0-9X]/gi, "")) : "");
   return withAudience({
     isbn,
     title: String(title).trim(),
     author: authors,
-    publisher: info.publisher ? String(info.publisher).trim() : null,
-    pub_year: yearOf(info.publishedDate),
+    publisher: v.publisher ? String(v.publisher).trim() : null,
+    pub_year: yearOf(v.publishedDate),
     // http로 오는 경우가 있어 https로 바꿔줍니다(그대로 두면 브라우저가 이미지를 막습니다).
     cover_url: cover ? cover.replace(/^http:/, "https:") : null,
-    language:
-      info.language === "ko" ? "한국어" : info.language === "en" ? "영어" : guessLanguage(title),
-    rawCategory: Array.isArray(info.categories) ? info.categories.join(", ") : null,
-    category: guessCategory(Array.isArray(info.categories) ? info.categories.join(", ") : null),
+    language: v.language === "ko" ? "한국어" : v.language === "en" ? "영어" : guessLanguage(title),
+    rawCategory: Array.isArray(v.categories) ? v.categories.join(", ") : null,
+    category: guessCategory(Array.isArray(v.categories) ? v.categories.join(", ") : null),
     source: "구글 북스",
   });
 }

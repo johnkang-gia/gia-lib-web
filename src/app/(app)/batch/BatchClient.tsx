@@ -3,9 +3,11 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import BarcodeScanner from "@/components/BarcodeScanner";
+import CoverShot from "@/components/CoverShot";
 import { createClient } from "@/lib/supabase/client";
 import { formatIsbn, isBookBarcode, normalizeScan } from "@/lib/scan";
 import type { BookLookup, LibBook, LibLocation } from "@/lib/types";
+import type { CoverRead } from "@/lib/ai/readCover";
 import { useScanFocus } from "@/lib/useScanFocus";
 import HealthBanner from "@/components/HealthBanner";
 
@@ -56,6 +58,22 @@ export default function BatchClient({ locations }: { locations: LibLocation[] })
   const [value, setValue] = useState("");
   /** 바코드 없는 책을 담을 때 적는 제목. */
   const [manualTitle, setManualTitle] = useState("");
+  /**
+   * 표지 촬영 - 바코드 없는 책의 제목을 손으로 치지 않고 사진으로 받습니다.
+   *
+   * 요청: "바코드 없는 책은 휴대폰으로 책 표지 찍으면 자동으로 책 제목 넣어줄 수 있어?
+   * 아니면 노트북 내의 카메라로 찍어서 등록할 수 있게".
+   */
+  const [shotOpen, setShotOpen] = useState(false);
+  const [coverBusy, setCoverBusy] = useState(false);
+  const [cover, setCover] = useState<{
+    /** 방금 찍은 사진 - 후보와 나란히 보여 주어 손에 든 책과 맞는지 보게 합니다. */
+    shot: string;
+    read: CoverRead;
+    candidates: BookLookup[];
+    message?: string;
+  } | null>(null);
+  const [coverError, setCoverError] = useState<string | null>(null);
   const [camera, setCamera] = useState(false);
   // 이번에 담는 책들이 모두 "바코드가 인쇄되어 있지 않은 책"인 경우(라벨을 뽑아 붙일 예정).
   const [needLabel, setNeedLabel] = useState(false);
@@ -95,7 +113,7 @@ export default function BatchClient({ locations }: { locations: LibLocation[] })
 
   // USB 스캐너용 - 카메라를 안 쓰는 동안에는 입력칸에 커서를 붙들어 둡니다.
   // 사람이 드롭다운·입력칸을 쓰는 중이면 비켜줍니다(useScanFocus 안에 규칙이 있습니다).
-  const refocus = useScanFocus(inputRef, !camera);
+  const refocus = useScanFocus(inputRef, !camera && !shotOpen);
 
   /**
    * 다음 라벨 번호를 하나 꺼내고, 칸을 하나 올려둡니다.
@@ -256,34 +274,103 @@ export default function BatchClient({ locations }: { locations: LibLocation[] })
    * 화면으로 가야 했습니다. 돌아오면 담아둔 목록이 사라지고, 칸의 어디까지 했는지도 잃습니다.
    * 그래서 제목만 받아 여기서 바로 담고, 등록할 때 도서관 라벨 번호를 발급받습니다.
    */
-  function addNoBarcode(title: string) {
+  function addNoBarcode(title: string, extra?: Partial<Item>) {
     const name = title.trim();
     if (!name) return;
     const key = `manual-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
     setItems((prev) => [
       {
-        key,
         code: "",
         isbn: "",
         scanCode: null,
-        title: name,
         author: "",
         publisher: "",
         pub_year: "",
         cover_url: "",
-        language: /[가-힣]/.test(name) ? "한국어" : "영어",
         category: "",
         audience: "",
         series: "",
         seriesNo: "",
-        labelNo: nextLabelNo(),
         copies: 1,
-        status: "준비",
         note: "바코드 없음 - 라벨 발급",
         existingId: null,
+        // 표지에서 읽어낸 값이 있으면 위의 빈 칸들을 덮어씁니다.
+        ...extra,
+        // 아래 값은 덮어쓰지 않습니다 - 라벨 번호는 여기서만 하나씩 올라가고,
+        // 제목과 상태는 이 함수가 정합니다.
+        key,
+        title: name,
+        language: extra?.language ?? (/[가-힣]/.test(name) ? "한국어" : "영어"),
+        labelNo: nextLabelNo(),
+        status: "준비",
       },
       ...prev,
     ]);
+  }
+
+  /**
+   * 표지 사진 한 장을 서버로 보내 제목을 읽고, 그 제목으로 찾은 책 후보를 받습니다.
+   *
+   * 자동으로 1등을 담지 않습니다. 제목 검색은 같은 제목의 다른 책·개정판·세트 상품이 섞여
+   * 나오고, 엉뚱한 ISBN이 책에 박히면 몇 달 뒤 누가 그 책을 빌릴 때 드러납니다. 표지 그림이
+   * 함께 뜨므로 손에 든 책과 맞는지 사람이 0.5초면 고릅니다.
+   */
+  async function readShot(dataUrl: string) {
+    setCoverBusy(true);
+    setCoverError(null);
+    setCover(null);
+    try {
+      const res = await fetch("/api/books/cover", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ image: dataUrl }),
+      });
+      const json = (await res.json()) as {
+        read?: CoverRead;
+        candidates?: BookLookup[];
+        message?: string;
+        error?: string;
+      };
+      if (!res.ok || !json.read) {
+        setCoverError(json.error ?? `표지를 읽지 못했습니다 (HTTP ${res.status})`);
+        return;
+      }
+      setCover({
+        shot: dataUrl,
+        read: json.read,
+        candidates: json.candidates ?? [],
+        message: json.message,
+      });
+    } catch (e) {
+      setCoverError(
+        e instanceof Error ? e.message : "표지를 보내지 못했습니다. 인터넷 연결을 확인해 주세요."
+      );
+    } finally {
+      setCoverBusy(false);
+    }
+  }
+
+  /** 후보 하나를 골라 목록에 담습니다. */
+  function takeCandidate(book: BookLookup) {
+    setCover(null);
+    if (book.isbn) {
+      // ISBN이 있으면 바코드를 찍은 것과 똑같은 길로 보냅니다 - 이미 담겼는지, 장서에 있는
+      // 책인지 확인하는 일을 그 길이 전부 하고 있습니다.
+      void add(book.isbn);
+      return;
+    }
+    addNoBarcode(book.title, {
+      author: book.author ?? "",
+      publisher: book.publisher ?? "",
+      pub_year: book.pub_year ?? "",
+      cover_url: book.cover_url ?? "",
+      language: book.language,
+      category: book.category ?? "",
+      audience: book.audience ?? "",
+      series: book.series ?? "",
+      seriesNo: book.seriesNo != null ? String(book.seriesNo) : "",
+      note: `바코드 없음 - 라벨 발급 · ${book.source}`,
+    });
   }
 
   function addCopies(code: string, times: number) {
@@ -665,7 +752,149 @@ export default function BatchClient({ locations }: { locations: LibLocation[] })
           >
             담기
           </button>
+          {/*
+            제목을 손으로 치지 않고 표지를 찍습니다. 노트북 카메라 앞에 책을 들면 끝입니다.
+            요청: "바코드 없는 책은 휴대폰으로 책 표지 찍으면 자동으로 책 제목 넣어줄 수 있어?
+            아니면 노트북 내의 카메라로 찍어서 등록할 수 있게".
+          */}
+          <button
+            type="button"
+            onClick={() => {
+              setShotOpen((v) => !v);
+              setCover(null);
+              setCoverError(null);
+            }}
+            className={`rounded-lg px-3 py-1.5 text-sm font-semibold ${
+              shotOpen ? "bg-slate-200 text-slate-700" : "bg-gia-navy text-white"
+            }`}
+          >
+            {shotOpen ? "표지 촬영 닫기" : "📷 표지 찍기"}
+          </button>
         </div>
+
+        {shotOpen && (
+          <div className="mt-3 space-y-3">
+            <CoverShot
+              busy={coverBusy}
+              onShot={(dataUrl) => void readShot(dataUrl)}
+              onClose={() => {
+                setShotOpen(false);
+                setCover(null);
+                setCoverError(null);
+              }}
+            />
+
+            {coverError && (
+              <p className="rounded-xl bg-rose-50 px-4 py-3 text-sm text-rose-800">{coverError}</p>
+            )}
+
+            {cover && (
+              <div className="gia-pop rounded-2xl border-2 border-gia-gold bg-amber-50/60 p-4">
+                <div className="flex gap-3">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={cover.shot}
+                    alt="방금 찍은 표지"
+                    className="h-24 w-auto rounded-lg border border-amber-200 object-contain"
+                  />
+                  <div className="min-w-0 flex-1">
+                    <p className="text-xs font-semibold text-slate-500">표지에서 읽은 제목</p>
+                    <p className="text-lg font-bold break-words text-gia-navy">
+                      {cover.read.title || "— 읽지 못했습니다"}
+                    </p>
+                    <p className="mt-0.5 text-sm text-slate-600">
+                      {[cover.read.author, cover.read.publisher, cover.read.series]
+                        .filter(Boolean)
+                        .join(" · ") || "저자·출판사는 표지에서 보이지 않았습니다"}
+                    </p>
+                    {cover.message && (
+                      <p className="mt-1 text-sm text-amber-800">{cover.message}</p>
+                    )}
+                  </div>
+                </div>
+
+                {cover.candidates.length > 0 && (
+                  <>
+                    <p className="mt-4 text-xs font-semibold text-slate-500">
+                      이 중에 손에 든 책이 있나요? 고르면 ISBN·출판사·표지까지 함께 등록되고,
+                      라벨에 그 ISBN 바코드가 찍혀 다음부터는 스캐너로 그냥 읽힙니다.
+                    </p>
+                    <ul className="mt-2 space-y-2">
+                      {cover.candidates.map((book, i) => (
+                        <li key={`${book.isbn}-${i}`}>
+                          <button
+                            type="button"
+                            onClick={() => takeCandidate(book)}
+                            className="flex w-full items-center gap-3 rounded-xl border border-amber-200 bg-white px-3 py-2.5 text-left hover:border-gia-gold hover:bg-amber-50"
+                          >
+                            {book.cover_url ? (
+                              // eslint-disable-next-line @next/next/no-img-element
+                              <img
+                                src={book.cover_url}
+                                alt=""
+                                className="h-16 w-12 flex-shrink-0 rounded object-cover"
+                              />
+                            ) : (
+                              <span className="flex h-16 w-12 flex-shrink-0 items-center justify-center rounded bg-slate-100 text-[10px] text-slate-400">
+                                표지
+                                <br />
+                                없음
+                              </span>
+                            )}
+                            <span className="min-w-0 flex-1">
+                              <span className="block font-bold break-words text-gia-navy">
+                                {book.title}
+                              </span>
+                              <span className="mt-0.5 block text-sm text-slate-600">
+                                {[book.author, book.publisher, book.pub_year]
+                                  .filter(Boolean)
+                                  .join(" · ")}
+                              </span>
+                              <span className="mt-0.5 block text-xs text-slate-400">
+                                {book.isbn ? `ISBN ${book.isbn}` : "ISBN 없음"} · {book.source}
+                              </span>
+                            </span>
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  </>
+                )}
+
+                <div className="mt-4 flex flex-wrap gap-2">
+                  {cover.read.title && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const read = cover.read;
+                        setCover(null);
+                        addNoBarcode(read.title, {
+                          author: read.author ?? "",
+                          publisher: read.publisher ?? "",
+                          series: read.series ?? "",
+                          seriesNo: read.volume ?? "",
+                          note: "바코드 없음 - 라벨 발급 · 표지에서 읽음",
+                        });
+                      }}
+                      className="rounded-xl bg-slate-700 px-4 py-2 text-sm font-bold text-white"
+                    >
+                      {cover.candidates.length > 0
+                        ? "맞는 책이 없음 — 읽은 제목으로 담기"
+                        : "읽은 제목으로 담기"}
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => setCover(null)}
+                    className="rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-600"
+                  >
+                    버리고 다시 찍기
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
       </section>
 
       {/* ── 같은 바코드를 또 찍었을 때 ─────────────────────────────────── */}
