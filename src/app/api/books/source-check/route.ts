@@ -194,10 +194,26 @@ async function probeGoogleBooks(): Promise<Probe> {
     ms: 0,
     detail: "",
   };
+  const key = process.env.GOOGLE_BOOKS_API_KEY;
   const r = await timed(() =>
-    get("https://www.googleapis.com/books/v1/volumes?maxResults=1&q=intitle:%22Charlotte%27s%20Web%22")
+    get(
+      "https://www.googleapis.com/books/v1/volumes?maxResults=1&q=intitle:%22Charlotte%27s%20Web%22" +
+        (key ? `&key=${encodeURIComponent(key)}` : "")
+    )
   );
   if (!r.value) return { ...base, ms: r.ms, detail: `연결하지 못했습니다 — ${r.error}` };
+  if (r.value.status === 429) {
+    return {
+      ...base,
+      ms: r.ms,
+      detail: "오늘 몫을 다 썼습니다 (429).",
+      todo:
+        "구글 북스는 키 없이 쓰면 **서버 IP 단위**로 하루 한도를 셉니다. Vercel은 IP를 여러 " +
+        "서비스가 나눠 쓰기 때문에 우리가 많이 쓰지 않아도 금방 찹니다. 한국 책은 카카오가 " +
+        "받아주므로 당장 문제는 아닙니다. 영어 원서까지 확실히 하려면 구글 클라우드 콘솔에서 " +
+        "Books API 키를 무료로 받아 GOOGLE_BOOKS_API_KEY 로 넣어주세요(그러면 우리 몫으로 셉니다).",
+    };
+  }
   if (r.value.status !== 200) {
     return { ...base, ms: r.ms, detail: `오류 (${r.value.status}). ${short(r.value.text)}` };
   }
@@ -263,9 +279,17 @@ async function probeCoverRead(): Promise<Probe> {
       todo: "Vercel의 gia-lib-web 프로젝트에 ANTHROPIC_API_KEY 를 넣고 다시 배포해 주세요.",
     };
   }
-  // 8 × 8 짜리 투명한 PNG. 읽을 글자가 없으므로 "못 읽었다"가 정상 응답입니다.
+  /*
+    100 × 140 짜리 PNG(흰 바탕에 네모 하나).
+
+    처음에는 8 × 8 투명 PNG를 보냈는데 "Could not process image"(400)로 거부당했습니다 -
+    그래서 멀쩡한 키를 두고 점검이 "고장났다"고 알리는, 바로잡으려던 그 문제를 점검 자체가
+    저지르고 있었습니다. 너무 작은 그림은 받지 않으므로 책 표지 비율의 작은 그림을 보냅니다.
+    읽을 글자가 없으니 "못 읽었다"는 답이 정상이고, 거기까지 왔다는 건 키와 잔액이 멀쩡하다는
+    뜻입니다. 입력이 몇십 토큰이라 눌러도 비용은 사실상 0입니다.
+  */
   const tiny =
-    "iVBORw0KGgoAAAANSUhEUgAAAAgAAAAICAYAAADED76LAAAAFElEQVR4nGP8//8/AzGAiShVowoJAQAp5gMZi1C4hgAAAABJRU5ErkJggg==";
+    "iVBORw0KGgoAAAANSUhEUgAAAGQAAACMCAIAAAAFl5vsAAAA7UlEQVR42u3cwQmAQAxFQb/Yf8uxBdkNYmTefQ8OISdJqurQs04EsGDBggULFgJYsGDBggULASxYsGDBgoUAFixYsGDBQgALFixY/+zaeZxk4jcv/zhksmDBmr2zWhbBO7WsV5MFCxYsWLAECxYsWLBgCRYsWLBgwRIsWLBgwYIlWLBgwYIFS7BgwYIFC5ZgwYIFCxYswYIFCxYsWIIFCxYsWLAECxYsWLBgCRYsWLBgwRIsWLBgwYKltqOuQ49SmyxYsGaVjx+QNlmwYAkWLFiwYMESLFiwYMGCJViwYMGCBUuwYMGCBQuWYC12A4PGDRqiroX4AAAAAElFTkSuQmCC";
   const r = await timed(() => readCover(tiny, "image/png"));
   if (r.error) {
     return { ...base, ms: r.ms, detail: r.error, todo: "위 안내대로 처리하면 바로 됩니다." };

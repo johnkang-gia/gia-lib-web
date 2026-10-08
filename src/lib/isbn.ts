@@ -154,7 +154,8 @@ async function byTitleKakao(query: string): Promise<BookLookup[]> {
 async function byTitleGoogleBooks(query: string): Promise<BookLookup[]> {
   for (const q of [`intitle:"${query}"`, `intitle:${query}`]) {
     const json = await fetchJson(
-      `https://www.googleapis.com/books/v1/volumes?maxResults=10&q=${encodeURIComponent(q)}`
+      `https://www.googleapis.com/books/v1/volumes?maxResults=10&q=${encodeURIComponent(q)}` +
+        googleKeyParam()
     );
     const items = Array.isArray(json?.items) ? json.items : [];
     const out = items
@@ -288,8 +289,22 @@ async function fromNationalLibrary(isbn: string): Promise<BookLookup | null> {
 }
 
 async function fromGoogleBooks(isbn: string): Promise<BookLookup | null> {
-  const json = await fetchJson(`https://www.googleapis.com/books/v1/volumes?q=isbn:${isbn}`);
+  const json = await fetchJson(
+    `https://www.googleapis.com/books/v1/volumes?q=isbn:${isbn}` + googleKeyParam()
+  );
   return googleVolume(json?.items?.[0]?.volumeInfo, isbn);
+}
+
+/**
+ * 구글 북스 키(선택).
+ *
+ * 키 없이도 되지만, 그때는 **서버 IP 단위**로 하루 한도를 셉니다. Vercel은 IP를 여러
+ * 서비스가 나눠 쓰기 때문에 우리가 많이 쓰지 않아도 429(오늘 몫 다 씀)가 뜹니다 - 실제로
+ * 설정의 조회 점검에서 그렇게 나왔습니다. 키를 넣으면 우리 몫으로 세어 그 일이 없습니다.
+ */
+function googleKeyParam(): string {
+  const key = process.env.GOOGLE_BOOKS_API_KEY;
+  return key ? `&key=${encodeURIComponent(key)}` : "";
 }
 
 /**
