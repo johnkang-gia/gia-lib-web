@@ -5,6 +5,17 @@ import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import type { LibSettings } from "@/lib/types";
 
+/** 조회처 한 곳의 점검 결과(서버의 source-check 가 돌려주는 모양). */
+type Probe = {
+  name: string;
+  needsKey: boolean;
+  hasKey: boolean;
+  ok: boolean;
+  ms: number;
+  detail: string;
+  todo?: string;
+};
+
 export default function SettingsClient({
   settings,
   email,
@@ -18,6 +29,27 @@ export default function SettingsClient({
 }) {
   const router = useRouter();
   const [form, setForm] = useState(settings);
+  const [checking, setChecking] = useState(false);
+  const [checkError, setCheckError] = useState<string | null>(null);
+  const [probes, setProbes] = useState<Probe[] | null>(null);
+
+  async function runCheck() {
+    setChecking(true);
+    setCheckError(null);
+    try {
+      const res = await fetch("/api/books/source-check");
+      const json = (await res.json()) as { probes?: Probe[]; error?: string };
+      if (!res.ok || !json.probes) {
+        setCheckError(json.error ?? `확인하지 못했습니다 (HTTP ${res.status})`);
+        return;
+      }
+      setProbes(json.probes);
+    } catch (e) {
+      setCheckError(e instanceof Error ? e.message : "확인하지 못했습니다.");
+    } finally {
+      setChecking(false);
+    }
+  }
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -147,6 +179,65 @@ export default function SettingsClient({
             {saving ? "저장 중…" : "저장"}
           </button>
         </div>
+      </section>
+
+      {/*
+        책 정보 조회처 점검.
+
+        조회처는 네 곳이고 그중 둘은 키가 필요합니다. 키를 넣었는데 조회가 안 될 때 화면에는
+        "못 찾음"만 떠서, 키를 안 넣은 건지 틀린 건지 재배포를 안 한 건지 알 수가 없습니다.
+        여기서 각 조회처에 결과가 뻔한 질문을 하나씩 던져 보고 돌아온 것을 그대로 보여줍니다.
+      */}
+      <section className="rounded-2xl bg-white p-6 text-sm shadow-sm ring-1 ring-slate-200">
+        <div className="flex flex-wrap items-center gap-3">
+          <h2 className="font-bold">책 정보 조회 점검</h2>
+          <button
+            type="button"
+            onClick={() => void runCheck()}
+            disabled={checking}
+            className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-600 disabled:opacity-50"
+          >
+            {checking ? "확인 중…" : "지금 확인"}
+          </button>
+          <span className="text-xs text-slate-400">
+            ISBN·제목으로 책 정보를 가져오는 곳들이 지금 실제로 되는지 하나씩 두드려 봅니다.
+          </span>
+        </div>
+
+        {checkError && (
+          <p className="mt-3 rounded-xl bg-rose-50 px-3 py-2 text-xs text-rose-800">{checkError}</p>
+        )}
+
+        {probes && (
+          <ul className="mt-3 space-y-2">
+            {probes.map((probe) => (
+              <li
+                key={probe.name}
+                className={`rounded-xl px-3 py-2.5 ${
+                  probe.ok ? "bg-emerald-50" : probe.needsKey && !probe.hasKey ? "bg-slate-50" : "bg-amber-50"
+                }`}
+              >
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="font-bold">
+                    {probe.ok ? "✓" : probe.needsKey && !probe.hasKey ? "—" : "✗"} {probe.name}
+                  </span>
+                  {probe.needsKey && (
+                    <span className="rounded bg-white/70 px-1.5 py-0.5 text-[11px] text-slate-500">
+                      {probe.hasKey ? "키 있음" : "키 없음"}
+                    </span>
+                  )}
+                  <span className="text-[11px] text-slate-400">{probe.ms}ms</span>
+                </div>
+                <p className="mt-1 break-words text-xs text-slate-600">{probe.detail}</p>
+                {probe.todo && (
+                  <p className="mt-1 break-words text-xs font-semibold text-slate-700">
+                    → {probe.todo}
+                  </p>
+                )}
+              </li>
+            ))}
+          </ul>
+        )}
       </section>
 
       <section className="rounded-2xl bg-white p-6 text-sm shadow-sm ring-1 ring-slate-200">
