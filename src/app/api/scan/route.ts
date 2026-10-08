@@ -168,7 +168,20 @@ export async function POST(request: Request) {
   }
 
   // ── ② 책을 찍은 경우 ────────────────────────────────────────────────────
-  let book = await findBook(supabase, code);
+  let book: LibBookWithShelf | null;
+  try {
+    book = await findBook(supabase, code);
+  } catch (e) {
+    /*
+      조회 자체가 실패한 경우입니다. 예전에는 이것도 "아직 등록되지 않은 책입니다"로 나왔는데,
+      그러면 사람이 할 수 있는 일이 없습니다 - 장서에 분명히 있는 책을 보면서 왜 없다고 하는지
+      알 수가 없으니까요. 무엇이 잘못됐는지 그대로 보여주고, 등록 화면으로 넘어가지 않습니다.
+    */
+    return NextResponse.json<ScanResult>({
+      kind: "error",
+      message: `책을 조회하지 못했습니다 — ${e instanceof Error ? e.message : "알 수 없는 오류"}`,
+    });
+  }
 
   /*
     ISBN으로도 도서관 라벨로도 못 찾았으면 상품코드일 수 있습니다.
@@ -457,7 +470,7 @@ async function searchBooks(
   const like = `%${keyword.replace(/[%_]/g, "")}%`;
   const { data } = await supabase
     .from("lib_books")
-    .select("*, shelf:lib_locations(*)")
+    .select("*, shelf:lib_locations!location_id(*)")
     .or(`title.ilike.${like},author.ilike.${like},series.ilike.${like}`)
     .eq("status", "보유")
     .order("title", { ascending: true })

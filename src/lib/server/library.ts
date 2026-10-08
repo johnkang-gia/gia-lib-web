@@ -17,8 +17,21 @@ import { withDepartment } from "@/lib/department";
  * 구역(lib_locations)을 함께 붙여옵니다 - lib_books에 location(글자) 칸이 따로 있어서
  * 붙여오는 쪽 이름은 shelf로 씁니다.
  */
+/*
+  ── 구역을 붙여올 때 **어느 칸을 따라갈지** 반드시 적습니다 ─────────────────
+  lib_books 에는 구역을 가리키는 칸이 둘입니다.
+    · location_id        - 지금 꽂혀 있는 자리
+    · target_location_id - 정리 계획상 옮겨 갈 자리
+  그래서 따라갈 칸을 적지 않으면 데이터베이스가 "둘 중 어느 쪽이냐"며 **질의 전체를
+  거부합니다.** 그런데 조회하는 쪽 코드가 오류를 보지 않고 있어서, 거부당한 결과가 "그런 책
+  없음"으로 둔갑했습니다 - 장서에 멀쩡히 있는 책을 찍어도 "아직 등록되지 않은 책입니다"가
+  떴습니다. 바코드를 찍는 화면 전체가 그렇게 멈췄는데 오류는 한 줄도 남지 않았습니다.
+
+  `!location_id` 로 따라갈 칸을 못박아 둡니다. 빼먹으면 빌드가 막습니다
+  (scripts/check-embeds.mjs).
+*/
 export const BOOK_FIELDS =
-  "id,title,author,isbn,item_code,cover_url,location_id,shelf:lib_locations(*)";
+  "id,title,author,isbn,item_code,cover_url,location_id,shelf:lib_locations!location_id(*)";
 
 /** 대출 규칙. 아직 설정 행이 없으면 기본값(2주·3권)을 씁니다. */
 export async function getSettings(supabase: SupabaseClient): Promise<LibSettings> {
@@ -87,14 +100,17 @@ export async function findBook(
   supabase: SupabaseClient,
   code: string
 ): Promise<LibBookWithShelf | null> {
-  const select = "*, shelf:lib_locations(*)";
+  const select = "*, shelf:lib_locations!location_id(*)";
 
   if (isItemCode(code)) {
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from("lib_books")
       .select(select)
       .eq("item_code", code)
       .maybeSingle();
+    // 질의가 거부당한 것과 "그런 책이 없는 것"은 전혀 다른 일입니다. 묶어서 null 로
+    // 돌려주면 화면에 "아직 등록되지 않은 책입니다"가 떠서, 원인을 짐작할 수조차 없습니다.
+    if (error) throw new Error(`책을 찾는 중 오류: ${error.message}`);
     return (data as unknown as LibBookWithShelf | null) ?? null;
   }
 
@@ -112,11 +128,12 @@ export async function findBook(
   }
 
   // 라벨 형식이 아닌 자체 코드를 쓴 경우까지 한 번 더 확인합니다.
-  const { data: byItem } = await supabase
+  const { data: byItem, error: itemError } = await supabase
     .from("lib_books")
     .select(select)
     .eq("item_code", code)
     .maybeSingle();
+  if (itemError) throw new Error(`책을 찾는 중 오류: ${itemError.message}`);
   return (byItem as unknown as LibBookWithShelf | null) ?? null;
 }
 
@@ -135,7 +152,7 @@ export async function findBooksByProductCode(
   if (!digits) return [];
   const { data } = await supabase
     .from("lib_books")
-    .select("*, shelf:lib_locations(*)")
+    .select("*, shelf:lib_locations!location_id(*)")
     .or(`product_code.eq.${digits},item_code.eq.${digits}`)
     .order("series_no", { ascending: true, nullsFirst: false })
     .limit(30);

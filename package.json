@@ -1,12 +1,13 @@
 {
   "name": "gia-lib-web",
-  "version": "0.32.1",
+  "version": "0.32.2",
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "node scripts/check-changelog.mjs && next build",
+    "build": "node scripts/check-changelog.mjs && node scripts/check-embeds.mjs && next build",
     "start": "next start",
-    "check:changelog": "node scripts/check-changelog.mjs"
+    "check:changelog": "node scripts/check-changelog.mjs",
+    "check:embeds": "node scripts/check-embeds.mjs"
   },
   "dependencies": {
     "@supabase/ssr": "^0.5",

@@ -43,7 +43,8 @@ export default function FindClient({
     const like = `%${kw}%`;
     const { data } = await supabase
       .from("lib_books")
-      .select("*, shelf:lib_locations(*)")
+      // 구역을 가리키는 칸이 둘이라, 어느 쪽을 따라갈지 적지 않으면 질의가 거부됩니다.
+      .select("*, shelf:lib_locations!location_id(*)")
       .or(
         `title.ilike.${like},author.ilike.${like},series.ilike.${like},` +
           `publisher.ilike.${like},isbn.ilike.${like},item_code.ilike.${like}`
