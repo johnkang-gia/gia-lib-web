@@ -17,6 +17,20 @@
  * 묶음의 경계로 봅니다.
  */
 
+/**
+ * 시간대를 **서울로 못박습니다.**
+ *
+ * 처음에는 "보는 사람의 시간대"로 두었는데, 배포하고 보니 묶음 시각이 오후 2시 25분이 아니라
+ * **오전 5시 25분**으로 나왔습니다. 화면을 그리는 일이 두 곳에서 일어나기 때문입니다 -
+ * 서버(Vercel, 세계표준시)가 먼저 그려 보내고, 브라우저(한국 시간)가 이어받습니다. 두 곳의
+ * 시간대가 다르면 글자만 다른 게 아니라 **묶음이 갈리는 자리도 달라집니다**(한국 오전 8시에
+ * 등록한 책은 세계표준시로는 전날 밤 11시라, 서버는 '어제'로 묶습니다).
+ *
+ * 이 앱은 한 학교에서만 쓰고 글도 전부 한국어입니다. 시간대를 서울로 고정하면 서버와
+ * 브라우저가 언제나 같은 답을 내고, 선생님이 해외에서 열어도 학교 시간으로 보입니다.
+ */
+export const TZ = "Asia/Seoul";
+
 export type Batch<T> = {
   /** 화면에서 묶음을 구분하는 값(접고 펴기 상태를 기억하는 데 씁니다). */
   key: string;
@@ -37,7 +51,7 @@ export type Batch<T> = {
 export function groupByRegistration<T extends { created_at: string }>(
   rows: T[],
   gapMinutes = 30,
-  dayKey: (iso: string) => string = (iso) => new Date(iso).toLocaleDateString("ko-KR")
+  dayKey: (iso: string) => string = dayKeyOf
 ): Batch<T>[] {
   const gap = gapMinutes * 60 * 1000;
   const out: Batch<T>[] = [];
@@ -62,19 +76,36 @@ export function groupByRegistration<T extends { created_at: string }>(
   return out;
 }
 
-/** "10월 8일 (수) 오후 2:20" 처럼. 올해가 아니면 연도까지 붙입니다. */
+/** 같은 날인지 보는 기준(서울 기준 "2026-10-08"). */
+export function dayKeyOf(iso: string): string {
+  // en-CA 는 "2026-10-08" 모양으로 줍니다 - 글자 그대로 비교하기 좋습니다.
+  return new Date(iso).toLocaleDateString("en-CA", { timeZone: TZ });
+}
+
+/** "10월 8일 (수)" 처럼. 올해가 아니면 연도까지 붙입니다. */
 export function dayLabel(iso: string, now = new Date()): string {
-  const date = new Date(iso);
-  return date.toLocaleDateString("ko-KR", {
-    year: date.getFullYear() === now.getFullYear() ? undefined : "numeric",
+  const sameYear = dayKeyOf(iso).slice(0, 4) === dayKeyOf(now.toISOString()).slice(0, 4);
+  return new Date(iso).toLocaleDateString("ko-KR", {
+    timeZone: TZ,
+    year: sameYear ? undefined : "numeric",
     month: "long",
     day: "numeric",
     weekday: "short",
   });
 }
 
+/** "오후 2:20" 처럼. */
 export function timeLabel(iso: string): string {
-  return new Date(iso).toLocaleTimeString("ko-KR", { hour: "numeric", minute: "2-digit" });
+  return new Date(iso).toLocaleTimeString("ko-KR", {
+    timeZone: TZ,
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
+/** "10월 8일 (수) 오후 2:20" - 날짜와 시각을 함께. */
+export function dayTimeLabel(iso: string, now = new Date()): string {
+  return `${dayLabel(iso, now)} ${timeLabel(iso)}`;
 }
 
 /**

@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import BookEditDialog from "@/components/BookEditDialog";
 import { createClient } from "@/lib/supabase/client";
 import { formatIsbn } from "@/lib/scan";
-import { dayLabel, groupByRegistration, rangeLabel } from "@/lib/registerBatches";
+import { dayKeyOf, dayLabel, groupByRegistration, rangeLabel } from "@/lib/registerBatches";
 import type { LibBookWithShelf, LibLocation } from "@/lib/types";
 
 /**
@@ -70,10 +70,9 @@ export default function RecentClient({
     }
   }
 
-  const todayKey = new Date().toLocaleDateString("ko-KR");
-  const todayCount = books.filter(
-    (b) => new Date(b.created_at).toLocaleDateString("ko-KR") === todayKey
-  ).length;
+  // 묶는 기준과 같은 시간대를 씁니다(서버와 브라우저가 다른 날을 세지 않도록).
+  const todayKey = dayKeyOf(new Date().toISOString());
+  const todayCount = books.filter((b) => dayKeyOf(b.created_at) === todayKey).length;
 
   return (
     <div className="space-y-5">

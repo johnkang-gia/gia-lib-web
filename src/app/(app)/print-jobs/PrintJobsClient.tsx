@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { printUrl } from "@/lib/printJob";
+import { dayTimeLabel } from "@/lib/registerBatches";
 import type { LibPrintJob } from "@/lib/types";
 
 /**
@@ -221,16 +222,12 @@ export default function PrintJobsClient({
   );
 }
 
-/** "3월 4일 14:20" 처럼. 올해가 아니면 연도까지. */
+/**
+ * "10월 8일 (수) 오후 2:20" 처럼.
+ *
+ * 시간대를 서울로 못박은 공용 함수를 씁니다. 서버(세계표준시)가 먼저 그려 보내고 브라우저가
+ * 이어받기 때문에, 각자 자기 시간대로 적으면 같은 자리에 다른 시각이 찍힙니다.
+ */
 function when(iso: string): string {
-  const date = new Date(iso);
-  const now = new Date();
-  const sameYear = date.getFullYear() === now.getFullYear();
-  return date.toLocaleString("ko-KR", {
-    year: sameYear ? undefined : "numeric",
-    month: "long",
-    day: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
+  return dayTimeLabel(iso);
 }
