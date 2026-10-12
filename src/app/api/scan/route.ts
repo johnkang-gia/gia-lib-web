@@ -46,7 +46,19 @@ export async function POST(request: Request) {
     );
   }
 
-  let body: { code?: string; studentNo?: string | null; action?: "return" | "renew" };
+  let body: {
+    code?: string;
+    studentNo?: string | null;
+    action?: "return" | "renew";
+    /**
+     * 'cart' 면 **빌려주지 않고 알려만 줍니다.**
+     *
+     * 요청: "한 권씩 팝업으로 떠서 대출하도록 하지 말고 ... 책을 먼저 찍으면 오른쪽에
+     * 대출예정목록에 리스트로 뜨고." 책을 찍는 순간 대출이 되어 버리면 목록이라는 게 성립하지
+     * 않습니다 - 찍자마자 나간 책을 목록에서 빼려면 반납 처리를 해야 하니까요.
+     */
+    mode?: "cart";
+  };
   try {
     body = await request.json();
   } catch {
@@ -243,6 +255,22 @@ export async function POST(request: Request) {
     .eq("status", "대출중")
     .order("borrowed_at", { ascending: true });
   const bookLoans = (bookLoansRaw ?? []) as LibLoan[];
+
+  /*
+    ── 대출 데스크: 담기만 합니다 ──────────────────────────────────────────
+    빌려주지도, 반납 처리하지도 않습니다. 지금 이 책이 어떤 상태인지만 돌려주고, 무엇을 할지는
+    화면에서 사람이 고릅니다(목록에 담기 / 반납하기).
+  */
+  if (body.mode === "cart") {
+    const available = Math.max(0, book.total_copies - bookLoans.length);
+    return NextResponse.json<ScanResult>({
+      kind: "book_info",
+      book,
+      activeLoans: bookLoans,
+      available,
+      message: available > 0 ? "대출 가능" : "모두 대출중",
+    });
+  }
 
   // ── ②-1 학생이 화면에 떠 있으면 대출(또는 그 학생의 반납) ────────────────
   if (studentNo) {

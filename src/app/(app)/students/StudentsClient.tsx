@@ -117,6 +117,18 @@ export default function StudentsClient({
                 {[picked.grade, picked.class_name].filter(Boolean).join(" ")}
               </span>
               <span className="ml-auto font-mono text-xs text-slate-400">{picked.student_no}</span>
+              {/*
+                부모님께 보낼 종이로 가는 길. 여기서 기록을 보던 사람이 "이거 그대로 보내면
+                되겠다" 싶을 때 바로 누를 수 있어야 합니다.
+              */}
+              <a
+                href={`/records/${encodeURIComponent(picked.student_no)}`}
+                target="_blank"
+                rel="noreferrer"
+                className="rounded-lg bg-gia-navy px-3 py-1.5 text-xs font-bold text-white"
+              >
+                📖 도서기록 · 인쇄
+              </a>
             </div>
 
             {loading && <p className="py-8 text-center text-sm text-slate-400">불러오는 중…</p>}

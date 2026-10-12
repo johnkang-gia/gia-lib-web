@@ -1,9 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import BookRegisterDialog from "@/components/BookRegisterDialog";
-import BookPopup, { type BookPopupState } from "@/components/BookPopup";
 import { formatDay, overdueDays, todayKst } from "@/lib/dates";
 import { formatIsbn } from "@/lib/scan";
 import { cheerFor, monthlyProgress, readingLevel } from "@/lib/reading";
@@ -16,6 +15,7 @@ import type {
   LibLocation,
   LibSettings,
   LibStudent,
+  ReadingStats,
   ScanResult,
 } from "@/lib/types";
 
@@ -23,37 +23,36 @@ type StudentState = {
   student: LibStudent;
   activeLoans: LibLoanWithBook[];
   overdueCount: number;
-  stats: import("@/lib/types").ReadingStats;
-  /** 카드를 찍은 아이의 사진 - "이 아이가 맞는지" 눈으로 확인합니다. */
+  stats: ReadingStats;
   photoUrl: string | null;
 };
 
+/** 대출 예정 목록의 한 줄. */
+type CartItem = { key: string; book: LibBookWithShelf; available: number };
+
+/** 방금 반납한 책 - 어디에 꽂을지 보여주려고 자리를 같이 들고 있습니다. */
+type ReturnedItem = { key: string; title: string; shelf: LibLocation | null; late: number };
+
 type Tone = "ok" | "return" | "info" | "warn" | "error";
 
-const TONE: Record<Tone, { box: string; chip: string; label: string }> = {
-  ok: { box: "bg-emerald-500 text-white", chip: "bg-white/20", label: "대출" },
-  return: { box: "bg-blue-600 text-white", chip: "bg-white/20", label: "반납" },
-  info: { box: "bg-gia-navy text-white", chip: "bg-white/15", label: "확인" },
-  warn: { box: "bg-amber-500 text-white", chip: "bg-white/25", label: "주의" },
-  error: { box: "bg-red-600 text-white", chip: "bg-white/20", label: "오류" },
-};
-
 /**
- * 화면에 띄워둔 것을 유지하는 시간(초).
+ * 대출·반납 데스크.
  *
- * 이 시간 동안 아무 입력이 없으면 메인 화면으로 돌아갑니다. 예전에는 말없이 사라져서,
- * 화면을 보던 아이도 사서 선생님도 무슨 일이 일어난 건지 알 수 없었습니다. 이제 남은
- * 시간을 세어 보여주고, 더 볼 것이 있으면 시간을 되돌릴 수 있습니다.
- */
-const IDLE_SECONDS = 20;
-
-/**
- * 도서관 전용 단말의 메인 화면입니다.
+ * ── 왜 팝업을 없앴는가 ─────────────────────────────────────────────────────
+ * 요청: "한 권씩 팝업으로 떠서 대출하도록 하지 말고, 왼쪽은 학생 정보, 오른쪽은 대출 관리로
+ * 페이지를 양쪽으로 나누고 ... 둘 중에 어떤 것을 먼저 해도 전혀 문제 없이."
  *
- * 데스크에 놓고 학생과 함께 보는 화면이라(요청: "데스크에 놓고 함께 봅니다") 이렇게 만들었습니다.
- *  · 글씨를 크게 - 학생이 자기 반납예정일을 건너편에서도 읽을 수 있게
- *  · 다른 학생 기록은 화면에 띄우지 않음 - 이름·빌린 책이 노출되지 않도록 숫자만 표시
- *  · 처리 결과는 색+큰 글씨+소리 세 가지로 동시에 알림
+ * 창구에서 벌어지는 일은 이렇습니다. 아이가 책 네 권을 쌓아 놓고 카드를 찾습니다. 사서는 책부터
+ * 찍습니다. 카드는 가방 안쪽에서 나중에 나옵니다. 팝업은 이 순서를 못 받아들였습니다 - 한 권
+ * 찍을 때마다 창이 뜨고 닫혀야 다음 권을 찍을 수 있었고, 학생이 먼저여야 했습니다.
+ *
+ * 그래서 **화면을 둘로 나누고 양쪽이 서로를 기다리지 않게** 했습니다.
+ *   · 왼쪽  — 누가 빌리는가. 학생증을 찍으면 채워집니다.
+ *   · 오른쪽 — 무엇을 빌리는가. 책을 찍을 때마다 목록에 한 줄씩 쌓입니다.
+ * 둘 다 차면 「N권 대출하기」가 켜집니다. 어느 쪽을 먼저 찍었는지는 상관없습니다.
+ *
+ * 이미 나가 있는 책을 찍으면 그건 돌려받는 것이므로 **반납으로 처리**합니다. 빌릴 수 없는 책을
+ * 목록에 담아 봐야 누를 때 거절될 뿐입니다.
  */
 export default function ScanClient({
   settings,
@@ -64,45 +63,42 @@ export default function ScanClient({
   borrowedToday: number;
   returnedToday: number;
 }) {
+  const router = useRouter();
   const [value, setValue] = useState("");
   const [busy, setBusy] = useState(false);
   const [student, setStudent] = useState<StudentState | null>(null);
-  const [banner, setBanner] = useState<{
-    tone: Tone;
-    title: string;
-    sub: string;
-    seq: number;
-    /** 반납한 책을 어디에 꽂아야 하는지 - 반납일 때만 채워집니다. */
-    shelf?: LibLocation | null;
-  } | null>(null);
+  const [cart, setCart] = useState<CartItem[]>([]);
+  const [returned, setReturned] = useState<ReturnedItem[]>([]);
+  const [previous, setPrevious] = useState<Record<string, { borrowedAt: string; times: number }>>(
+    {}
+  );
   const [counts, setCounts] = useState({ borrowed: borrowedToday, returned: returnedToday });
-  const [holdLeft, setHoldLeft] = useState(0);
-  /** 입력이 있을 때마다 올라가는 값. 이게 바뀌면 되돌아가기까지 남은 시간이 처음으로 돌아갑니다. */
-  const [activity, setActivity] = useState(0);
+  const [banner, setBanner] = useState<{ tone: Tone; title: string; sub: string; seq: number } | null>(
+    null
+  );
+  const [choices, setChoices] = useState<LibStudent[] | null>(null);
+  const [hits, setHits] = useState<{ query: string; books: LibBookWithShelf[] } | null>(null);
   const [dialogIsbn, setDialogIsbn] = useState<string | null>(null);
-  // ISBN이 아닌 바코드(UPC 등)를 찍었을 때 등록창에 넘겨줄 값.
   const [dialogCode, setDialogCode] = useState<string | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
-  const [unknownPending, setUnknownPending] = useState(false);
-  // 이름으로 찾았을 때 나오는 동명이인 후보들.
-  const [choices, setChoices] = useState<LibStudent[] | null>(null);
   const [clock, setClock] = useState("");
-  // 책부터 찍었을 때 뜨는 큰 확인 창(요청: "바코드로 책을 찍으면 큰 팝업창이 뜨고").
-  const [popup, setPopup] = useState<BookPopupState | null>(null);
-  // 메인 화면에서 제목으로 찾은 책 목록(요청: "책검색은 메인페이지에서 가능하게").
-  const [bookHits, setBookHits] = useState<
-    { query: string; books: (LibBookWithShelf & { onLoan: number })[] } | null
-  >(null);
-  // 팝업에서 '대출하기'를 누른 뒤 학생 카드를 기다리는 중이면 그 책의 바코드가 들어 있습니다.
-  const [awaitBookCode, setAwaitBookCode] = useState<string | null>(null);
 
-  const router = useRouter();
   const inputRef = useRef<HTMLInputElement>(null);
   const audioRef = useRef<AudioContext | null>(null);
   const seqRef = useRef(0);
-  const resultTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /*
+    스캐너는 사람보다 빠릅니다. 담는 중에 다음 바코드가 들어오면 그 사이에 state 가 아직 안
+    바뀌어 있어서, 같은 책이 두 줄이 되거나 담긴 책이 사라집니다. 그래서 '지금 담긴 것'을
+    ref 로도 들고 있습니다.
+  */
+  const cartRef = useRef<CartItem[]>([]);
+  cartRef.current = cart;
+  const studentRef = useRef<StudentState | null>(null);
+  studentRef.current = student;
 
-  // ── 시계 ──────────────────────────────────────────────────────────────────
+  const today = todayKst();
+  const refocus = useScanFocus(inputRef, !dialogOpen);
+
   useEffect(() => {
     const tick = () =>
       setClock(
@@ -117,8 +113,8 @@ export default function ScanClient({
     return () => clearInterval(timer);
   }, []);
 
-  // ── 소리 알림 ─────────────────────────────────────────────────────────────
-  // 사서 선생님이 책을 정리하며 화면을 안 보고 있어도 성공/실패를 알 수 있도록 신호음을 냅니다.
+  // ── 소리 ─────────────────────────────────────────────────────────────────
+  // 사서 선생님이 책을 정리하며 화면을 안 봐도 성공/실패를 알 수 있어야 합니다.
   const beep = useCallback((tone: Tone) => {
     try {
       if (!audioRef.current) {
@@ -150,96 +146,31 @@ export default function ScanClient({
         osc.stop(ctx.currentTime + i * 0.09 + 0.12);
       });
     } catch {
-      // 소리를 못 내도 화면 표시로 충분하므로 조용히 넘어갑니다.
+      // 소리를 못 내도 화면 표시로 충분합니다.
     }
   }, []);
 
-  // ── 입력칸에 항상 커서 유지 ───────────────────────────────────────────────
-  // USB 스캐너는 "키보드처럼" 입력하므로, 커서가 다른 곳에 있으면 값이 사라집니다.
-  const refocus = useScanFocus(inputRef, !dialogOpen);
-
-
-
-  // ── 입력이 없을 때 메인 화면으로 되돌리는 타이머 ─────────────────────────
-  //
-  // 학생 정보·검색 결과·후보 목록은 다음 아이가 오기 전에 치워져야 합니다(앞사람 기록이
-  // 남아 있으면 안 됩니다). 다만 **말없이** 사라지면 안 됩니다 - 남은 시간을 보여주고,
-  // 더 볼 것이 있으면 시간을 되돌릴 수 있게 합니다.
-  //
-  // 팝업이나 등록창이 떠 있는 동안은 세지 않습니다. 그때는 사람이 무언가 하는 중입니다.
-  const holding = Boolean(student || choices || bookHits);
-  const paused = Boolean(popup) || dialogOpen;
-
-  useEffect(() => {
-    if (!holding || paused) {
-      setHoldLeft(0);
-      return;
-    }
-    setHoldLeft(IDLE_SECONDS);
-    const timer = setInterval(() => {
-      setHoldLeft((left) => {
-        if (left > 1) return left - 1;
-        setStudent(null);
-        setChoices(null);
-        setBookHits(null);
-        seqRef.current += 1;
-        setBanner({
-          tone: "info",
-          title: "메인 화면으로 돌아왔습니다",
-          sub: "도서카드를 찍으면 다시 시작합니다",
-          seq: seqRef.current,
-          shelf: null,
-        });
-        return 0;
-      });
-    }, 1000);
-    return () => clearInterval(timer);
-    // activity: 입력칸에 무언가 칠 때마다 올라가서 남은 시간을 처음으로 되돌립니다.
-  }, [holding, paused, activity, student, choices, bookHits]);
-
-  /** 대출·반납 결과를 팝업으로 띄웁니다(메인 화면은 학생 정보만 두기 위해). 잠시 뒤 자동으로 닫힙니다. */
-  const showResult = useCallback(
-    (result: {
-      tone: "borrowed" | "returned" | "late";
-      title: string;
-      bookTitle: string;
-      sub: string;
-      coverUrl: string | null;
-      shelf: LibLocation | null;
-    }) => {
-      setPopup({ kind: "result", ...result });
-      if (resultTimerRef.current) clearTimeout(resultTimerRef.current);
-      resultTimerRef.current = setTimeout(() => setPopup(null), 6000);
-    },
-    []
-  );
-
-  const show = useCallback((tone: Tone, title: string, sub: string, shelf?: LibLocation | null) => {
+  const show = useCallback((tone: Tone, title: string, sub = "") => {
     seqRef.current += 1;
-    setBanner({ tone, title, sub, seq: seqRef.current, shelf: shelf ?? null });
+    setBanner({ tone, title, sub, seq: seqRef.current });
   }, []);
 
   const send = useCallback(
-    async (
-      code: string,
-      studentNo: string | null,
-      action?: "return" | "renew"
-    ): Promise<ScanResult | null> => {
+    async (code: string, opts: { mode?: "cart"; action?: "return" } = {}) => {
       const res = await fetch("/api/scan", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ code, studentNo, action }),
+        body: JSON.stringify({ code, studentNo: null, ...opts }),
       });
       return (await res.json()) as ScanResult;
     },
     []
   );
 
-  /** 대출/반납 뒤 화면의 학생 정보(빌린 책 목록)를 다시 불러옵니다. */
-  const refreshStudent = useCallback(
+  const loadStudent = useCallback(
     async (studentNo: string) => {
-      const result = await send(studentNo, null);
-      if (result && result.kind === "student") {
+      const result = await send(studentNo);
+      if (result.kind === "student") {
         setStudent({
           student: result.student,
           activeLoans: result.activeLoans,
@@ -252,6 +183,38 @@ export default function ScanClient({
     [send]
   );
 
+  /*
+    ── 예전에 빌린 적이 있는지 ──────────────────────────────────────────────
+    요청: "이 학생이 대출을 예전에 한 적이 있다면 언제 대출했는지 알려주고."
+
+    학생과 목록 중 **어느 쪽이 나중에 와도** 채워져야 하므로, 둘 중 하나가 바뀔 때마다 다시
+    묻습니다. 읽기만 하는 길이라 여러 번 불러도 탈이 없습니다.
+  */
+  useEffect(() => {
+    const no = student?.student.student_no;
+    const ids = cart.map((c) => c.book.id);
+    if (!no || ids.length === 0) {
+      setPrevious({});
+      return;
+    }
+    let alive = true;
+    void (async () => {
+      const res = await fetch("/api/loans/previous", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ studentNo: no, bookIds: ids }),
+      });
+      const json = (await res.json()) as {
+        previous?: Record<string, { borrowedAt: string; times: number }>;
+      };
+      if (alive) setPrevious(json.previous ?? {});
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [student, cart]);
+
+  // ── 바코드 한 번 ─────────────────────────────────────────────────────────
   const handleScan = useCallback(
     async (raw: string) => {
       const code = raw.trim();
@@ -259,56 +222,7 @@ export default function ScanClient({
       setValue("");
       setBusy(true);
       try {
-        // 팝업에서 '대출하기'를 눌러 학생 카드를 기다리는 중이면, 찍힌 학생으로 바로 대출합니다.
-        const waitingBook = awaitBookCode;
-        const currentNo = student?.student.student_no ?? null;
-        const result = await send(code, waitingBook ? null : currentNo);
-        if (!result) return;
-
-        if (waitingBook && result.kind === "student") {
-          setStudent({
-            student: result.student,
-            activeLoans: result.activeLoans,
-            overdueCount: result.overdueCount,
-            stats: result.stats,
-            photoUrl: result.photoUrl,
-          });
-          const borrow = await send(waitingBook, result.student.student_no);
-          setAwaitBookCode(null);
-          setPopup(null);
-          if (borrow && borrow.kind === "borrowed") {
-            showResult({
-              tone: "borrowed",
-              title: "대출 완료 🎉",
-              bookTitle: borrow.book.title,
-              sub: `${borrow.student.name} 학생 · ${formatDay(borrow.loan.due_date)}까지 반납`,
-              coverUrl: borrow.book.cover_url,
-              shelf: null,
-            });
-            setCounts((c) => ({ ...c, borrowed: c.borrowed + 1 }));
-            beep("ok");
-            void refreshStudent(borrow.student.student_no);
-          } else if (borrow) {
-            show(
-              "error",
-              borrow.kind === "error" ? borrow.message : "대출하지 못했습니다",
-              borrow.kind === "error" ? (borrow.detail ?? "") : ""
-            );
-            beep("error");
-          }
-          return;
-        }
-        if (waitingBook && result.kind === "student_choices") {
-          setChoices(result.students);
-          show("info", "학생을 골라주세요", result.message);
-          beep("info");
-          return;
-        }
-        if (result.kind !== "unknown_book") setUnknownPending(false);
-        if (result.kind !== "book_info" && result.kind !== "unknown_book") setPopup(null);
-        if (resultTimerRef.current) clearTimeout(resultTimerRef.current);
-        if (result.kind !== "student_choices") setChoices(null);
-        if (result.kind !== "book_choices") setBookHits(null);
+        const result = await send(code, { mode: "cart" });
 
         if (result.kind === "student") {
           setStudent({
@@ -318,342 +232,365 @@ export default function ScanClient({
             stats: result.stats,
             photoUrl: result.photoUrl,
           });
+          setChoices(null);
           setBanner(null);
           beep(result.overdueCount > 0 ? "warn" : "info");
-        } else if (result.kind === "borrowed") {
-          showResult({
-            tone: "borrowed",
-            title: "대출 완료 🎉",
-            bookTitle: result.book.title,
-            sub: `${result.student.name} 학생 · ${formatDay(result.loan.due_date)}까지 반납`,
-            coverUrl: result.book.cover_url,
-            shelf: null,
-          });
-          setCounts((c) => ({ ...c, borrowed: c.borrowed + 1 }));
-          beep("ok");
-          void refreshStudent(result.student.student_no);
-        } else if (result.kind === "returned") {
-          showResult({
-            tone: result.overdueDays > 0 ? "late" : "returned",
-            title: result.message,
-            bookTitle: result.book.title,
-            sub: `${result.loan.student_name} 학생이 반납했습니다`,
-            coverUrl: result.book.cover_url,
-            shelf: result.location,
-          });
-          setCounts((c) => ({ ...c, returned: c.returned + 1 }));
-          beep(result.overdueDays > 0 ? "warn" : "return");
-          if (currentNo && currentNo === result.loan.student_no) void refreshStudent(currentNo);
-        } else if (result.kind === "student_choices") {
+          return;
+        }
+
+        if (result.kind === "student_choices") {
           setChoices(result.students);
-          setStudent(null);
           show("info", "학생을 골라주세요", result.message);
           beep("info");
-        } else if (result.kind === "book_choices") {
-          setBookHits({ query: result.query, books: result.books });
-          show("info", result.message, "찾는 책을 누르면 자리를 알려줍니다");
-          beep("info");
-        } else if (result.kind === "book_info") {
-          setPopup({
-            kind: "known",
-            book: result.book,
-            activeLoans: result.activeLoans,
-            available: result.available,
-          });
-          beep("info");
-        } else if (result.kind === "renewed") {
-          // 규칙 #3 - 책을 가져와서 찍었을 때만 연장됩니다.
-          setPopup({
-            kind: "result",
-            tone: "borrowed",
-            title: "연장 완료",
-            bookTitle: result.book.title,
-            sub: `${result.student?.name ?? ""} · ${result.loan.due_date}까지 (${result.loan.renew_count}회째 연장)`,
-            coverUrl: result.book.cover_url,
-            shelf: null,
-          });
+          return;
+        }
+
+        if (result.kind === "book_info") {
+          /*
+            이미 나가 있는 책이면 돌려받는 것입니다. 목록에 담아 봐야 누를 때 "모두 대출중"으로
+            거절되므로, 그 자리에서 반납으로 처리합니다.
+          */
+          if (result.activeLoans.length > 0) {
+            const back = await send(code, { action: "return" });
+            if (back.kind === "returned") {
+              setReturned((prev) => [
+                {
+                  key: `${back.book.id}-${Date.now()}`,
+                  title: back.book.title,
+                  shelf: back.location,
+                  late: back.overdueDays,
+                },
+                ...prev,
+              ]);
+              setCounts((c) => ({ ...c, returned: c.returned + 1 }));
+              beep(back.overdueDays > 0 ? "warn" : "return");
+              const no = studentRef.current?.student.student_no;
+              if (no) void loadStudent(no);
+            } else {
+              show(
+                "error",
+                back.kind === "error" ? back.message : "반납하지 못했습니다",
+                back.kind === "error" ? (back.detail ?? "") : ""
+              );
+              beep("error");
+            }
+            return;
+          }
+
+          if (result.available <= 0) {
+            show("warn", "빌릴 수 있는 권수가 없습니다", result.book.title);
+            beep("warn");
+            return;
+          }
+
+          setCart((prev) => [
+            ...prev,
+            {
+              key: `${result.book.id}-${Date.now()}-${prev.length}`,
+              book: result.book,
+              available: result.available,
+            },
+          ]);
+          setHits(null);
+          setBanner(null);
           beep("ok");
-        } else if (result.kind === "unknown_book") {
-          show(
-            "warn",
-            "등록되지 않은 책입니다",
-            result.isIsbn ? formatIsbn(result.code) : result.code
-          );
+          return;
+        }
+
+        if (result.kind === "book_choices") {
+          setHits({ query: result.query, books: result.books });
+          show("info", result.message, "어느 책인지 눌러주세요");
+          beep("info");
+          return;
+        }
+
+        if (result.kind === "unknown_book") {
           setDialogIsbn(result.isIsbn ? result.code : null);
           setDialogCode(result.isIsbn ? null : result.code);
-          setUnknownPending(true);
-          setPopup({ kind: "unknown", code: result.code, isIsbn: result.isIsbn });
+          setDialogOpen(true);
+          show("warn", "등록되지 않은 책입니다", result.isIsbn ? formatIsbn(result.code) : result.code);
           beep("warn");
-        } else {
-          show("error", result.message, result.detail ?? "");
-          beep("error");
+          return;
         }
+
+        show(
+          "error",
+          "message" in result ? result.message : "처리하지 못했습니다",
+          "detail" in result ? (result.detail ?? "") : ""
+        );
+        beep("error");
       } catch {
-        show("error", "처리 중 오류가 발생했습니다", "다시 찍어주세요.");
+        show("error", "처리 중 오류가 생겼습니다", "다시 찍어주세요.");
         beep("error");
       } finally {
         setBusy(false);
-        setTimeout(refocus, 30);
+        refocus();
       }
     },
-    [awaitBookCode, beep, busy, refocus, refreshStudent, send, show, showResult, student]
+    [busy, send, show, beep, loadStudent, refocus]
   );
 
-  const today = todayKst();
-  const remaining = student ? Math.max(0, settings.max_books - student.activeLoans.length) : 0;
-  // 독서 단계·이번 달 목표·응원 문구 (요청: "독서를 더 하고싶고 재미있게 할 수 있는 요소")
-  const level = readingLevel(student?.stats.total ?? 0);
-  const goal = monthlyProgress(student?.stats.month ?? 0);
-  // 해마다 읽은 권수 - 오래된 해부터.
-  const years = student
-    ? Object.entries(student.stats.byYear ?? {}).sort((a, b) => a[0].localeCompare(b[0]))
-    : [];
-  const yearMax = Math.max(1, ...years.map(([, n]) => n));
+  /** 검색 결과에서 고른 책을 목록에 담습니다. */
+  function addFromHit(book: LibBookWithShelf) {
+    setCart((prev) => [
+      ...prev,
+      { key: `${book.id}-${Date.now()}-${prev.length}`, book, available: 1 },
+    ]);
+    setHits(null);
+    beep("ok");
+    refocus();
+  }
 
+  function removeFromCart(key: string) {
+    setCart((prev) => prev.filter((c) => c.key !== key));
+    refocus();
+  }
+
+  /** 다음 아이를 받습니다. 앞사람 이름과 빌린 책이 화면에 남아 있으면 안 됩니다. */
+  function nextStudent() {
+    setStudent(null);
+    setCart([]);
+    setReturned([]);
+    setPrevious({});
+    setChoices(null);
+    setHits(null);
+    setBanner(null);
+    refocus();
+  }
+
+  // ── 대출하기 ─────────────────────────────────────────────────────────────
+  const [checking, setChecking] = useState(false);
+  async function checkout() {
+    const me = studentRef.current;
+    const items = cartRef.current;
+    if (!me || items.length === 0 || checking) return;
+    setChecking(true);
+    try {
+      const res = await fetch("/api/loans/checkout", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          studentNo: me.student.student_no,
+          bookIds: items.map((c) => c.book.id),
+        }),
+      });
+      const json = (await res.json()) as {
+        dueDate?: string;
+        borrowed?: number;
+        failed?: number;
+        lines?: { bookId: string; title: string; ok: boolean; reason?: string }[];
+        error?: string;
+        detail?: string;
+      };
+
+      if (!res.ok) {
+        show("error", json.error ?? "대출하지 못했습니다", json.detail ?? "");
+        beep("error");
+        return;
+      }
+
+      const okIds = new Set((json.lines ?? []).filter((l) => l.ok).map((l) => l.bookId));
+      const bad = (json.lines ?? []).filter((l) => !l.ok);
+      // 나간 책만 목록에서 뺍니다. 못 나간 책은 이유와 함께 남겨 두어야 사람이 손에 든 책을
+      // 어떻게 할지 정할 수 있습니다.
+      setCart((prev) => prev.filter((c) => !okIds.has(c.book.id)));
+      setCounts((c) => ({ ...c, borrowed: c.borrowed + (json.borrowed ?? 0) }));
+      if (bad.length === 0) {
+        show(
+          "ok",
+          `${json.borrowed}권 대출 완료 🎉`,
+          `${me.student.name} 학생 · ${json.dueDate ? formatDay(json.dueDate) : ""}까지 반납`
+        );
+        beep("ok");
+      } else {
+        show(
+          "warn",
+          `${json.borrowed}권 대출 · ${bad.length}권은 못 빌렸습니다`,
+          bad.map((l) => `${l.title} — ${l.reason}`).join(" / ")
+        );
+        beep("warn");
+      }
+      void loadStudent(me.student.student_no);
+      router.refresh();
+    } catch {
+      show("error", "대출 중 오류가 생겼습니다");
+      beep("error");
+    } finally {
+      setChecking(false);
+      refocus();
+    }
+  }
+
+  // ── 왼쪽 패널에 쓰는 계산들 ──────────────────────────────────────────────
+  const level = useMemo(
+    () => readingLevel(student?.stats.total ?? 0),
+    [student?.stats.total]
+  );
+  const goal = useMemo(() => monthlyProgress(student?.stats.month ?? 0), [student?.stats.month]);
+  const cheer = useMemo(
+    () =>
+      student
+        ? cheerFor({
+            name: student.student.name,
+            monthCount: student.stats.month,
+            totalCount: student.stats.total,
+            activeCount: student.activeLoans.length,
+            overdueCount: student.overdueCount,
+          })
+        : "",
+    [student]
+  );
+  const remaining = student ? Math.max(0, settings.max_books - student.activeLoans.length) : 0;
   const filledCategories = student
-    ? CATEGORIES.filter((cat) => (student.stats.byCategory[cat.key] ?? 0) > 0).length
+    ? CATEGORIES.filter((c) => (student.stats.byCategory[c.key] ?? 0) > 0).length
     : 0;
-  const cheer = student
-    ? cheerFor({
-        name: student.student.name,
-        monthCount: student.stats.month,
-        totalCount: student.stats.total,
-        activeCount: student.activeLoans.length,
-        overdueCount: student.overdueCount,
-      })
-    : "";
+
+  const canCheckout = Boolean(student) && cart.length > 0 && !checking;
 
   return (
-    /*
-      화면 하나에 다 들어가게 짠 틀입니다.
-
-      예전에는 가운데 1024px만 쓰고 양옆을 비워 둔 채 세로로 길게 쌓아서, 학생 정보를 보려면
-      스크롤을 내려야 했습니다. 데스크에 놓고 아이와 함께 보는 화면에서 스크롤은 곧 "안 보이는
-      정보"입니다. 그래서 가로를 다 쓰고, 학생 화면은 두 칸으로 나눠 한 눈에 들어오게 했습니다.
-      길어질 수 있는 것은 빌린 책 목록 하나뿐이라 그 안에서만 스크롤됩니다.
-    */
-    <div className="flex h-[calc(100dvh-3.25rem)] w-full flex-col gap-2.5 overflow-hidden px-3 py-2.5">
-      {/* ── 안내 줄 ─────────────────────────────────────────────────────── */}
-      <div className="flex shrink-0 items-center gap-3 text-xs text-slate-400">
-        <span className="rounded-full bg-white px-3 py-1 font-semibold text-slate-500 ring-1 ring-slate-200">
-          오늘 대출 {counts.borrowed} · 반납 {counts.returned}
-        </span>
-        <span className="hidden sm:inline">
-          대출 {settings.loan_days}일 · 1인 {settings.max_books}권
-        </span>
-        <button
-          type="button"
-          onClick={() => router.push("/find")}
-          className="ml-auto rounded-full bg-white px-4 py-1.5 text-sm font-semibold text-gia-navy shadow-sm ring-1 ring-slate-200 transition hover:bg-slate-50"
-        >
-          🔎 책 찾기
-        </button>
-        <span className="font-mono text-sm text-slate-400">{clock}</span>
-      </div>
-
-      {/* ── 처리 결과 (학생이 떠 있을 때는 아래 패널이 대신합니다) ───────── */}
-      {student ? null : banner ? (
-        <div
-          key={banner.seq}
-          className={`gia-pop shrink-0 rounded-3xl px-7 py-5 shadow-lg ${TONE[banner.tone].box}`}
-        >
-          <div className="flex items-start gap-4">
-            <span
-              className={`mt-1 rounded-full px-3 py-1 text-xs font-bold tracking-wide ${TONE[banner.tone].chip}`}
-            >
-              {TONE[banner.tone].label}
-            </span>
-            <div className="min-w-0 flex-1">
-              <p className="text-4xl leading-tight font-black">{banner.title}</p>
-              {banner.sub && <p className="mt-1.5 text-lg opacity-90">{banner.sub}</p>}
-            </div>
+    <div className="flex h-full min-h-0 flex-col gap-3">
+      {/* ── 머리말: 찍는 칸 ────────────────────────────────────────────── */}
+      <div className="flex flex-wrap items-center gap-3 rounded-2xl bg-white p-4 shadow-sm ring-1 ring-slate-200">
+        <input
+          ref={inputRef}
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              void handleScan(value);
+            }
+          }}
+          placeholder="학생카드 · 책 바코드 · 제목으로 찾기 — 순서는 상관없습니다"
+          className="scan-input min-w-0 flex-1 rounded-2xl border-2 border-dashed border-slate-300 bg-slate-50 px-4 py-3.5 text-center text-lg outline-none focus:border-gia-gold focus:bg-white"
+          autoComplete="off"
+          spellCheck={false}
+        />
+        <div className="flex items-center gap-4 text-center">
+          <div>
+            <p className="text-[11px] text-slate-400">오늘 대출</p>
+            <p className="text-xl font-black text-emerald-600">{counts.borrowed}</p>
           </div>
-        </div>
-      ) : (
-        <div className="shrink-0 rounded-3xl bg-white px-7 py-5 text-center shadow-sm ring-1 ring-slate-200">
-          <p className="text-4xl font-black text-gia-navy">📕 도서카드를 찍어주세요</p>
-          <p className="mt-1.5 text-lg text-slate-400">책을 반납할 때는 책만 찍으면 됩니다</p>
-        </div>
-      )}
-
-      {/* ── 되돌아가기 안내 ─────────────────────────────────────────────── */}
-      {holdLeft > 0 && (
-        <div className="flex shrink-0 items-center gap-3 rounded-2xl bg-amber-50 px-4 py-2 ring-1 ring-amber-200">
-          <span className="text-sm font-semibold text-amber-900">
-            입력이 없어 <b className="tabular-nums text-base">{holdLeft}초</b> 후 메인 화면으로
-            돌아갑니다
-          </span>
-          <div className="ml-auto h-2 w-32 overflow-hidden rounded-full bg-amber-200 sm:w-48">
-            <div
-              className="h-full rounded-full bg-amber-500 transition-all duration-1000 ease-linear"
-              style={{ width: `${(holdLeft / IDLE_SECONDS) * 100}%` }}
-            />
+          <div>
+            <p className="text-[11px] text-slate-400">오늘 반납</p>
+            <p className="text-xl font-black text-blue-600">{counts.returned}</p>
           </div>
+          <span className="font-mono text-sm text-slate-400">{clock}</span>
           <button
             type="button"
-            onClick={() => setActivity((n) => n + 1)}
-            className="rounded-lg bg-amber-500 px-3 py-1 text-xs font-bold text-white transition hover:bg-amber-600"
+            onClick={nextStudent}
+            className="rounded-xl border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-50"
           >
-            더 볼게요
+            다음 학생
           </button>
+        </div>
+      </div>
+
+      {banner && (
+        <div
+          key={banner.seq}
+          className={`gia-pop rounded-2xl px-5 py-3 ${
+            banner.tone === "ok"
+              ? "bg-emerald-500 text-white"
+              : banner.tone === "return"
+                ? "bg-blue-600 text-white"
+                : banner.tone === "warn"
+                  ? "bg-amber-500 text-white"
+                  : banner.tone === "error"
+                    ? "bg-red-600 text-white"
+                    : "bg-gia-navy text-white"
+          }`}
+        >
+          <p className="text-lg font-black">{banner.title}</p>
+          {banner.sub && <p className="mt-0.5 text-sm opacity-90">{banner.sub}</p>}
         </div>
       )}
 
-      {/* ── 본문 ────────────────────────────────────────────────────────── */}
-      <section className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-3xl bg-white p-5 shadow-sm ring-1 ring-slate-200">
-        {bookHits ? (
-          /* ── 제목으로 찾은 책들 ─────────────────────────────────────── */
-          <>
-            <p className="mb-2 shrink-0 text-sm font-bold text-slate-500">
-              &lsquo;{bookHits.query}&rsquo; 검색 결과 {bookHits.books.length}권 — 눌러보세요
-            </p>
-            <ul className="grid min-h-0 flex-1 content-start gap-2 overflow-y-auto md:grid-cols-2 xl:grid-cols-3">
-              {bookHits.books.map((hit) => {
-                const left = Math.max(0, hit.total_copies - hit.onLoan);
-                return (
-                  <li key={hit.id}>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setBookHits(null);
-                        setPopup({ kind: "known", book: hit, activeLoans: [], available: left });
+      {/* ── 동명이인 고르기 ───────────────────────────────────────────── */}
+      {choices && (
+        <div className="rounded-2xl bg-white p-4 shadow-sm ring-1 ring-slate-200">
+          <p className="mb-2 text-sm font-bold text-slate-500">학생을 골라주세요</p>
+          <ul className="flex flex-wrap gap-2">
+            {choices.map((s) => (
+              <li key={s.id}>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setChoices(null);
+                    void loadStudent(s.student_no);
+                  }}
+                  className="rounded-xl bg-slate-50 px-4 py-2.5 text-left hover:bg-slate-100"
+                >
+                  <span className="block font-bold">{s.name}</span>
+                  <span className="block text-xs text-slate-400">
+                    {[s.grade, s.class_name].filter(Boolean).join(" ")} · {s.student_no}
+                  </span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {/* ── 제목으로 찾은 책 ──────────────────────────────────────────── */}
+      {hits && (
+        <div className="rounded-2xl bg-white p-4 shadow-sm ring-1 ring-slate-200">
+          <p className="mb-2 text-sm font-bold text-slate-500">
+            &lsquo;{hits.query}&rsquo; 검색 결과 — 누르면 대출 예정 목록에 담깁니다
+          </p>
+          <ul className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
+            {hits.books.map((b) => (
+              <li key={b.id}>
+                <button
+                  type="button"
+                  onClick={() => addFromHit(b)}
+                  className="flex w-full items-center gap-3 rounded-2xl bg-slate-50 px-4 py-3 text-left hover:bg-slate-100"
+                >
+                  {b.cover_url ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={b.cover_url} alt="" className="h-14 w-10 shrink-0 rounded object-cover" />
+                  ) : (
+                    <span className="flex h-14 w-10 shrink-0 items-center justify-center rounded bg-slate-200">
+                      📘
+                    </span>
+                  )}
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate font-bold">{b.title}</span>
+                    <span className="block truncate text-xs text-slate-500">{b.author ?? ""}</span>
+                  </span>
+                  {b.label_level != null && (
+                    <span
+                      className="shrink-0 rounded px-1.5 py-0.5 text-[11px] font-bold"
+                      style={{
+                        background: `${levelColor(b.label_level)}1f`,
+                        color: levelColor(b.label_level),
                       }}
-                      className="flex w-full items-center gap-3 rounded-2xl bg-slate-50 px-4 py-3 text-left transition hover:bg-slate-100"
                     >
-                      {hit.cover_url ? (
-                        // eslint-disable-next-line @next/next/no-img-element
-                        <img
-                          src={hit.cover_url}
-                          alt=""
-                          className="h-16 w-12 shrink-0 rounded object-cover ring-1 ring-slate-200"
-                        />
-                      ) : (
-                        <span className="flex h-16 w-12 shrink-0 items-center justify-center rounded bg-slate-200 text-xl">
-                          📘
-                        </span>
-                      )}
-                      <span className="min-w-0 flex-1">
-                        <span className="block truncate text-lg font-bold">{hit.title}</span>
-                        <span className="block truncate text-sm text-slate-500">
-                          {hit.author ?? ""}
-                        </span>
-                        {/*
-                          등급을 함께 보여줍니다. 같은 책을 등급별로 나눠 꽂아 둔 경우 목록에
-                          두 줄이 나오는데, 등급이 없으면 둘이 똑같이 생겨서 어느 쪽을 눌러야
-                          할지 알 수 없습니다.
-                        */}
-                        {hit.label_level != null && (
-                          <span
-                            className="mr-1.5 inline-block rounded px-1.5 py-0.5 text-xs font-bold"
-                            style={{
-                              background: `${levelColor(hit.label_level)}1f`,
-                              color: levelColor(hit.label_level),
-                            }}
-                          >
-                            {hit.label_level}등급
-                            {hit.label_no ? ` ${hit.label_no}` : ""}
-                          </span>
-                        )}
-                        <span
-                          className={`mt-0.5 inline-block text-sm font-semibold ${
-                            left > 0 ? "text-emerald-600" : "text-slate-400"
-                          }`}
-                        >
-                          {left > 0 ? `대출 가능 ${left}권` : "모두 대출중"}
-                        </span>
-                      </span>
-                      {hit.shelf ? (
-                        <span
-                          className="shrink-0 rounded-xl px-3 py-2 text-center"
-                          style={{ background: `${hit.shelf.color}1f`, color: hit.shelf.color }}
-                        >
-                          <span className="block text-xl font-black">{hit.shelf.code}</span>
-                          {hit.shelf.name && (
-                            <span className="block text-[11px] font-medium">{hit.shelf.name}</span>
-                          )}
-                        </span>
-                      ) : (
-                        <span className="shrink-0 rounded-xl bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-700">
-                          자리 미정
-                        </span>
-                      )}
-                    </button>
-                  </li>
-                );
-              })}
-            </ul>
-            <button
-              type="button"
-              onClick={() => {
-                setBookHits(null);
-                setBanner(null);
-                setTimeout(refocus, 30);
-              }}
-              className="mt-3 shrink-0 self-start text-sm text-slate-400 hover:underline"
-            >
-              닫기 (Esc)
-            </button>
-          </>
-        ) : choices ? (
-          <>
-            <p className="mb-2 shrink-0 text-sm font-bold text-slate-500">
-              같은 이름이 여러 명입니다 — 눌러서 골라주세요
-            </p>
-            <ul className="grid min-h-0 flex-1 content-start gap-2 overflow-y-auto md:grid-cols-2 xl:grid-cols-3">
-              {choices.map((cand) => (
-                <li key={cand.id}>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setChoices(null);
-                      void handleScan(cand.student_no);
-                    }}
-                    className="flex w-full items-baseline gap-3 rounded-2xl bg-slate-50 px-5 py-4 text-left transition hover:bg-slate-100"
-                  >
-                    <span className="text-2xl font-bold">{cand.name}</span>
-                    <span className="text-base text-slate-500">
-                      {[cand.grade, cand.class_name].filter(Boolean).join(" ")}
+                      {b.label_level}등급
                     </span>
-                    <span className="ml-auto font-mono text-xs text-slate-400">
-                      {cand.student_no}
-                    </span>
-                  </button>
-                </li>
-              ))}
-            </ul>
-            <button
-              type="button"
-              onClick={() => {
-                setChoices(null);
-                setBanner(null);
-                setTimeout(refocus, 30);
-              }}
-              className="mt-3 shrink-0 self-start text-sm text-slate-400 hover:underline"
-            >
-              취소 (Esc)
-            </button>
-          </>
-        ) : !student ? (
-          <div className="flex flex-1 flex-col items-center justify-center text-center">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src="/logo-main.png" alt="" className="mb-5 h-9 w-auto opacity-15" />
-            <p className="text-lg text-slate-300">
-              학생 도서카드를 찍으면 빌린 책과 반납일이 여기에 크게 표시됩니다
-            </p>
-          </div>
-        ) : (
-          /*
-            학생 화면 - 왼쪽은 "이 아이가 누구이고 얼마나 읽었는가", 오른쪽은 "지금 무엇을
-            들고 있는가". 오른쪽이 실제로 창구에서 보는 정보라 넓은 쪽에 둡니다.
-          */
-          <div className="grid min-h-0 flex-1 gap-4 lg:grid-cols-[21rem_minmax(0,1fr)] xl:grid-cols-[24rem_minmax(0,1fr)]">
-            {/* ── 왼쪽: 누구인가 · 얼마나 읽었나 ─────────────────────── */}
-            <div className="flex min-h-0 flex-col gap-3 overflow-y-auto">
+                  )}
+                </button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {/* ── 본문: 왼쪽 학생 · 오른쪽 대출 관리 ─────────────────────────── */}
+      <div className="grid min-h-0 flex-1 gap-3 lg:grid-cols-[minmax(0,22rem)_minmax(0,1fr)] xl:grid-cols-[minmax(0,26rem)_minmax(0,1fr)]">
+        {/* ── 왼쪽 ──────────────────────────────────────────────────── */}
+        <section className="flex min-h-0 flex-col gap-3 overflow-y-auto rounded-2xl bg-white p-4 shadow-sm ring-1 ring-slate-200">
+          {!student ? (
+            <div className="flex flex-1 flex-col items-center justify-center text-center">
+              <p className="text-5xl">🪪</p>
+              <p className="mt-3 text-xl font-bold text-slate-400">학생카드를 찍어주세요</p>
+              <p className="mt-1 text-sm text-slate-300">
+                책을 먼저 찍어도 됩니다 — 오른쪽에 쌓아 두고 기다립니다
+              </p>
+            </div>
+          ) : (
+            <>
               <div className="flex items-center gap-4">
-                {/*
-                  사진을 함께 띄우는 이유: 카드를 바꿔 들고 오거나 친구 카드를 내미는 일이
-                  생깁니다. 화면을 흘깃 보기만 해도 맞는 아이인지 알 수 있습니다.
-                */}
                 {student.photoUrl ? (
                   // eslint-disable-next-line @next/next/no-img-element
                   <img
@@ -667,22 +604,33 @@ export default function ScanClient({
                   </div>
                 )}
                 <div className="min-w-0">
-                  <p className="truncate text-5xl leading-none font-black text-gia-navy">
+                  <p className="truncate text-4xl leading-none font-black text-gia-navy">
                     {student.student.name}
                   </p>
-                  <p className="mt-1.5 text-xl text-slate-400">
-                    {[student.student.grade, student.student.class_name]
-                      .filter(Boolean)
-                      .join(" ")}
+                  <p className="mt-1.5 text-lg text-slate-400">
+                    {[student.student.grade, student.student.class_name].filter(Boolean).join(" ")}
                   </p>
+                  <a
+                    href={`/records/${encodeURIComponent(student.student.student_no)}`}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="mt-1 inline-block text-xs font-semibold text-gia-gold hover:underline"
+                  >
+                    📖 도서기록 보기 · 인쇄
+                  </a>
                 </div>
               </div>
 
-              {/* 독서 단계 — 한 권 더 읽고 싶어지도록 진행 막대로 보여줍니다 */}
+              {student.overdueCount > 0 && (
+                <p className="rounded-xl bg-red-50 px-3 py-2 text-sm font-bold text-red-700 ring-1 ring-red-200">
+                  연체 {student.overdueCount}권 — 먼저 반납해야 빌릴 수 있습니다
+                </p>
+              )}
+
               <div className="rounded-2xl bg-slate-50 px-4 py-3">
                 <div className="flex items-baseline gap-2">
                   <span className="text-2xl">{level.current.icon}</span>
-                  <span className="text-xl font-black" style={{ color: level.current.color }}>
+                  <span className="text-lg font-black" style={{ color: level.current.color }}>
                     {level.current.name}
                   </span>
                   <span className="ml-auto text-xs text-slate-400">
@@ -700,11 +648,10 @@ export default function ScanClient({
                 </div>
               </div>
 
-              {/* 이번 달 목표 */}
               <div className="rounded-2xl bg-slate-50 px-4 py-3">
                 <div className="flex items-baseline gap-2">
                   <span className="text-sm font-semibold text-slate-500">이번 달 목표</span>
-                  <span className="text-xl font-black text-gia-navy">
+                  <span className="text-lg font-black text-gia-navy">
                     {goal.done} / {goal.goal}권
                   </span>
                   {goal.achieved && <span className="ml-auto text-xl">🎉</span>}
@@ -719,7 +666,6 @@ export default function ScanClient({
                 </div>
               </div>
 
-              {/* 이번 달 · 올해 · 누적 */}
               <div className="grid grid-cols-3 gap-2">
                 {[
                   { label: "이번 달", value: student.stats.month },
@@ -731,7 +677,7 @@ export default function ScanClient({
                     className="rounded-2xl bg-white px-2 py-2.5 text-center ring-1 ring-slate-200"
                   >
                     <p className="text-[11px] font-semibold text-slate-400">{tile.label}</p>
-                    <p className="text-2xl font-black text-gia-navy">
+                    <p className="text-xl font-black text-gia-navy">
                       {tile.value}
                       <span className="ml-0.5 text-sm font-medium text-slate-400">권</span>
                     </p>
@@ -739,232 +685,212 @@ export default function ScanClient({
                 ))}
               </div>
 
-              {/*
-                해마다 몇 권을 읽었는지.
-
-                카드는 한 번 뽑으면 졸업할 때까지 같은 것을 씁니다. 그러면 기록도 졸업까지
-                이어져야 합니다. 누적 한 숫자만 보여주면 "3학년 때 몇 권 읽었더라"를 알 수
-                없고, 해마다 늘어나는 막대를 보는 것이 아이에게도 훨씬 재미있습니다.
-              */}
-              {years.length > 1 && (
-                <div className="rounded-2xl bg-slate-50 px-4 py-3">
-                  <p className="mb-2 text-xs font-bold text-slate-500">해마다 읽은 책</p>
-                  <div className="space-y-1.5">
-                    {years.map(([y, n]) => (
-                      <div key={y} className="flex items-center gap-2">
-                        <span className="w-10 shrink-0 font-mono text-xs text-slate-400">{y}</span>
-                        <span className="h-2.5 min-w-[2px] rounded-full bg-gia-gold"
-                          style={{ width: `${Math.round((n / yearMax) * 100)}%` }} />
-                        <span className="shrink-0 text-xs font-bold text-slate-600">{n}권</span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              <p className="mt-auto text-center text-base font-semibold text-gia-navy">{cheer}</p>
-            </div>
-
-            {/* ── 오른쪽: 지금 들고 있는 책 · 독서 도감 ─────────────────── */}
-            <div className="flex min-h-0 flex-col border-slate-100 lg:border-l lg:pl-4">
-              <div className="mb-2 flex shrink-0 items-baseline gap-2">
-                <p className="text-sm font-bold text-slate-500">지금 빌린 책</p>
-                <p className="text-xs text-slate-400">
-                  {student.activeLoans.length}권
-                  {remaining > 0 ? ` · ${remaining}권 더 빌릴 수 있어요` : " · 최대 권수를 채웠습니다"}
+              {/* 지금 빌린 책 - 반납할 책을 고르는 데 쓰므로 왼쪽(학생 쪽)에 둡니다. */}
+              <div>
+                <p className="mb-1.5 text-sm font-bold text-slate-500">
+                  지금 빌린 책 {student.activeLoans.length}권
+                  <span className="ml-1 text-xs font-medium text-slate-400">
+                    {remaining > 0 ? `· ${remaining}권 더 가능` : "· 최대 권수를 채웠습니다"}
+                  </span>
                 </p>
-              </div>
-
-              {/* 길어질 수 있는 유일한 목록이라, 스크롤은 여기 안에서만 생깁니다. */}
-              <ul className="min-h-0 flex-1 space-y-2 overflow-y-auto pr-1">
-                {student.activeLoans.length === 0 && (
-                  <li className="rounded-2xl bg-slate-50 px-5 py-8 text-center text-lg text-slate-300">
-                    지금 빌린 책이 없습니다
-                  </li>
-                )}
-                {student.activeLoans.map((loan) => {
-                  const late = overdueDays(loan.due_date, today);
-                  return (
-                    <li
-                      key={loan.id}
-                      className={`flex items-center gap-4 rounded-2xl px-4 py-3 ${
-                        late > 0 ? "bg-red-50 ring-1 ring-red-200" : "bg-slate-50"
-                      }`}
-                    >
-                      <span className="flex-1 truncate text-lg font-bold">
-                        {loan.book?.title ?? "(삭제된 책)"}
-                      </span>
-                      <span
-                        className={`shrink-0 text-base font-bold ${
-                          late > 0 ? "text-red-600" : "text-slate-500"
+                <ul className="space-y-1.5">
+                  {student.activeLoans.length === 0 && (
+                    <li className="rounded-xl bg-slate-50 px-4 py-4 text-center text-sm text-slate-300">
+                      지금 빌린 책이 없습니다
+                    </li>
+                  )}
+                  {student.activeLoans.map((loan) => {
+                    const late = overdueDays(loan.due_date, today);
+                    return (
+                      <li
+                        key={loan.id}
+                        className={`flex items-center gap-2 rounded-xl px-3 py-2 text-sm ${
+                          late > 0 ? "bg-red-50 ring-1 ring-red-200" : "bg-slate-50"
                         }`}
                       >
-                        {late > 0 ? `${late}일 연체` : `${formatDay(loan.due_date)}까지`}
-                      </span>
-                    </li>
-                  );
-                })}
-              </ul>
+                        <span className="min-w-0 flex-1 truncate font-semibold">
+                          {loan.book?.title ?? "(삭제된 책)"}
+                        </span>
+                        <span
+                          className={`shrink-0 text-xs font-bold ${
+                            late > 0 ? "text-red-600" : "text-slate-500"
+                          }`}
+                        >
+                          {late > 0 ? `${late}일 연체` : `${formatDay(loan.due_date)}까지`}
+                        </span>
+                      </li>
+                    );
+                  })}
+                </ul>
+              </div>
 
-              {/* 독서 도감 - 안 읽은 칸은 흐리게 두어 "채우고 싶은" 마음이 들도록 했습니다. */}
-              <div className="mt-3 shrink-0 border-t border-slate-100 pt-3">
-                <div className="mb-1.5 flex items-baseline gap-2">
-                  <p className="text-sm font-bold text-slate-500">독서 도감</p>
-                  <p className="text-xs text-slate-400">
-                    {filledCategories}/{CATEGORIES.length}칸 채움
-                    {student.stats.englishCount > 0 && ` · 영어책 ${student.stats.englishCount}권`}
-                  </p>
-                  {student.stats.lastTitle && (
-                    <p className="ml-auto truncate text-xs text-slate-300">
-                      지난번에 읽은 책: {student.stats.lastTitle}
-                    </p>
-                  )}
-                </div>
-                <div className="flex flex-wrap gap-1.5">
+              <div className="mt-auto">
+                <p className="mb-1.5 text-xs font-bold text-slate-400">
+                  독서 도감 {filledCategories}/{CATEGORIES.length}칸
+                </p>
+                <div className="flex flex-wrap gap-1">
                   {CATEGORIES.map((cat) => {
                     const count = student.stats.byCategory[cat.key] ?? 0;
-                    const filled = count > 0;
                     return (
                       <span
                         key={cat.key}
-                        className={`flex items-center gap-1 rounded-xl px-2 py-1 text-[13px] font-semibold ${
-                          filled ? "" : "bg-slate-50 text-slate-300"
+                        className={`rounded-lg px-1.5 py-0.5 text-[11px] font-semibold ${
+                          count > 0 ? "" : "bg-slate-50 text-slate-300"
                         }`}
                         style={
-                          filled ? { background: `${cat.color}1f`, color: cat.color } : undefined
+                          count > 0
+                            ? { background: `${cat.color}1f`, color: cat.color }
+                            : undefined
                         }
-                        title={filled ? `${cat.key} ${count}권` : `${cat.key} — 아직 안 읽었어요`}
                       >
-                        <span className={filled ? "" : "opacity-40 grayscale"}>{cat.icon}</span>
-                        {cat.key}
-                        {filled && <span className="font-black">{count}</span>}
+                        {cat.icon} {count > 0 ? count : ""}
                       </span>
                     );
                   })}
                 </div>
+                <p className="mt-2 text-center text-sm font-semibold text-gia-navy">{cheer}</p>
               </div>
-            </div>
+            </>
+          )}
+        </section>
+
+        {/* ── 오른쪽: 대출 관리 ─────────────────────────────────────── */}
+        <section className="flex min-h-0 flex-col rounded-2xl bg-white p-4 shadow-sm ring-1 ring-slate-200">
+          <div className="mb-2 flex shrink-0 items-baseline gap-2">
+            <p className="text-base font-black text-slate-700">대출 예정 목록</p>
+            <p className="text-sm text-slate-400">{cart.length}권</p>
+            {cart.length > 0 && (
+              <button
+                type="button"
+                onClick={() => setCart([])}
+                className="ml-auto text-xs text-slate-400 hover:text-red-500"
+              >
+                목록 비우기
+              </button>
+            )}
           </div>
-        )}
-      </section>
 
-      {/* ── 스캐너 입력칸 (화면에는 거의 안 보이지만 커서가 늘 여기 있습니다) ── */}
-      <input
-        ref={inputRef}
-        value={value}
-        onChange={(e) => {
-          setValue(e.target.value);
-          setActivity((n) => n + 1);
-        }}
-        onKeyDown={(e) => {
-          if (e.key === "Enter") {
-            e.preventDefault();
-            void handleScan(value);
-          }
-          if (e.key === "Escape") {
-            setStudent(null);
-            setBanner(null);
-            setUnknownPending(false);
-            setChoices(null);
-            setBookHits(null);
-            setPopup(null);
-            setAwaitBookCode(null);
-            setValue("");
-            setActivity((n) => n + 1);
-          }
-        }}
-        aria-label="바코드 입력"
-        className="scan-input h-8 w-full shrink-0 rounded-xl border border-dashed border-slate-200 bg-transparent px-4 text-center text-xs text-slate-300 outline-none focus:border-gia-gold"
-        placeholder={
-          busy
-            ? "처리 중…"
-            : "바코드를 찍거나 · 학생 이름 · 책 제목을 입력하고 Enter (책은 어디 있는지 알려줍니다)"
-        }
-        autoComplete="off"
-        spellCheck={false}
-      />
+          <ul className="min-h-0 flex-1 space-y-2 overflow-y-auto pr-1">
+            {cart.length === 0 && (
+              <li className="rounded-2xl bg-slate-50 px-5 py-10 text-center text-base text-slate-300">
+                책 바코드를 찍으면 여기에 쌓입니다
+              </li>
+            )}
+            {cart.map((item) => {
+              const before = previous[item.book.id];
+              return (
+                <li
+                  key={item.key}
+                  className="flex items-center gap-3 rounded-2xl bg-slate-50 px-3 py-2.5"
+                >
+                  {item.book.cover_url ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={item.book.cover_url}
+                      alt=""
+                      className="h-14 w-10 shrink-0 rounded object-cover ring-1 ring-slate-200"
+                    />
+                  ) : (
+                    <span className="flex h-14 w-10 shrink-0 items-center justify-center rounded bg-slate-200">
+                      📘
+                    </span>
+                  )}
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-base font-bold">{item.book.title}</p>
+                    <p className="truncate text-xs text-slate-400">{item.book.author ?? ""}</p>
+                    {/*
+                      요청: "이 학생이 대출을 예전에 한 적이 있다면 언제 대출했는지."
+                      아이들은 같은 책을 또 집어 옵니다. 빌려주기 전에 보이면 "저번에 빌렸던
+                      거야, 다른 거 볼래?" 한마디를 할 수 있습니다.
+                    */}
+                    {before && (
+                      <p className="mt-0.5 inline-block rounded bg-amber-100 px-1.5 py-0.5 text-[11px] font-bold text-amber-800">
+                        예전에 빌린 책 — {formatDay(before.borrowedAt.slice(0, 10))}
+                        {before.times > 1 ? ` · ${before.times}번째` : ""}
+                      </p>
+                    )}
+                  </div>
+                  {item.book.label_level != null && (
+                    <span
+                      className="shrink-0 rounded px-1.5 py-0.5 text-[11px] font-bold"
+                      style={{
+                        background: `${levelColor(item.book.label_level)}1f`,
+                        color: levelColor(item.book.label_level),
+                      }}
+                    >
+                      {item.book.label_level}등급
+                    </span>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => removeFromCart(item.key)}
+                    className="shrink-0 rounded-lg px-2 py-1 text-xs text-slate-400 hover:bg-white hover:text-red-500"
+                  >
+                    빼기
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
 
-      {popup && (
-        <BookPopup
-          state={popup}
-          awaitingStudent={awaitBookCode !== null}
-          busy={busy}
-          onBorrow={() => {
-            if (popup.kind !== "known") return;
-            // 학생이 이미 화면에 떠 있으면 곧바로 대출합니다.
-            const code = popup.book.item_code ?? popup.book.isbn ?? "";
-            if (student) {
-              setPopup(null);
-              void handleScan(code);
-              return;
-            }
-            setAwaitBookCode(code);
-          }}
-          onReturn={() => {
-            if (popup.kind !== "known") return;
-            const code = popup.book.item_code ?? popup.book.isbn ?? "";
-            void (async () => {
-              setBusy(true);
-              const result = await send(code, null, "return");
-              setBusy(false);
-              if (result && result.kind === "returned") {
-                showResult({
-                  tone: result.overdueDays > 0 ? "late" : "returned",
-                  title: result.message,
-                  bookTitle: result.book.title,
-                  sub: `${result.loan.student_name} 학생이 반납했습니다`,
-                  coverUrl: result.book.cover_url,
-                  shelf: result.location,
-                });
-                setCounts((c) => ({ ...c, returned: c.returned + 1 }));
-                beep(result.overdueDays > 0 ? "warn" : "return");
-              } else if (result && result.kind === "error") {
-                setPopup(null);
-                show("error", result.message, result.detail ?? "");
-                beep("error");
-              }
-              setTimeout(refocus, 30);
-            })();
-          }}
-          onRenew={() => {
-            // 규칙 #3: 연장은 책을 가져왔을 때만 - 그래서 이 팝업에서만 가능합니다.
-            if (popup.kind !== "known") return;
-            const code = popup.book.item_code ?? popup.book.isbn ?? "";
-            void (async () => {
-              setBusy(true);
-              const result = await send(code, null, "renew");
-              setBusy(false);
-              if (result && result.kind === "renewed") {
-                showResult({
-                  tone: "borrowed",
-                  title: "연장 완료",
-                  bookTitle: result.book.title,
-                  sub: `${result.student?.name ?? ""} · ${result.loan.due_date}까지 (${result.loan.renew_count}회째 연장)`,
-                  coverUrl: result.book.cover_url,
-                  shelf: null,
-                });
-                beep("ok");
-              } else if (result && result.kind === "error") {
-                setPopup(null);
-                show("error", result.message, result.detail ?? "");
-                beep("error");
-              }
-              setTimeout(refocus, 30);
-            })();
-          }}
-          canRenew={
-            settings.allow_renew &&
-            popup.kind === "known" &&
-            popup.activeLoans.some((l) => l.renew_count < settings.max_renew)
-          }
-          onRegister={() => setDialogOpen(true)}
-          onClose={() => {
-            setPopup(null);
-            setAwaitBookCode(null);
-            setTimeout(refocus, 30);
-          }}
-        />
-      )}
+          {/* ── 대출하기 ──────────────────────────────────────────── */}
+          <div className="mt-3 shrink-0">
+            <button
+              type="button"
+              disabled={!canCheckout}
+              onClick={() => void checkout()}
+              className="w-full rounded-2xl bg-emerald-600 px-4 py-4 text-xl font-black text-white transition disabled:bg-slate-200 disabled:text-slate-400"
+            >
+              {checking
+                ? "대출 중…"
+                : cart.length === 0
+                  ? "책을 찍어주세요"
+                  : !student
+                    ? "학생카드를 찍어주세요"
+                    : `${cart.length}권 대출하기`}
+            </button>
+            {student && cart.length > remaining && (
+              <p className="mt-1.5 text-center text-xs font-semibold text-amber-700">
+                지금은 {remaining}권까지 빌릴 수 있습니다 — {cart.length - remaining}권을 빼주세요
+              </p>
+            )}
+          </div>
+
+          {/* ── 방금 반납한 책 ────────────────────────────────────── */}
+          {returned.length > 0 && (
+            <div className="mt-3 shrink-0 border-t border-slate-100 pt-3">
+              <p className="mb-1.5 text-sm font-bold text-blue-600">
+                방금 반납 {returned.length}권 — 꽂을 자리
+              </p>
+              <ul className="max-h-32 space-y-1 overflow-y-auto">
+                {returned.map((r) => (
+                  <li
+                    key={r.key}
+                    className="flex items-center gap-2 rounded-xl bg-blue-50 px-3 py-1.5 text-sm"
+                  >
+                    <span className="min-w-0 flex-1 truncate font-semibold">{r.title}</span>
+                    {r.late > 0 && (
+                      <span className="shrink-0 text-xs font-bold text-red-600">
+                        {r.late}일 연체
+                      </span>
+                    )}
+                    <span
+                      className="shrink-0 rounded-lg px-2 py-0.5 text-sm font-black"
+                      style={
+                        r.shelf
+                          ? { background: `${r.shelf.color}1f`, color: r.shelf.color }
+                          : { color: "#94a3b8" }
+                      }
+                    >
+                      {r.shelf ? r.shelf.code : "자리미정"}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </section>
+      </div>
 
       <BookRegisterDialog
         open={dialogOpen}
@@ -972,14 +898,12 @@ export default function ScanClient({
         initialScanCode={dialogCode ?? undefined}
         onClose={() => {
           setDialogOpen(false);
-          setTimeout(refocus, 50);
+          refocus();
         }}
-        onCreated={(book) => {
-          show("ok", "책 등록 완료", `${book.title} — 이제 다시 찍으면 대출됩니다`);
-          setDialogIsbn(null);
-          setDialogCode(null);
-          setUnknownPending(false);
-          beep("ok");
+        onCreated={() => {
+          setDialogOpen(false);
+          router.refresh();
+          refocus();
         }}
       />
     </div>
