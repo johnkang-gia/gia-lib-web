@@ -5,7 +5,7 @@ import CoverShot from "@/components/CoverShot";
 import CoverCrop from "@/components/CoverCrop";
 import { createClient } from "@/lib/supabase/client";
 import type { Box } from "@/lib/coverBox";
-import { refineBox } from "@/lib/cropImage";
+import { cropImage, refineBox } from "@/lib/cropImage";
 import type { LibBook } from "@/lib/types";
 
 /**
@@ -36,6 +36,16 @@ export default function BookCoverShotDialog({
   const supabase = createClient();
   const [shot, setShot] = useState<string | null>(null);
   const [box, setBox] = useState<Box | null>(null);
+  /*
+    ── 자동이 먼저, 고치기는 예외 ─────────────────────────────────────────
+    요청: "범위 자르기는 수정하는 느낌이고, 최대한 자동으로 범위 체크해서 표지 넣을 수 있게".
+
+    예전에는 찍을 때마다 네모를 끌어 맞추는 화면이 떴습니다. 제대로 찍은 사진까지 매번
+    손으로 맞춰야 했고, 한 권에 몇 초씩 더 걸렸습니다. 이제 찍으면 **잘라낸 표지가 바로**
+    보이고, 맞으면 누르면 끝입니다. 어긋났을 때만 '범위 고치기'로 들어갑니다.
+  */
+  const [cropped, setCropped] = useState<{ blob: Blob; preview: string } | null>(null);
+  const [editing, setEditing] = useState(false);
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState<string | null>(null);
   const [warn, setWarn] = useState<string | null>(null);
@@ -45,6 +55,8 @@ export default function BookCoverShotDialog({
     setBusy(true);
     setNote(null);
     setWarn(null);
+    setCropped(null);
+    setEditing(false);
     try {
       const res = await fetch("/api/books/cover", {
         method: "POST",
@@ -64,7 +76,14 @@ export default function BookCoverShotDialog({
         setBox(null);
       } else {
         // 모델이 집어 준 네모는 위아래가 밀려 있습니다 - 실제 책 테두리에 맞춰 고칩니다.
-        setBox(await refineBox(dataUrl, json.read.box).catch(() => json.read?.box ?? null));
+        const refined = await refineBox(dataUrl, json.read.box).catch(
+          () => json.read?.box ?? null
+        );
+        setBox(refined);
+        if (refined) {
+          const out = await cropImage(dataUrl, refined).catch(() => null);
+          if (out) setCropped({ blob: out.blob, preview: out.preview });
+        }
         if (json.titleMatches === false && json.read.title) {
           // 막지는 않습니다 - 개정판처럼 제목이 조금 다른 경우가 실제로 있습니다.
           setWarn(
@@ -136,20 +155,67 @@ export default function BookCoverShotDialog({
           <p className="mb-3 rounded-xl bg-slate-100 px-3 py-2.5 text-sm text-slate-700">{note}</p>
         )}
 
-        {shot ? (
+        {!shot ? (
+          <CoverShot busy={busy} onShot={(dataUrl) => void readBox(dataUrl)} onClose={onClose} />
+        ) : editing || !cropped ? (
           <CoverCrop
             src={shot}
             initial={box}
             busy={busy}
             label="이 표지로 등록"
             onCancel={() => {
-              setShot(null);
-              setWarn(null);
+              if (cropped) setEditing(false);
+              else {
+                setShot(null);
+                setWarn(null);
+              }
             }}
             onDone={(blob) => void save(blob)}
           />
         ) : (
-          <CoverShot busy={busy} onShot={(dataUrl) => void readBox(dataUrl)} onClose={onClose} />
+          <div className="space-y-3">
+            <p className="text-xs text-slate-500">
+              배경을 잘라낸 표지입니다. 맞으면 그대로 등록하세요.
+            </p>
+            <div className="flex justify-center rounded-xl bg-slate-100 p-3">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={cropped.preview}
+                alt="잘라낸 표지"
+                className="max-h-[42vh] w-auto max-w-full rounded-lg bg-white object-contain shadow-sm"
+              />
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={() => void save(cropped.blob)}
+                disabled={busy}
+                className="flex-[2] rounded-xl bg-gia-navy px-4 py-2.5 text-sm font-bold text-white disabled:opacity-50"
+              >
+                {busy ? "저장하는 중…" : "이 표지로 등록"}
+              </button>
+              <button
+                type="button"
+                onClick={() => setEditing(true)}
+                disabled={busy}
+                className="flex-1 rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-600 disabled:opacity-50"
+              >
+                범위 고치기
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setShot(null);
+                  setCropped(null);
+                  setWarn(null);
+                }}
+                disabled={busy}
+                className="rounded-xl px-3 py-2.5 text-sm font-semibold text-slate-400 disabled:opacity-50"
+              >
+                다시 찍기
+              </button>
+            </div>
+          </div>
         )}
       </div>
     </div>

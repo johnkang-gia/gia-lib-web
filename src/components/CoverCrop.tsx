@@ -38,6 +38,21 @@ export default function CoverCrop({
   const [box, setBox] = useState<Box>(initial ?? FULL);
   const [natural, setNatural] = useState({ w: 0, h: 0 });
   const areaRef = useRef<HTMLDivElement>(null);
+  /*
+    ── 네모의 기준은 '사진'이지 '상자'가 아닙니다 ────────────────────────────
+    여기서 다루는 좌표는 전부 **사진 크기 대비 비율**입니다. 그런데 끌어 옮긴 거리를 비율로
+    바꿀 때 바깥 상자의 크기로 나누고 있었습니다. 사진이 상자를 꽉 채울 때는 둘이 같아서
+    티가 나지 않다가, **사진이 상자보다 좁게 들어가는 순간**(세로로 긴 휴대폰 사진이 높이
+    제한에 걸려 좌우에 검은 띠가 생길 때) 기준이 어긋납니다.
+
+    1176 × 1568 짜리 세로 사진을 폭 600px 상자에 넣으면 사진은 276px로 줄고 양옆에 162px씩
+    띠가 생깁니다. 그 상태에서 사진 한가운데를 집어도 계산은 상자 기준 한가운데라, 실제로는
+    사진의 왼쪽 끄트머리를 집은 것이 됩니다 - 표지가 통째로 잘려 나갑니다.
+
+    그래서 거리 계산은 **사진 그림(img)** 의 크기로 합니다. 화면 배치가 나중에 바뀌어도
+    기준이 흔들리지 않습니다.
+  */
+  const imgRef = useRef<HTMLImageElement>(null);
   const dragRef = useRef<{ mode: string; startX: number; startY: number; start: Box } | null>(null);
   const auto = initial !== null;
 
@@ -55,8 +70,8 @@ export default function CoverCrop({
 
   const onPointerMove = useCallback((e: React.PointerEvent) => {
     const drag = dragRef.current;
-    const rect = areaRef.current?.getBoundingClientRect();
-    if (!drag || !rect) return;
+    const rect = imgRef.current?.getBoundingClientRect();
+    if (!drag || !rect || !rect.width || !rect.height) return;
     const rx = (e.clientX - drag.startX) / rect.width;
     const ry = (e.clientY - drag.startY) / rect.height;
     const s = drag.start;
@@ -110,18 +125,24 @@ export default function CoverCrop({
           : "표지 범위를 자동으로 찾지 못했습니다. 네모를 끌어서 표지에 맞춰주세요."}
       </p>
 
+      {/*
+        상자가 사진에 딱 맞게 줄어들도록(w-fit) 하고, 사진은 비율을 지키며 들어가게 합니다
+        (w-auto). 예전에는 사진을 상자 폭에 억지로 늘려 놓고(w-full object-contain) 남는
+        자리를 검은 띠로 채웠는데, 그 띠 때문에 집는 자리와 실제 자리가 어긋났습니다.
+      */}
       <div
         ref={areaRef}
-        className="relative touch-none overflow-hidden rounded-xl bg-slate-900 select-none"
+        className="relative mx-auto w-fit touch-none overflow-hidden rounded-xl bg-slate-900 select-none"
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
         onPointerLeave={onPointerUp}
       >
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img
+          ref={imgRef}
           src={src}
           alt="찍은 사진"
-          className="block max-h-[46vh] w-full object-contain"
+          className="block max-h-[46vh] w-auto max-w-full"
           onLoad={(e) =>
             setNatural({
               w: (e.target as HTMLImageElement).naturalWidth,

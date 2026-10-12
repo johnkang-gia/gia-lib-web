@@ -1,5 +1,6 @@
 import { toPixels, type Box } from "@/lib/coverBox";
 import { snapBox, widenUnsnapped } from "@/lib/snapBox";
+import { pad } from "@/lib/coverBox";
 
 /**
  * 사진에서 네모 안만 잘라 JPG로 만듭니다(브라우저에서만 동작합니다).
@@ -71,7 +72,12 @@ export async function refineBox(src: string, box: Box | null): Promise<Box | nul
       gray[p] = (data[i] * 299 + data[i + 1] * 587 + data[i + 2] * 114) / 1000;
     }
 
-    return widenUnsnapped(snapBox({ data: gray, w: width, h: height }, box));
+    /*
+      마지막으로 1%만 바깥으로 넓힙니다. 테두리를 1px 단위로 맞춰도 사진이 조금 기울어
+      있으면 반대쪽 모서리가 그만큼 깎입니다. 배경이 1% 남는 건 아무도 못 알아보지만,
+      표지 글자가 1% 잘리면 눈에 띕니다.
+    */
+    return pad(widenUnsnapped(snapBox({ data: gray, w: width, h: height }, box)), 0.01);
   } catch {
     // 테두리 맞추기가 실패해도 자르기 자체는 되어야 합니다 - 모델 값을 그대로 씁니다.
     return box;

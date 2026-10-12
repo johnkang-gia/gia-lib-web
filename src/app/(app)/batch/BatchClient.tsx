@@ -6,7 +6,7 @@ import BarcodeScanner from "@/components/BarcodeScanner";
 import CoverShot from "@/components/CoverShot";
 import CoverCrop from "@/components/CoverCrop";
 import { createClient } from "@/lib/supabase/client";
-import { formatIsbn, isBookBarcode, normalizeScan } from "@/lib/scan";
+import { classifyTyped, formatIsbn, isBookBarcode, normalizeScan } from "@/lib/scan";
 import type { BookLookup, LibBook, LibLocation } from "@/lib/types";
 import type { CoverRead } from "@/lib/ai/readCover";
 import type { Box } from "@/lib/coverBox";
@@ -49,6 +49,15 @@ type Item = {
   coverBlob: Blob | null;
   /** 목록에 보여줄 작은 미리보기(올리기 전이라 아직 주소가 없습니다). */
   coverPreview: string;
+  /**
+   * 이 책만은 라벨을 꼭 발급합니다(위쪽 '라벨 필요' 스위치와 무관하게).
+   *
+   * ISBN을 손으로 적어 담은 책에 씁니다. 그런 책은 **책에 찍힌 바코드가 판매용 상품코드**라
+   * 쓸 수 없습니다 - 전집·학습만화는 시리즈 전체가 같은 번호여서, 그걸로 등록하면 다른 책이
+   * 자꾸 같은 책으로 묶입니다. ISBN은 책 정보를 맞게 채우는 데 쓰고, 책을 한 권씩 구별하는
+   * 번호는 도서관 라벨을 새로 발급해 씁니다.
+   */
+  forceLabel: boolean;
 };
 
 /**
@@ -67,7 +76,7 @@ export default function BatchClient({ locations }: { locations: LibLocation[] })
   const [locationId, setLocationId] = useState("");
   const [items, setItems] = useState<Item[]>([]);
   const [value, setValue] = useState("");
-  /** 바코드 없는 책을 담을 때 적는 제목. */
+  /** 바코드 없는 책을 담을 때 적는 제목 **또는 ISBN**. */
   const [manualTitle, setManualTitle] = useState("");
   /**
    * 표지 촬영 - 바코드 없는 책의 제목을 손으로 치지 않고 사진으로 받습니다.
@@ -161,7 +170,11 @@ export default function BatchClient({ locations }: { locations: LibLocation[] })
 
   /** 찍힌 값 하나를 목록에 추가하고, 뒤이어 책 정보를 채웁니다. */
   const add = useCallback(
-    async (raw: string, shotCover?: { blob: Blob; preview: string }) => {
+    async (
+      raw: string,
+      shotCover?: { blob: Blob; preview: string },
+      forceLabel = false
+    ) => {
       const code = normalizeScan(raw);
       if (!code) return;
 
@@ -202,6 +215,7 @@ export default function BatchClient({ locations }: { locations: LibLocation[] })
             existingId: null,
             coverBlob: shotCover?.blob ?? null,
             coverPreview: shotCover?.preview ?? "",
+            forceLabel,
           },
           ...prev,
         ];
@@ -304,6 +318,34 @@ export default function BatchClient({ locations }: { locations: LibLocation[] })
    * 화면으로 가야 했습니다. 돌아오면 담아둔 목록이 사라지고, 칸의 어디까지 했는지도 잃습니다.
    * 그래서 제목만 받아 여기서 바로 담고, 등록할 때 도서관 라벨 번호를 발급받습니다.
    */
+  /**
+   * 손으로 적어 넣은 한 줄을 담습니다 - **제목이면 제목으로, ISBN이면 ISBN으로.**
+   *
+   * 요청: "ISBN은 있는데 판매용 바코드만 있어서 계속 다른 책들도 같은 책으로 책정되는 책들은
+   * ISBN으로 검색해서 책을 등록할 수 있도록(그래서 바코드를 뽑을 수 있도록) 여러 권 한꺼번에
+   * 등록 칸에서 바로 넣을 수 있도록".
+   *
+   * ── 왜 칸을 따로 만들지 않았나 ──────────────────────────────────────────
+   * 사람이 보기에 둘은 같은 일입니다: "바코드로 안 되는 책을 손으로 넣는다". 칸을 둘로
+   * 나누면 넣을 때마다 어느 칸인지 고르게 되고, 잘못 넣으면 제목이 "9788990982698"인 책이
+   * 생깁니다. 적힌 글자만 보면 어느 쪽인지 틀릴 수가 없으니(10자리 또는 13자리 숫자) 여기서
+   * 가려냅니다.
+   *
+   * ISBN으로 들어온 값은 **바코드를 찍은 것과 똑같은 길**로 보냅니다 - 이미 담겼는지,
+   * 장서에 있는 책인지, 인터넷에서 정보를 가져오는 일까지 그 길이 전부 하고 있습니다.
+   * 다만 라벨은 꼭 발급합니다(책에 찍힌 바코드가 상품코드라 쓸 수 없어서 적는 것이므로).
+   */
+  function addTyped(value: string) {
+    if (!value.trim()) return;
+    const typed = classifyTyped(value);
+    if ("isbn" in typed) {
+      // 숫자가 맞지 않으면 조회 쪽에서 "ISBN 숫자가 맞지 않습니다"라고 그 줄에 적어줍니다.
+      void add(typed.isbn, undefined, true);
+      return;
+    }
+    addNoBarcode(typed.title);
+  }
+
   function addNoBarcode(title: string, extra?: Partial<Item>) {
     const name = title.trim();
     if (!name) return;
@@ -326,6 +368,7 @@ export default function BatchClient({ locations }: { locations: LibLocation[] })
         existingId: null,
         coverBlob: null,
         coverPreview: "",
+        forceLabel: false,
         // 표지에서 읽어낸 값이 있으면 위의 빈 칸들을 덮어씁니다.
         ...extra,
         // 아래 값은 덮어쓰지 않습니다 - 라벨 번호는 여기서만 하나씩 올라가고,
@@ -595,7 +638,7 @@ export default function BatchClient({ locations }: { locations: LibLocation[] })
             label_level: labelLevel || null,
             label_no: item.labelNo || null,
             location_id: locationId || null,
-            need_label: needLabel,
+            need_label: needLabel || item.forceLabel,
             total_copies: item.copies,
           }),
         });
@@ -848,26 +891,33 @@ export default function BatchClient({ locations }: { locations: LibLocation[] })
         )}
 
         {/*
-          바코드 없는 책을 여기서 바로 담습니다.
+          바코드로 안 되는 책을 여기서 바로 담습니다. 두 가지 경우가 있습니다.
 
-          책을 한 칸씩 빼서 쭉 찍어 나가는 중에 바코드 없는 책이 한 권 나오면, 지금까지는
-          다른 화면으로 가야 했습니다. 돌아오면 담아둔 목록이 사라지고 칸의 어디까지 했는지도
-          잃습니다. 제목만 적어 넣으면 등록할 때 도서관 라벨 번호를 발급받습니다.
+          ① 바코드가 아예 없는 책 - 제목을 적습니다.
+          ② ISBN은 있는데 책에 찍힌 바코드가 **판매용 상품코드**인 책 - 전집·학습만화는
+             시리즈 전체가 같은 상품코드라, 그걸로 등록하면 다른 책이 자꾸 같은 책으로
+             묶입니다. 표지에 적힌 ISBN을 적으면 책 정보는 ISBN으로 제대로 가져오고,
+             한 권씩 구별하는 번호는 도서관 라벨을 새로 발급해 씁니다.
+
+          둘 다 한 칸에서 받습니다. 책을 한 칸씩 빼서 쭉 찍어 나가다가 이런 책이 나올 때마다
+          다른 화면으로 갔다 오면, 담아둔 목록이 사라지고 칸의 어디까지 했는지도 잃습니다.
         */}
         <div className="mt-3 flex flex-wrap items-center gap-2 rounded-xl bg-slate-50 px-3 py-2.5">
-          <span className="text-xs font-semibold text-slate-500">바코드 없는 책</span>
+          <span className="text-xs font-semibold text-slate-500">
+            바코드로 안 되는 책
+          </span>
           <input
             value={manualTitle}
             onChange={(e) => setManualTitle(e.target.value)}
             onKeyDown={(e) => {
               if (e.key === "Enter") {
                 e.preventDefault();
-                addNoBarcode(manualTitle);
+                addTyped(manualTitle);
                 setManualTitle("");
                 setTimeout(refocus, 30);
               }
             }}
-            placeholder="책 제목을 적고 Enter — 라벨은 등록 후 한 번에 인쇄합니다"
+            placeholder="ISBN 또는 책 제목을 적고 Enter — 라벨은 등록 후 한 번에 인쇄합니다"
             className="min-w-[16rem] flex-1 rounded-lg border border-slate-300 px-3 py-1.5 text-sm"
             autoComplete="off"
           />
@@ -875,7 +925,7 @@ export default function BatchClient({ locations }: { locations: LibLocation[] })
             type="button"
             disabled={!manualTitle.trim()}
             onClick={() => {
-              addNoBarcode(manualTitle);
+              addTyped(manualTitle);
               setManualTitle("");
               setTimeout(refocus, 30);
             }}

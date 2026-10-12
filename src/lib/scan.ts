@@ -161,3 +161,22 @@ export function formatIsbn(isbn: string | null) {
   }
   return isbn;
 }
+
+/**
+ * 손으로 적어 넣은 한 줄이 **ISBN인지 책 제목인지** 가립니다.
+ *
+ * 여러 권 등록의 "바코드로 안 되는 책" 칸 하나로 둘 다 받기 위한 것입니다. 칸을 둘로
+ * 나누면 넣을 때마다 어느 칸인지 골라야 하고, 잘못 넣으면 제목이 "9788990982698"인 책이
+ * 생깁니다.
+ *
+ * 가르는 기준은 **숫자만 남겼을 때 10자리나 13자리인가** 하나뿐입니다. 책 제목이 그 모양이
+ * 되는 일은 없고, 사람이 ISBN을 적을 때 흔히 섞는 하이픈·공백·"ISBN" 글자는 모두 무시합니다.
+ * 자릿수만 맞고 숫자가 틀린 경우(오타)는 여기서 거르지 않습니다 - 조회하는 쪽이 "ISBN 숫자가
+ * 맞지 않습니다"라고 그 줄에 적어주는 편이, 제목으로 둔갑해 조용히 등록되는 것보다 낫습니다.
+ */
+export function classifyTyped(text: string): { isbn: string } | { title: string } {
+  const trimmed = text.trim();
+  const digits = trimmed.replace(/[^0-9X]/gi, "").toUpperCase();
+  if (digits.length === 10 || digits.length === 13) return { isbn: digits };
+  return { title: trimmed };
+}

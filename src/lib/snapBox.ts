@@ -106,10 +106,23 @@ export function snapBox(
   const midY = Math.round((y0 + y1) / 2);
   const midX = Math.round((x0 + x1) / 2);
 
-  const top = findEdge(outIn(Math.round(y0) - winY, Math.round(y0) + winY, 2, h - 3, true, midY), rowStep, minContrast, relative);
-  const bottom = findEdge(outIn(Math.round(y1) + winY, Math.round(y1) - winY, 2, h - 3, false, midY), rowStep, minContrast, relative);
-  const left = findEdge(outIn(Math.round(x0) - winX, Math.round(x0) + winX, 2, w - 3, true, midX), colStep, minContrast, relative);
-  const right = findEdge(outIn(Math.round(x1) + winX, Math.round(x1) - winX, 2, w - 3, false, midX), colStep, minContrast, relative);
+  // 위·왼쪽 변은 값이 커지면 안쪽, 아래·오른쪽 변은 값이 작아지면 안쪽입니다.
+  const top = findEdge(
+    outIn(Math.round(y0) - winY, Math.round(y0) + winY, 2, h - 3, true, midY),
+    rowStep, minContrast, relative, (v) => v - y0
+  );
+  const bottom = findEdge(
+    outIn(Math.round(y1) + winY, Math.round(y1) - winY, 2, h - 3, false, midY),
+    rowStep, minContrast, relative, (v) => y1 - v
+  );
+  const left = findEdge(
+    outIn(Math.round(x0) - winX, Math.round(x0) + winX, 2, w - 3, true, midX),
+    colStep, minContrast, relative, (v) => v - x0
+  );
+  const right = findEdge(
+    outIn(Math.round(x1) + winX, Math.round(x1) - winX, 2, w - 3, false, midX),
+    colStep, minContrast, relative, (v) => x1 - v
+  );
 
   const ny0 = top ?? y0;
   const ny1 = bottom ?? y1;
@@ -159,12 +172,35 @@ function outIn(
  *
  * 가장 센 꺾임의 55% 이상인 것들 중 **가장 바깥쪽**을 고릅니다. 하나도 기준을 넘지 못하면
  * null - 그 변은 모델 값을 그대로 둡니다.
+ *
+ * ── 안쪽으로 파고드는 것만 더 엄격하게 ─────────────────────────────────────
+ * 변을 바깥으로 옮기면 배경이 조금 남습니다. 안쪽으로 옮기면 **표지가 깎입니다.** 두 실수의
+ * 무게가 전혀 다른데 같은 기준으로 고르고 있었습니다.
+ *
+ * 네모 반듯한 그림으로 시험할 때는 책 테두리가 언제나 가장 센 선이라 문제가 없었습니다.
+ * 실제 사진은 다릅니다 - 책상 그림자에 책 테두리가 묻히고, 표지 안쪽 제목 칸이나 사진
+ * 가장자리가 더 또렷하게 잡힙니다. 그때 "기준을 넘은 유일한 후보"가 표지 **안쪽** 선이면
+ * 거기로 끌려가서 표지를 잘라냅니다.
+ *
+ * 그래서 안쪽으로 옮기는 경우에는 꺾임이 **확실히 셀 때만**(절대값 28 이상) 받아들입니다.
+ * 흐릿한 선을 따라 들어가지 않습니다. 못 넘으면 **그 변은 그대로 둡니다** - 배경이 조금
+ * 남는 쪽이 언제나 낫습니다.
+ *
+ * ── 넣었다가 뺀 조건 두 가지 ────────────────────────────────────────────
+ * ① "최댓값의 80% 이상": 표지 안쪽에 아주 센 띠가 있으면 그 띠가 기준이 되어 **진짜
+ *    테두리까지 거부**했습니다(시험에서 17px 어긋남). 안쪽 띠가 얼마나 센지는 책 테두리가
+ *    또렷한지와 아무 상관이 없습니다.
+ * ② "안쪽으로 변 길이의 10% 이내": 실제로 재 본 오차가 이미 11%까지 나왔습니다(720px
+ *    사진에서 80px). 이 조건은 **고쳐야 할 경우를 막아** 버립니다. 들어갈 수 있는 거리는
+ *    어차피 찾는 범위(±12%)가 정하고 있어서, 따로 또 묶을 이유도 없었습니다.
  */
 function findEdge(
   candidates: number[],
   step: (at: number) => number,
   minContrast: number,
-  relative: number
+  relative: number,
+  /** 이 자리가 원래 변보다 얼마나 안쪽인지(음수면 바깥쪽). */
+  inwardBy: (at: number) => number
 ): number | null {
   if (candidates.length === 0) return null;
   const scores = candidates.map(step);
@@ -172,7 +208,10 @@ function findEdge(
   if (best < minContrast) return null;
   const bar = Math.max(minContrast, best * relative);
   for (let i = 0; i < candidates.length; i += 1) {
-    if (scores[i] >= bar) return candidates[i];
+    if (scores[i] < bar) continue;
+    // 안쪽으로 들어가는 자리는 확실히 센 선일 때만 받아들입니다.
+    if (inwardBy(candidates[i]) > 0 && scores[i] < 28) return null;
+    return candidates[i];
   }
   return null;
 }
