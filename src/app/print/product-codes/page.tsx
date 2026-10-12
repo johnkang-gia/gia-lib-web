@@ -29,6 +29,18 @@ export const dynamic = "force-dynamic";
  *
  * 오른쪽 빈 칸은 손으로 적는 자리입니다. 확인하면서 "1권만", "3권 다른 책" 처럼 적어 두면
  * 돌아와서 그대로 고칠 수 있습니다.
+ *
+ * ── 자리는 '한 줄에 하나'뿐입니다 ───────────────────────────────────────────
+ * lib_books 에는 줄마다 location_id 가 하나입니다. 권마다 자리를 적는 칸은 없습니다. 그래서
+ * "2-1 · 12권"은 **12권이 모두 2-1에 있다는 뜻이 아니라**, 이 줄에 적어 둔 자리가 2-1이고
+ * 기록상 권수가 12라는 뜻입니다. 나머지는 다른 칸에 흩어져 있을 수 있습니다.
+ *
+ * 상품코드 줄은 특히 그렇습니다. 애초에 '같은 책 12권'이 아니라 **같은 상품코드를 쓰는 서로
+ * 다른 책 12권**이 한 줄로 합쳐졌을 가능성이 큽니다. 그런 책들이 같은 칸에 함께 꽂혀 있을
+ * 이유는 없습니다.
+ *
+ * 종이가 이 사실을 숨기면 사람은 2-1 앞에서 12권을 찾다가 못 찾고, 없어진 줄 압니다. 그래서
+ * 여러 권인 줄에는 표시를 하고, **여기서 몇 권을 찾았는지 적는 칸**을 따로 둡니다.
  */
 export default async function ProductCodeListPage({
   searchParams,
@@ -93,7 +105,7 @@ export default async function ProductCodeListPage({
         <div>
           <h1 className="text-lg font-bold">상품코드 책 확인 목록</h1>
           <p className="text-sm text-slate-500">
-            {picked.length}종 · {copies}권 · 지금 꽂힌 자리 {ordered.length}곳
+            {picked.length}종 · 기록상 {copies}권 · 줄에 적힌 자리 {ordered.length}곳
           </p>
         </div>
         <span className="ml-auto">
@@ -111,7 +123,7 @@ export default async function ProductCodeListPage({
             <h2 className="text-xl font-black">상품코드 책 확인 목록</h2>
             <span className="text-sm text-slate-500">{today}</span>
             <span className="ml-auto text-sm text-slate-500">
-              {picked.length}종 · {copies}권
+              {picked.length}종 · 기록상 {copies}권
             </span>
           </div>
 
@@ -119,11 +131,24 @@ export default async function ProductCodeListPage({
             종이를 받은 사람이 왜 이걸 들고 있는지 한 줄로 알 수 있게 적어 둡니다. 한 달 뒤에
             책상에서 발견된 종이도 그때 쓸 수 있어야 합니다.
           */}
-          <p className="mb-4 bg-amber-50 px-3 py-2 text-xs leading-relaxed text-amber-900">
+          <p className="mb-2 bg-amber-50 px-3 py-2 text-xs leading-relaxed text-amber-900">
             이 책들은 <b>상품코드</b>로 등록되어 있습니다. 상품코드는 시리즈 전체가 같은 번호를
             쓰므로 책 한 권을 가리키지 못합니다. 책을 손에 들고 <b>이 줄이 정말 같은 책 몇 권인지</b>
             확인해 주세요. 다른 책이 섞여 있으면 오른쪽에 적어 두고, 돌아와서 장서 관리의
             <b> 따로 떼기</b>로 나누면 각각 도서관 라벨이 발급됩니다.
+          </p>
+          {/*
+            이 한 문단이 없으면 종이가 거짓말을 합니다. 2-1 앞에서 12권을 찾다가 못 찾고
+            "없어졌다"고 적게 됩니다.
+          */}
+          <p className="mb-4 border-l-4 border-slate-400 bg-slate-50 px-3 py-2 text-xs leading-relaxed text-slate-700">
+            <b>자리는 책 한 줄에 하나만 적혀 있습니다.</b> 권마다 자리를 적는 칸이 아직 없어서,
+            <b> 「2-1 · 12권」은 12권이 모두 2-1에 있다는 뜻이 아닙니다.</b> 이 줄에 적어 둔 자리가
+            2-1이고 기록상 권수가 12라는 뜻입니다. 특히 상품코드 줄은 애초에 서로 다른 책이 한
+            줄로 합쳐진 것일 수 있어, 여러 칸에 흩어져 있는 편이 보통입니다.
+            <br />
+            여러 권인 줄에는 <b>⚠</b> 를 붙여 두었습니다. 그 칸에서 <b>실제로 찾은 권수</b>를
+            적어 주세요 — 기록과 다른 것이 곧 고쳐야 할 내용입니다.
           </p>
 
           {ordered.map(({ zone, list }) => (
@@ -132,6 +157,9 @@ export default async function ProductCodeListPage({
                 {zone ? (
                   <>
                     임시 자리: {zone.code}
+                    <span className="ml-1 text-xs font-normal text-slate-500">
+                      (줄에 적힌 자리)
+                    </span>
                     {zone.name && (
                       <span className="ml-1.5 text-sm font-normal text-slate-500">{zone.name}</span>
                     )}
@@ -149,8 +177,9 @@ export default async function ProductCodeListPage({
                     <th className="py-1">책 이름</th>
                     <th className="w-36 py-1">지은이</th>
                     <th className="w-28 py-1">상품코드</th>
-                    <th className="w-12 py-1 text-center">보유</th>
-                    <th className="w-40 py-1">확인한 내용</th>
+                    <th className="w-16 py-1 text-center">기록상</th>
+                    <th className="w-16 py-1 text-center">여기서 찾음</th>
+                    <th className="w-32 py-1">확인한 내용</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -176,8 +205,27 @@ export default async function ProductCodeListPage({
                       </td>
                       <td className="py-2 pr-2 text-slate-500">{book.author ?? ""}</td>
                       <td className="py-2 pr-2 font-mono text-xs">{book.item_code}</td>
-                      <td className="py-2 text-center font-bold">{book.total_copies}권</td>
+                      {/*
+                        '기록상' 이라고 적습니다. 이 숫자는 등록할 때 센 권수일 뿐,
+                        이 칸에 그만큼 꽂혀 있다는 뜻이 아닙니다.
+                      */}
+                      <td className="py-2 text-center font-bold whitespace-nowrap">
+                        {book.total_copies}권
+                        {book.total_copies > 1 && (
+                          <span
+                            className="ml-0.5 text-amber-600"
+                            title="여러 권입니다 — 다른 칸에도 흩어져 있을 수 있습니다"
+                          >
+                            ⚠
+                          </span>
+                        )}
+                      </td>
                       {/* 손으로 적는 자리 - 밑줄만 둡니다. */}
+                      <td className="py-2 px-1">
+                        <span className="block border-b border-dotted border-slate-400">
+                          &nbsp;
+                        </span>
+                      </td>
                       <td className="py-2">
                         <span className="block border-b border-dotted border-slate-400">
                           &nbsp;
