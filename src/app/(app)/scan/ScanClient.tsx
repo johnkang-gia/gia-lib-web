@@ -448,7 +448,13 @@ export default function ScanClient({
   const canCheckout = Boolean(student) && cart.length > 0 && !checking;
 
   return (
-    <div className="flex h-full min-h-0 flex-col gap-3">
+    /*
+      데스크 화면은 바탕을 꽉 채웁니다. 이 화면만 AppShell 이 폭 제한 없이 flex-1 로 내주므로
+      (isScan), 여기서도 h-full 이 아니라 flex-1 로 받아야 세로가 늘어납니다. h-full 은 부모
+      높이가 정해져 있을 때만 듣습니다 - 안 듣는 동안 두 쪽이 내용 높이만큼만 자라서 아래가
+      허옇게 비었습니다.
+    */
+    <div className="flex min-h-0 flex-1 flex-col gap-3 p-4 sm:p-5">
       {/* ── 머리말: 찍는 칸 ────────────────────────────────────────────── */}
       <div className="flex flex-wrap items-center gap-3 rounded-2xl bg-white p-4 shadow-sm ring-1 ring-slate-200">
         <input
