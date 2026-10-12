@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { printUrl } from "@/lib/printJob";
+import { PILE_SIGNATURE, printUrl } from "@/lib/printJob";
 import { dayTimeLabel } from "@/lib/registerBatches";
 import type { LibPrintJob } from "@/lib/types";
 
@@ -112,6 +112,8 @@ export default function PrintJobsClient({
         {jobs.map((job) => {
           const url = printUrl(job.kind, job.id, job.options ?? {});
           const count = job.targets?.length ?? 0;
+          // 모아두는 자리는 한 줄뿐이고 계속 쌓입니다 - 보통 기록과 구별해 둡니다.
+          const isPile = job.signature === PILE_SIGNATURE;
           return (
             <li
               key={job.id}
@@ -120,12 +122,14 @@ export default function PrintJobsClient({
               <div className="flex flex-wrap items-start gap-3">
                 <span
                   className={`rounded-lg px-2 py-1 text-xs font-bold ${
-                    job.kind === "cards"
-                      ? "bg-indigo-100 text-indigo-700"
-                      : "bg-emerald-100 text-emerald-700"
+                    isPile
+                      ? "bg-amber-100 text-amber-800"
+                      : job.kind === "cards"
+                        ? "bg-indigo-100 text-indigo-700"
+                        : "bg-emerald-100 text-emerald-700"
                   }`}
                 >
-                  {job.kind === "cards" ? "🪪 도서카드" : "🏷️ 책 라벨"}
+                  {isPile ? "📥 모아두는 중" : job.kind === "cards" ? "🪪 도서카드" : "🏷️ 책 라벨"}
                 </span>
 
                 <div className="min-w-0 flex-1">
@@ -172,7 +176,10 @@ export default function PrintJobsClient({
                   )}
 
                   <p className="mt-1 text-xs text-slate-500">
-                    {count}장 · {when(job.opened_at)}에 마지막으로 열었습니다
+                    {isPile
+                      ? `${count}장 모아두는 중 · A4 한 장에 27장 · `
+                      : `${count}장 · `}
+                    {when(job.opened_at)}에 마지막으로 열었습니다
                     {job.created_by ? ` · ${job.created_by}` : ""}
                   </p>
                   {job.printed_at && (

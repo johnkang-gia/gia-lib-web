@@ -11,6 +11,7 @@ import type { BookLookup, LibBook, LibLocation } from "@/lib/types";
 import type { CoverRead } from "@/lib/ai/readCover";
 import type { Box } from "@/lib/coverBox";
 import { cropImage, refineBox } from "@/lib/cropImage";
+import { addToPile, clearPile, fetchPile, type Pile } from "@/lib/pileClient";
 import { useScanFocus } from "@/lib/useScanFocus";
 import HealthBanner from "@/components/HealthBanner";
 
@@ -146,6 +147,16 @@ export default function BatchClient({ locations }: { locations: LibLocation[] })
   const [done, setDone] = useState<{ added: number; moved: number; failed: number; ids: string[] } | null>(
     null
   );
+  /*
+    ── 모아둔 라벨 ───────────────────────────────────────────────────────
+    요청: "등록 완료 후 라벨 인쇄할 때, 기존 저장해놓은 인쇄건 합쳐서 인쇄할 수 있도록".
+
+    책 세 권을 등록하고 바로 뽑으면 A4 한 장(27장 자리)에서 스물네 자리가 빕니다. 앞서
+    모아둔 것이 있으면 합쳐서 한 장을 채워 뽑습니다.
+  */
+  const [pile, setPile] = useState<Pile>(null);
+  const [pileBusy, setPileBusy] = useState(false);
+  const [pileMsg, setPileMsg] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
   // USB 스캐너용 - 카메라를 안 쓰는 동안에는 입력칸에 커서를 붙들어 둡니다.
@@ -686,6 +697,8 @@ export default function BatchClient({ locations }: { locations: LibLocation[] })
 
     setSaving(false);
     setDone({ added, moved, failed, ids });
+    setPileMsg(null);
+    void fetchPile().then(setPile);
     router.refresh();
   }
 
@@ -749,6 +762,10 @@ export default function BatchClient({ locations }: { locations: LibLocation[] })
         )}
 
         <div className="space-y-2 pt-2">
+          {pileMsg && (
+            <p className="rounded-xl bg-amber-50 px-4 py-2.5 text-sm text-amber-900">{pileMsg}</p>
+          )}
+
           {done.ids.length > 0 && (
             <button
               type="button"
@@ -756,6 +773,99 @@ export default function BatchClient({ locations }: { locations: LibLocation[] })
               className="w-full rounded-2xl bg-slate-900 px-4 py-3.5 text-base font-bold text-white"
             >
               방금 등록한 책 라벨 {done.ids.length}장 인쇄
+            </button>
+          )}
+
+          {/*
+            ── 모아두기 · 합쳐서 인쇄 ──────────────────────────────────────
+            A4 한 장에 27장이 들어갑니다. 세 권 등록하고 바로 뽑으면 스물네 자리가 빈 채로
+            종이 한 장이 나갑니다. 앞서 모아둔 것이 있으면 합쳐서 한 장을 채워 뽑습니다.
+
+            '합쳐서 인쇄'는 지금 것을 모아둔 자리에 **넣은 뒤** 그 자리를 뽑습니다. 그래야
+            주소가 짧고(책 번호 수백 개를 주소에 싣지 않습니다), 못 뽑았을 때 모아둔 것이
+            그대로 남습니다. 다 뽑고 나면 아래 '비우기'를 눌러 주세요 - 인쇄를 눌렀다고
+            자동으로 비우면, 프린터가 안 잡혀 못 뽑은 날 목록이 통째로 사라집니다.
+          */}
+          {done.ids.length > 0 && (
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                disabled={pileBusy}
+                onClick={() => {
+                  setPileBusy(true);
+                  setPileMsg(null);
+                  void addToPile(done.ids)
+                    .then((next) => {
+                      setPile(next);
+                      setPileMsg(
+                        `지금 뽑지 않고 모아뒀습니다 — 모두 ${next?.count ?? 0}장. 장서 관리나 다음 등록에서 합쳐 뽑을 수 있습니다.`
+                      );
+                    })
+                    .catch((e: unknown) =>
+                      setPileMsg(e instanceof Error ? e.message : "모아두지 못했습니다.")
+                    )
+                    .finally(() => setPileBusy(false));
+                }}
+                className="flex-1 rounded-2xl border border-slate-300 bg-white px-4 py-3 text-sm font-semibold text-slate-700 disabled:opacity-40"
+              >
+                {pileBusy ? "모아두는 중…" : "📥 지금 뽑지 않고 모아두기"}
+              </button>
+
+              {pile && pile.count > 0 && (
+                <button
+                  type="button"
+                  disabled={pileBusy}
+                  onClick={() => {
+                    setPileBusy(true);
+                    setPileMsg(null);
+                    void addToPile(done.ids)
+                      .then((next) => {
+                        setPile(next);
+                        if (next) window.open(`/print/labels?job=${next.id}`, "_blank");
+                        setPileMsg(
+                          `모아둔 것과 합쳐 ${next?.count ?? 0}장을 띄웠습니다. 다 뽑으셨으면 아래에서 비워주세요.`
+                        );
+                      })
+                      .catch((e: unknown) =>
+                        setPileMsg(e instanceof Error ? e.message : "합치지 못했습니다.")
+                      )
+                      .finally(() => setPileBusy(false));
+                  }}
+                  className="flex-[2] rounded-2xl bg-amber-600 px-4 py-3 text-sm font-bold text-white disabled:opacity-40"
+                >
+                  모아둔 {pile.count}장과 합쳐 {pile.count + done.ids.length}장 인쇄
+                </button>
+              )}
+            </div>
+          )}
+
+          {pile && pile.count > 0 && (
+            <button
+              type="button"
+              disabled={pileBusy}
+              onClick={() => {
+                if (
+                  !window.confirm(
+                    `모아둔 라벨 ${pile.count}장을 비웁니다.\n\n` +
+                      "다 뽑으셨으면 비우세요. 아직 안 뽑았다면 목록을 처음부터 다시 골라야 합니다."
+                  )
+                ) {
+                  return;
+                }
+                setPileBusy(true);
+                void clearPile()
+                  .then(() => {
+                    setPile(null);
+                    setPileMsg("모아둔 것을 비웠습니다.");
+                  })
+                  .catch((e: unknown) =>
+                    setPileMsg(e instanceof Error ? e.message : "비우지 못했습니다.")
+                  )
+                  .finally(() => setPileBusy(false));
+              }}
+              className="w-full rounded-2xl px-4 py-2 text-xs font-semibold text-slate-400 disabled:opacity-40"
+            >
+              다 뽑았음 — 모아둔 {pile.count}장 비우기
             </button>
           )}
           <button

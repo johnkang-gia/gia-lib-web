@@ -1,11 +1,12 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import BookRegisterDialog from "@/components/BookRegisterDialog";
 import MobileQrDialog from "@/components/MobileQrDialog";
 import BookCoverShotDialog from "@/components/BookCoverShotDialog";
 import BookEditDialog from "@/components/BookEditDialog";
+import { addToPile, clearPile, fetchPile, type Pile } from "@/lib/pileClient";
 import { createClient } from "@/lib/supabase/client";
 import { formatIsbn, hasProductCodeAsId, needsLabel } from "@/lib/scan";
 import { AUDIENCES } from "@/lib/audience";
@@ -36,6 +37,36 @@ export default function BooksClient({
   const [onlyNoCover, setOnlyNoCover] = useState(false);
   /** 지금 표지를 찍는 중인 책. */
   const [shooting, setShooting] = useState<LibBook | null>(null);
+  /*
+    ── 모아둔 라벨 ───────────────────────────────────────────────────────
+    요청: "적은 양 뽑아야 해서 저장하고 다른 바코드와 합쳐서 인쇄하도록".
+
+    라벨 한 장은 63 × 30mm이고 A4 한 장에 27장이 들어갑니다. 책 세 권만 골라 바로 뽑으면
+    스물네 자리가 빈 채로 종이 한 장이 나갑니다. 그래서 '모아두기'를 두고, 쌓인 것이 한 장
+    분량이 되면 그때 한꺼번에 뽑습니다.
+  */
+  const [pile, setPile] = useState<Pile>(null);
+  const [pileBusy, setPileBusy] = useState(false);
+  const [pileMsg, setPileMsg] = useState<string | null>(null);
+
+  useEffect(() => {
+    void fetchPile().then(setPile);
+  }, []);
+
+  async function stash(books: LibBook[]) {
+    setPileBusy(true);
+    setPileMsg(null);
+    try {
+      const next = await addToPile(books.map((b) => b.id));
+      setPile(next);
+      setPileMsg(`${books.length}장 모아뒀습니다 — 모두 ${next?.count ?? 0}장`);
+      setSelected(new Set());
+    } catch (e) {
+      setPileMsg(e instanceof Error ? e.message : "모아두지 못했습니다.");
+    } finally {
+      setPileBusy(false);
+    }
+  }
   /**
    * 상품코드로 등록된 책만 보기.
    *
@@ -350,12 +381,23 @@ export default function BooksClient({
           {labelTargets.length > 0 && (
             <button
               type="button"
+              onClick={() => void stash(labelTargets)}
+              disabled={pileBusy}
+              title="지금 뽑지 않고 모아 둡니다. 한 장 분량이 되면 한꺼번에 뽑으세요."
+              className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-40"
+            >
+              {pileBusy ? "모아두는 중…" : `📥 모아두기 (${labelTargets.length})`}
+            </button>
+          )}
+          {labelTargets.length > 0 && (
+            <button
+              type="button"
               onClick={() =>
                 window.open(`/print/labels?ids=${labelTargets.map((b) => b.id).join(",")}`, "_blank")
               }
               className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
             >
-              바코드 라벨 인쇄 ({labelTargets.length})
+              바로 인쇄 ({labelTargets.length})
             </button>
           )}
           <button
@@ -533,6 +575,67 @@ export default function BooksClient({
                 </span>
               ))}
           </div>
+        </div>
+      )}
+
+      {/*
+        모아둔 라벨 - 쌓아 두었다가 한 장 분량이 되면 한꺼번에 뽑습니다.
+        뽑고 나면 **직접 비웁니다.** 인쇄를 눌렀다고 자동으로 비우면, 프린터가 안 잡혀 못
+        뽑은 날 모아둔 것이 통째로 사라집니다(그 일은 실제로 있었습니다).
+      */}
+      {(pile || pileMsg) && (
+        <div className="flex flex-wrap items-center gap-3 rounded-2xl bg-amber-50 px-5 py-3.5 ring-1 ring-amber-200">
+          {pile && pile.count > 0 ? (
+            <>
+              <span className="text-sm font-bold text-amber-900">
+                📥 모아둔 라벨 {pile.count}장
+              </span>
+              <span className="text-xs text-amber-700">
+                A4 한 장에 27장 — {pile.count >= 27 ? "한 장 넘게 찼습니다" : `${27 - pile.count}장 더 모으면 한 장`}
+              </span>
+              <div className="ml-auto flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() => window.open(`/print/labels?job=${pile.id}`, "_blank")}
+                  className="rounded-lg bg-amber-600 px-4 py-2 text-sm font-bold text-white"
+                >
+                  모아둔 {pile.count}장 인쇄
+                </button>
+                <button
+                  type="button"
+                  disabled={pileBusy}
+                  onClick={() => {
+                    if (
+                      !window.confirm(
+                        `모아둔 라벨 ${pile.count}장을 비웁니다.\n\n` +
+                          "다 뽑으셨으면 비우세요. 아직 안 뽑았다면 목록을 처음부터 다시 골라야 합니다."
+                      )
+                    ) {
+                      return;
+                    }
+                    setPileBusy(true);
+                    void clearPile()
+                      .then(() => {
+                        setPile(null);
+                        setPileMsg("모아둔 것을 비웠습니다.");
+                      })
+                      .catch((e: unknown) =>
+                        setPileMsg(e instanceof Error ? e.message : "비우지 못했습니다.")
+                      )
+                      .finally(() => setPileBusy(false));
+                  }}
+                  className="rounded-lg border border-amber-300 bg-white px-3 py-2 text-sm font-semibold text-amber-800 disabled:opacity-40"
+                >
+                  다 뽑았음 — 비우기
+                </button>
+              </div>
+            </>
+          ) : (
+            <span className="text-sm text-amber-900">{pileMsg}</span>
+          )}
+          {pile && pile.count > 0 && pileMsg && (
+            <span className="w-full text-xs text-amber-700">{pileMsg}</span>
+          )}
         </div>
       )}
 
