@@ -8,6 +8,7 @@ import { formatDay, overdueDays, todayKst } from "@/lib/dates";
 import { formatIsbn } from "@/lib/scan";
 import { cheerFor, monthlyProgress, readingLevel } from "@/lib/reading";
 import { CATEGORIES } from "@/lib/categories";
+import { levelColor } from "@/lib/bookLevels";
 import { useScanFocus } from "@/lib/useScanFocus";
 import type {
   LibBookWithShelf,
@@ -536,6 +537,23 @@ export default function ScanClient({
                         <span className="block truncate text-sm text-slate-500">
                           {hit.author ?? ""}
                         </span>
+                        {/*
+                          등급을 함께 보여줍니다. 같은 책을 등급별로 나눠 꽂아 둔 경우 목록에
+                          두 줄이 나오는데, 등급이 없으면 둘이 똑같이 생겨서 어느 쪽을 눌러야
+                          할지 알 수 없습니다.
+                        */}
+                        {hit.label_level != null && (
+                          <span
+                            className="mr-1.5 inline-block rounded px-1.5 py-0.5 text-xs font-bold"
+                            style={{
+                              background: `${levelColor(hit.label_level)}1f`,
+                              color: levelColor(hit.label_level),
+                            }}
+                          >
+                            {hit.label_level}등급
+                            {hit.label_no ? ` ${hit.label_no}` : ""}
+                          </span>
+                        )}
                         <span
                           className={`mt-0.5 inline-block text-sm font-semibold ${
                             left > 0 ? "text-emerald-600" : "text-slate-400"

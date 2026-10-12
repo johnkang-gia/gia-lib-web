@@ -3,6 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { lookupIsbn } from "@/lib/isbn";
 import { canonicalIsbn, isUpc12, isValidIsbn, isbnVariants, normalizeIsbn, normalizeScan } from "@/lib/scan";
 import type { LibBook } from "@/lib/types";
+import { pickRowForLevel, toLevel } from "@/lib/bookLevels";
 
 export const dynamic = "force-dynamic";
 
@@ -53,10 +54,38 @@ export async function GET(request: Request) {
     .from("lib_books")
     .select("*")
     .in("isbn", isbnVariants(isbn))
-    .limit(1);
-  const existing = (existingRows ?? [])[0] as LibBook | undefined;
+    .limit(20);
+  const rows = (existingRows ?? []) as LibBook[];
+
+  /*
+    ── 등급이 다르면 '복본'이 아닙니다 ───────────────────────────────────
+    같은 책이라도 고른 등급이 이미 있는 줄들과 다르면 **새 줄로 따로 등록**됩니다. 그걸
+    여기서 미리 알려주지 않으면, 화면에는 "복본 — 권수를 늘립니다"라고 떠 있다가 저장할 때
+    말없이 다른 일이 벌어집니다. 사람이 등록 버튼을 누르기 전에 무슨 일이 생길지 보여야
+    합니다.
+  */
+  const wantedLevel = toLevel(searchParams.get("level"));
+  const existing = pickRowForLevel(rows, wantedLevel) ?? undefined;
   if (existing) {
     return NextResponse.json({ existing, found: null });
+  }
+  if (rows.length > 0) {
+    const found = await lookupIsbn(isbn);
+    return NextResponse.json({
+      existing: null,
+      found,
+      canonicalIsbn: canonicalIsbn(isbn),
+      /** 같은 책이 다른 등급으로 이미 있습니다 - 이번 것은 따로 한 줄이 됩니다. */
+      otherLevels: rows
+        .map((r) => r.label_level)
+        .filter((v): v is number => v !== null)
+        .sort((a, b) => a - b),
+      message: `같은 책이 ${rows
+        .map((r) => (r.label_level === null ? "등급 없음" : `${r.label_level}등급`))
+        .join(", ")}으로 이미 있습니다 — ${
+        wantedLevel === null ? "이번 것" : `${wantedLevel}등급`
+      }은 따로 등록됩니다.`,
+    });
   }
 
   const found = await lookupIsbn(isbn);

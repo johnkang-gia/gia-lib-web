@@ -138,6 +138,30 @@ export async function findBook(
 }
 
 /**
+ * 이 ISBN으로 들어 있는 줄들을 **전부** 찾습니다.
+ *
+ * 같은 책이라도 라벨 등급이 다르면 따로 한 줄입니다(2등급 「강아지똥」과 4등급 「강아지똥」).
+ * 그런데 책 뒤표지의 바코드는 **두 권이 똑같습니다** - 그 바코드만으로는 어느 등급 칸에서
+ * 꺼낸 책인지 알 수 없습니다. 그래서 여럿이면 사람에게 고르게 합니다.
+ *
+ * (등급마다 도서관 라벨을 붙여 두면 그 라벨을 찍는 쪽이 빠릅니다 - 한 번에 정해집니다.)
+ */
+export async function findBooksByIsbn(
+  supabase: SupabaseClient,
+  code: string
+): Promise<LibBookWithShelf[]> {
+  const variants = isbnVariants(code);
+  if (variants.length === 0) return [];
+  const { data } = await supabase
+    .from("lib_books")
+    .select("*, shelf:lib_locations!location_id(*)")
+    .in("isbn", variants)
+    .order("label_level", { ascending: true, nullsFirst: true })
+    .limit(20);
+  return (data ?? []) as unknown as LibBookWithShelf[];
+}
+
+/**
  * 상품코드로 책들을 찾습니다 - **여러 권이 나올 수 있습니다.**
  *
  * 전집·학습만화는 시리즈 전체가 같은 상품코드를 씁니다. 그래서 이 번호로는 어느 권인지

@@ -118,6 +118,15 @@ export default function BatchClient({ locations }: { locations: LibLocation[] })
   // 지금 책에 붙어 있는 색 라벨. 한 칸을 통째로 등록하는 동안에는 등급이 같으므로 위에서 한 번만
   // 고르고, 일련번호는 찍을 때마다 하나씩 올라갑니다(요청: 번호를 넣는 게 나을지 고민).
   const [labelLevel, setLabelLevel] = useState<string>("");
+  /*
+    조회할 때 "지금 고른 등급"을 함께 보냅니다. 같은 책이라도 등급이 다르면 복본이 아니라
+    따로 한 줄이 되는데, 그걸 등록 버튼을 누르기 전에 알려주기 위해서입니다.
+
+    ref 로 들고 있는 이유: add 는 스캐너가 부르는 함수라 다시 만들어지면 안 됩니다(만들어지는
+    사이에 들어온 바코드를 놓칩니다). 그래서 값을 가리키는 손잡이만 최신으로 유지합니다.
+  */
+  const labelLevelRef = useRef<string>("");
+  labelLevelRef.current = labelLevel;
   const [labelNext, setLabelNext] = useState<string>("");
   const labelNextRef = useRef<string>("");
   labelNextRef.current = labelNext;
@@ -236,7 +245,10 @@ export default function BatchClient({ locations }: { locations: LibLocation[] })
         setItems((prev) => prev.map((it) => (it.code === code ? { ...it, ...changes } : it)));
 
       try {
-        const res = await fetch(`/api/books/lookup?code=${encodeURIComponent(code)}`);
+        const res = await fetch(
+          `/api/books/lookup?code=${encodeURIComponent(code)}` +
+            (labelLevelRef.current ? `&level=${encodeURIComponent(labelLevelRef.current)}` : "")
+        );
         if (res.status === 401) {
           patch({
             status: "실패",
@@ -250,6 +262,8 @@ export default function BatchClient({ locations }: { locations: LibLocation[] })
           canonicalIsbn?: string;
           upc?: string;
           message?: string;
+          /** 같은 책이 다른 등급으로 이미 있을 때 그 등급들. */
+          otherLevels?: number[];
           error?: string;
         };
 
@@ -291,7 +305,16 @@ export default function BatchClient({ locations }: { locations: LibLocation[] })
           series: found?.series ?? "",
           seriesNo: found?.seriesNo != null ? String(found.seriesNo) : "",
           status: found ? "준비" : "제목필요",
-          note: found ? (found.source ?? "") : "인터넷 목록에 없는 책 — 제목만 적으면 등록됩니다",
+          /*
+            같은 책이 다른 등급으로 이미 있으면 그 사실을 줄에 적어 둡니다. "복본"이라고
+            떠 있다가 저장할 때 말없이 다른 일이 벌어지는 것보다, 등록 전에 보이는 쪽이
+            낫습니다.
+          */
+          note: json.otherLevels?.length
+            ? (json.message ?? "같은 책이 다른 등급으로 있습니다 — 따로 등록됩니다")
+            : found
+              ? (found.source ?? "")
+              : "인터넷 목록에 없는 책 — 제목만 적으면 등록됩니다",
         });
       } catch (e) {
         patch({
@@ -537,7 +560,10 @@ export default function BatchClient({ locations }: { locations: LibLocation[] })
   async function relookup(key: string, isbn: string) {
     patchItem(key, { status: "찾는중" });
     try {
-      const res = await fetch(`/api/books/lookup?code=${encodeURIComponent(isbn)}`);
+      const res = await fetch(
+        `/api/books/lookup?code=${encodeURIComponent(isbn)}` +
+          (labelLevel ? `&level=${encodeURIComponent(labelLevel)}` : "")
+      );
       const json = (await res.json()) as {
         existing?: LibBook | null;
         found?: BookLookup | null;

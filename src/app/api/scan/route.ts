@@ -6,6 +6,7 @@ import { isIsbn, isItemCode, isStudentCode, normalizeScan } from "@/lib/scan";
 import {
   findActiveLoans,
   findBook,
+  findBooksByIsbn,
   findBooksByProductCode,
   findStudent,
   getSettings,
@@ -191,6 +192,27 @@ export async function POST(request: Request) {
     고르게 하는 것이 유일하게 정직한 방법이고, 그 책들에 도서관 라벨을 붙이면 다음부터는
     이 화면을 거치지 않습니다.
   */
+  /*
+    ── 같은 책이 등급별로 나뉘어 있는 경우 ────────────────────────────────
+    라벨 등급이 다르면 따로 한 줄입니다(2등급 「강아지똥」과 4등급 「강아지똥」). 그런데 책
+    뒤표지 바코드는 두 권이 똑같아서, 그 숫자만으로는 어느 쪽인지 알 수 없습니다. 아무 줄이나
+    골라 빌려주면 한쪽은 "다 나갔다"고 하고 다른 쪽은 "남았다"고 해서, 장부가 책장과 어긋납니다.
+
+    그래서 묻습니다. 책에 붙인 도서관 라벨(GIA-B-…)을 찍으면 한 번에 정해지므로 이 화면은
+    건너뜁니다 - 등급을 나눠 꽂는 책일수록 라벨을 붙여 두는 편이 빠릅니다.
+  */
+  if (book && isIsbn(code)) {
+    const sameIsbn = await findBooksByIsbn(supabase, code);
+    if (sameIsbn.length > 1) {
+      return NextResponse.json<ScanResult>({
+        kind: "book_choices",
+        query: code,
+        books: sameIsbn.map((b) => ({ ...b, onLoan: 0 })),
+        message: `같은 책이 등급별로 ${sameIsbn.length}줄 있습니다 — 어느 쪽인지 골라주세요`,
+      });
+    }
+  }
+
   if (!book) {
     const candidates = await findBooksByProductCode(supabase, code);
     if (candidates.length > 1) {

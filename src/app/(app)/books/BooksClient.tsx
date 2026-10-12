@@ -11,6 +11,7 @@ import { createClient } from "@/lib/supabase/client";
 import { formatIsbn, hasProductCodeAsId, needsLabel } from "@/lib/scan";
 import { AUDIENCES } from "@/lib/audience";
 import { CATEGORIES, categoryOf } from "@/lib/categories";
+import { levelColor } from "@/lib/bookLevels";
 import type { LibBook, LibBookWithShelf, LibLocation } from "@/lib/types";
 
 export default function BooksClient({
@@ -729,7 +730,27 @@ export default function BooksClient({
                           제목은 자르지 않습니다. 좁은 칸에 밀어 넣으면 '마법천자' 처럼 끊겨서
                           어느 책인지 알 수 없게 됩니다. 길면 줄을 바꿔 두 줄까지 보여줍니다.
                         */}
-                        <div className="font-medium break-words">{book.title}</div>
+                        <div className="font-medium break-words">
+                          {book.title}
+                          {/*
+                            등급을 제목 옆에 붙입니다. 같은 책을 등급별로 나눠 꽂아 둔 경우
+                            목록에 같은 제목이 두 줄 나오므로, 등급이 없으면 어느 줄이 어느
+                            칸의 책인지 구분할 수 없습니다.
+                          */}
+                          {book.label_level != null && (
+                            <span
+                              className="ml-1.5 align-middle rounded px-1.5 py-0.5 text-[11px] font-bold"
+                              style={{
+                                background: `${levelColor(book.label_level)}1f`,
+                                color: levelColor(book.label_level),
+                              }}
+                              title="색 라벨 등급"
+                            >
+                              {book.label_level}등급
+                              {book.label_no ? ` ${book.label_no}` : ""}
+                            </span>
+                          )}
+                        </div>
                         <div className="truncate text-xs text-slate-400">
                           {[book.author, book.publisher, book.pub_year].filter(Boolean).join(" · ")}
                         </div>

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { canonicalIsbn, isValidIsbn, isbnVariants, normalizeIsbn, normalizeScan } from "@/lib/scan";
+import { pickRowForLevel, toLevel } from "@/lib/bookLevels";
 import type { LibBook } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -79,6 +80,14 @@ export async function POST(request: Request) {
   */
   const productCode: string | null = scanCode && scanCode !== isbn ? scanCode : null;
   let itemCode: string | null = null;
+  /*
+    같은 책이 이미 있는데 **등급이 달라서** 새 줄로 들어가는 경우입니다.
+
+    이때는 라벨을 꼭 발급해야 합니다. 두 줄이 ISBN을 똑같이 쓰므로, 책에 인쇄된 바코드를
+    찍으면 어느 줄인지 가릴 수 없습니다(스캔 화면이 "어느 쪽이냐"고 묻게 됩니다). 도서관
+    라벨을 한 장 붙여 두면 그 책만 가리키는 번호가 생겨서 찍는 즉시 맞는 줄이 나옵니다.
+  */
+  let levelSplit = false;
 
   // ── 같은 책이 이미 있으면 새로 만들지 않고 보유 권수를 올립니다 ──────────────
   // 요청: "같은 책이 여러권 있을때 자동으로 장수를 늘려서 등록해줘".
@@ -89,8 +98,18 @@ export async function POST(request: Request) {
       .from("lib_books")
       .select("*")
       .in("isbn", isbnVariants(rawIsbn))
-      .limit(1);
-    const existing = (existingRows ?? [])[0] as LibBook | undefined;
+      .limit(20);
+    /*
+      ── 등급이 다르면 따로 한 줄 ──────────────────────────────────────────
+      라벨 등급은 그 책이 어느 칸에 꽂히는지를 정합니다. 같은 책 두 권이 다른 등급 칸에
+      꽂힌다면 사실상 따로 관리되는 두 묶음입니다.
+
+      예전에는 줄이 무조건 하나였고, 이미 등급이 적혀 있으면 새로 고른 등급은 **조용히**
+      버려졌습니다(2등급 「강아지똥」에 4등급 한 권을 더 넣으면 권수만 오르고 4등급은
+      사라집니다). 고르는 규칙은 bookLevels.pickRowForLevel 에 적어 두었습니다.
+    */
+    const wantedLevel = toLevel(body.label_level);
+    const existing = pickRowForLevel((existingRows ?? []) as LibBook[], wantedLevel) ?? undefined;
     if (existing) {
       const add = Math.max(1, Number(body.total_copies) || 1);
       const patch: Record<string, unknown> = { total_copies: existing.total_copies + add };
@@ -98,7 +117,7 @@ export async function POST(request: Request) {
       if (!existing.location_id && body.location_id) patch.location_id = body.location_id;
       if (!existing.audience && body.audience) patch.audience = body.audience;
       if (!existing.category && body.category) patch.category = body.category.trim();
-      if (!existing.label_level && body.label_level) patch.label_level = Number(body.label_level);
+      if (existing.label_level === null && wantedLevel !== null) patch.label_level = wantedLevel;
       if (!existing.label_no && body.label_no) patch.label_no = String(body.label_no).trim();
       // 찍힌 상품코드를 아직 안 적어 뒀으면 적어 둡니다(다음에 그 바코드로도 찾히게).
       if (!existing.product_code && productCode) patch.product_code = productCode;
@@ -140,11 +159,13 @@ export async function POST(request: Request) {
         totalCopies: (updated as LibBook).total_copies,
       });
     }
+    levelSplit = (existingRows ?? []).length > 0;
   }
 
   // 라벨을 붙여야 하는 책(책에 바코드가 인쇄되어 있지 않음)이거나, ISBN도 찍을 바코드도 없는
-  // 책이면 자체 번호(GIA-B-00001)를 발급합니다. 이 번호가 있는 책이 곧 "라벨 인쇄 대상"입니다.
-  if (body.need_label || !isbn) {
+  // 책, 또는 등급이 달라 같은 ISBN으로 두 줄이 되는 책이면 자체 번호(GIA-B-00001)를
+  // 발급합니다. 이 번호가 있는 책이 곧 "라벨 인쇄 대상"입니다.
+  if (body.need_label || !isbn || levelSplit) {
     const { data, error } = await supabase.rpc("lib_next_item_code");
     if (error || !data) {
       return NextResponse.json(
