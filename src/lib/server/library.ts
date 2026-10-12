@@ -10,6 +10,7 @@ import {
   type LibStudent,
 } from "@/lib/types";
 import { isItemCode, isbnVariants, normalizeIsbn } from "@/lib/scan";
+import { fetchAll } from "@/lib/server/fetchAll";
 import { withDepartment } from "@/lib/department";
 
 /**
@@ -57,9 +58,12 @@ export async function getLocations(supabase: SupabaseClient): Promise<LibLocatio
 
 /** 구역마다 지금 몇 종이 배정되어 있는지 세어 돌려줍니다. */
 export async function countBooksByLocation(supabase: SupabaseClient) {
-  const { data } = await supabase.from("lib_books").select("location_id").limit(5000);
+  // 끝까지 셉니다. 1000종에서 잘리면 뒤쪽 칸들이 통째로 빈 것처럼 보입니다.
+  const rows = await fetchAll<{ location_id: string | null }>((from, to) =>
+    supabase.from("lib_books").select("location_id,id").order("id", { ascending: true }).range(from, to)
+  );
   const counts: Record<string, number> = {};
-  for (const row of (data ?? []) as { location_id: string | null }[]) {
+  for (const row of rows) {
     const key = row.location_id ?? "none";
     counts[key] = (counts[key] ?? 0) + 1;
   }

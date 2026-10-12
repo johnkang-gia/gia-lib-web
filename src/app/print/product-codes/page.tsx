@@ -3,6 +3,7 @@ import PrintButton from "@/components/PrintButton";
 import { getLocations } from "@/lib/server/library";
 import { todayKst } from "@/lib/dates";
 import { hasProductCodeAsId } from "@/lib/scan";
+import { fetchAll } from "@/lib/server/fetchAll";
 import type { LibBook, LibLocation } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -37,15 +38,20 @@ export default async function ProductCodeListPage({
   const params = await searchParams;
   const supabase = await createClient();
 
-  const [{ data: books }, locations] = await Promise.all([
-    supabase
-      .from("lib_books")
-      .select(
-        "id,title,author,publisher,isbn,item_code,product_code,category,audience," +
-          "series,series_no,label_level,label_no,location_id,total_copies,status,note"
-      )
-      .order("title", { ascending: true })
-      .limit(5000),
+  // 1000줄씩 끊어서 끝까지 가져옵니다 - 확인 목록에서 빠진 책이 생기면 그 책은 영영 안 보고
+  // 지나갑니다. 제목이 같은 책이 많으므로 마지막에 id를 붙여 순서를 못박습니다.
+  const [books, locations] = await Promise.all([
+    fetchAll<LibBook>((from, to) =>
+      supabase
+        .from("lib_books")
+        .select(
+          "id,title,author,publisher,isbn,item_code,product_code,category,audience," +
+            "series,series_no,label_level,label_no,location_id,total_copies,status,note"
+        )
+        .order("title", { ascending: true })
+        .order("id", { ascending: true })
+        .range(from, to)
+    ),
     getLocations(supabase),
   ]);
 
@@ -53,7 +59,7 @@ export default async function ProductCodeListPage({
     고유 번호 자리에 상품코드가 들어가 있는 책만 고릅니다. 도서관 라벨(GIA-B-00001)을 이미
     발급받은 책은 그 번호가 그 책만 가리키므로 다시 확인할 일이 없습니다.
   */
-  const rows = ((books ?? []) as unknown as LibBook[]).filter((b) => hasProductCodeAsId(b));
+  const rows = books.filter((b) => hasProductCodeAsId(b));
 
   const zones = locations as LibLocation[];
   const byId = new Map(zones.map((z) => [z.id, z]));

@@ -1,6 +1,7 @@
 import RecentClient from "./RecentClient";
 import { createClient } from "@/lib/supabase/server";
 import { getLocations } from "@/lib/server/library";
+import { fetchAll } from "@/lib/server/fetchAll";
 import type { LibBookWithShelf, LibLocation } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -16,7 +17,7 @@ const LIMIT = 800;
 export default async function RecentPage() {
   const supabase = await createClient();
 
-  const [{ data: books }, { data: activeLoans }, locations] = await Promise.all([
+  const [{ data: books }, activeLoans, locations] = await Promise.all([
     supabase
       .from("lib_books")
       .select(
@@ -26,12 +27,20 @@ export default async function RecentPage() {
       )
       .order("created_at", { ascending: false })
       .limit(LIMIT),
-    // 빌려 나간 책은 함부로 지우지 못하게 막는 데 씁니다.
-    supabase.from("lib_loans").select("book_id").eq("status", "대출중").limit(3000),
+    // 빌려 나간 책은 함부로 지우지 못하게 막는 데 씁니다. 이 목록이 잘리면 **잘린 쪽 책은
+    // 막아주지 못합니다** - 빌려 나간 책이 지워집니다. 그래서 끝까지 가져옵니다.
+    fetchAll<{ book_id: string }>((from, to) =>
+      supabase
+        .from("lib_loans")
+        .select("book_id,id")
+        .eq("status", "대출중")
+        .order("id", { ascending: true })
+        .range(from, to)
+    ),
     getLocations(supabase),
   ]);
 
-  const borrowed = new Set((activeLoans ?? []).map((row) => (row as { book_id: string }).book_id));
+  const borrowed = new Set(activeLoans.map((row) => row.book_id));
   const byId = new Map((locations as LibLocation[]).map((l) => [l.id, l]));
   const withShelf = ((books ?? []) as unknown as LibBookWithShelf[]).map((b) => ({
     ...b,

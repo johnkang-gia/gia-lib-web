@@ -1,5 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
 import { getLocations, getMap, getSettings } from "@/lib/server/library";
+import { fetchAll } from "@/lib/server/fetchAll";
 import type { PlanBook } from "@/lib/plan";
 import PlanClient from "./PlanClient";
 
@@ -14,18 +15,23 @@ export const dynamic = "force-dynamic";
 export default async function PlanPage() {
   const supabase = await createClient();
 
-  const [locations, map, settings, booksRes] = await Promise.all([
+  // 정리 계획은 책을 칸에 나눠 담는 계산입니다. 목록이 잘리면 잘린 책들은 갈 곳이 없는 채로
+  // 계획이 짜여서, 종이를 들고 나간 뒤에야 모자란 것을 알게 됩니다. 끝까지 가져옵니다.
+  const [locations, map, settings, books] = await Promise.all([
     getLocations(supabase),
     getMap(supabase),
     getSettings(supabase),
-    supabase
-      .from("lib_books")
-      .select("id,title,author,audience,category,language,location_id,series,series_no,label_level")
-      .eq("status", "보유")
-      .limit(5000),
+    fetchAll<PlanBook>((from, to) =>
+      supabase
+        .from("lib_books")
+        .select(
+          "id,title,author,audience,category,language,location_id,series,series_no,label_level"
+        )
+        .eq("status", "보유")
+        .order("id", { ascending: true })
+        .range(from, to)
+    ),
   ]);
-
-  const books = (booksRes.data ?? []) as PlanBook[];
 
   return <PlanClient books={books} locations={locations} map={map} settings={settings} />;
 }

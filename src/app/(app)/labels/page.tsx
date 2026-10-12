@@ -1,4 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
+import { fetchAll } from "@/lib/server/fetchAll";
 import type { LibLabelLevel } from "@/lib/types";
 import LabelsClient, { type LabelBook } from "./LabelsClient";
 
@@ -17,19 +18,24 @@ export const dynamic = "force-dynamic";
 export default async function LabelsPage() {
   const supabase = await createClient();
 
-  const [levelsRes, booksRes] = await Promise.all([
+  // 빠진 번호를 찾는 화면입니다. 목록이 중간에 잘리면 **멀쩡한 번호가 빠진 것처럼** 보이므로
+  // 1000줄씩 끊어서 끝까지 가져옵니다.
+  const [levelsRes, books] = await Promise.all([
     supabase.from("lib_label_levels").select("*").order("level", { ascending: true }),
-    supabase
-      .from("lib_books")
-      .select("id,title,author,label_level,label_no,audience,category,total_copies")
-      .eq("status", "보유")
-      .limit(5000),
+    fetchAll<LabelBook>((from, to) =>
+      supabase
+        .from("lib_books")
+        .select("id,title,author,label_level,label_no,audience,category,total_copies")
+        .eq("status", "보유")
+        .order("id", { ascending: true })
+        .range(from, to)
+    ),
   ]);
 
   return (
     <LabelsClient
       levels={(levelsRes.data ?? []) as LibLabelLevel[]}
-      books={(booksRes.data ?? []) as LabelBook[]}
+      books={books}
     />
   );
 }

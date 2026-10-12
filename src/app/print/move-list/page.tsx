@@ -1,6 +1,7 @@
 import { createClient } from "@/lib/supabase/server";
 import PrintButton from "@/components/PrintButton";
 import { todayKst } from "@/lib/dates";
+import { fetchAll } from "@/lib/server/fetchAll";
 import type { MovePlanRow } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -22,20 +23,22 @@ export default async function MoveListPage({
   const params = await searchParams;
   const supabase = await createClient();
 
-  let query = supabase
-    .from("lib_move_plan")
-    .select("*")
-    .eq("needs_move", true)
-    .order("from_code", { ascending: true, nullsFirst: false })
-    .order("to_sort", { ascending: true })
-    .order("author", { ascending: true, nullsFirst: false })
-    .limit(5000);
-
-  // 특정 칸만 뽑고 싶을 때(?from=임시-1)
-  if (params.from) query = query.eq("from_code", params.from);
-
-  const { data } = await query;
-  const rows = (data ?? []) as MovePlanRow[];
+  // 1000줄씩 끊어서 끝까지 가져옵니다. 이동 목록이 잘리면 잘린 책들은 옮겨지지 않은 채로
+  // 남고, 종이를 다 쓴 사람은 끝난 줄 압니다.
+  const rows = await fetchAll<MovePlanRow>((from, to) => {
+    let query = supabase
+      .from("lib_move_plan")
+      .select("*")
+      .eq("needs_move", true)
+      .order("from_code", { ascending: true, nullsFirst: false })
+      .order("to_sort", { ascending: true })
+      .order("author", { ascending: true, nullsFirst: false })
+      .order("book_id", { ascending: true })
+      .range(from, to);
+    // 특정 칸만 뽑고 싶을 때(?from=임시-1)
+    if (params.from) query = query.eq("from_code", params.from);
+    return query;
+  });
 
   // 지금 꽂혀 있는 칸별로 묶습니다.
   const groups = new Map<string, MovePlanRow[]>();
