@@ -574,6 +574,19 @@ export default function BooksClient({
             >
               {splitting === "bulk" ? "발급 중…" : `${productBooks.length}종 전부 라벨 발급`}
             </button>
+            {/*
+              종이로 들고 나가는 목록입니다. 이 책들은 화면에서 확인할 수 없고 **책을 손에 들어야**
+              알 수 있습니다(그 줄이 정말 같은 책 몇 권인지). 그래서 지금 꽂혀 있는 임시 자리별로
+              묶은 목록을 뽑아, 한 칸 앞에 서서 그 부분만 훑도록 합니다.
+            */}
+            <button
+              type="button"
+              onClick={() => window.open("/print/product-codes", "_blank")}
+              className="rounded-lg border border-rose-300 bg-white px-3 py-1.5 text-xs font-semibold text-rose-700 hover:bg-rose-100"
+              title="책 이름과 지금 꽂혀 있는 임시 자리를 자리별로 묶어 인쇄합니다 — 들고 다니며 확인하는 종이"
+            >
+              📄 자리별 확인 목록 인쇄
+            </button>
           </div>
 
           {/* 어느 칸에 몇 권이 있는지 - 라벨을 붙이러 갈 순서가 됩니다. */}
@@ -591,12 +604,21 @@ export default function BooksClient({
                 !a.zone ? 1 : !b.zone ? -1 : a.zone.sort_order - b.zone.sort_order
               )
               .map(({ zone, count }) => (
-                <span
+                /* 칸 하나만 돌 때는 그 칸만 뽑습니다 - 한 번에 다 돌 수 있는 양이 아닙니다. */
+                <button
                   key={zone?.id ?? "none"}
-                  className="rounded-lg bg-white px-2 py-1 text-xs font-semibold text-rose-900 ring-1 ring-rose-200"
+                  type="button"
+                  onClick={() =>
+                    window.open(
+                      `/print/product-codes?zone=${encodeURIComponent(zone ? zone.code : "none")}`,
+                      "_blank"
+                    )
+                  }
+                  title={`${zone ? zone.code : "자리 미정"} 칸만 인쇄합니다`}
+                  className="rounded-lg bg-white px-2 py-1 text-xs font-semibold text-rose-900 ring-1 ring-rose-200 hover:bg-rose-100"
                 >
                   {zone ? zone.code : "자리 미정"} <span className="text-rose-500">{count}종</span>
-                </span>
+                </button>
               ))}
           </div>
         </div>
