@@ -100,6 +100,26 @@ export async function POST(request: Request) {
       if (!existing.category && body.category) patch.category = body.category.trim();
       if (!existing.label_level && body.label_level) patch.label_level = Number(body.label_level);
       if (!existing.label_no && body.label_no) patch.label_no = String(body.label_no).trim();
+      // 찍힌 상품코드를 아직 안 적어 뒀으면 적어 둡니다(다음에 그 바코드로도 찾히게).
+      if (!existing.product_code && productCode) patch.product_code = productCode;
+
+      /*
+        ── 복본에도 붙일 번호를 발급합니다 ─────────────────────────────────
+        요청: "복본이라고 하자마자 바코드에서 빼버렸어. 복본 중에서도 바코드 없는 애들이
+        있어서 표지로 등록한 건데."
+
+        같은 책 두 권 중 한 권에만 바코드가 인쇄되어 있는 일이 흔합니다(한 권은 수입판,
+        한 권은 국내판이거나, 한 권은 겉표지가 뜯어진 경우). 그런데 권수만 올리는 길에는
+        번호를 발급하는 자리가 아예 없어서, 바코드를 붙여야 하는 책인데도 붙일 번호가
+        나오지 않았습니다.
+
+        이미 번호가 있으면 그대로 씁니다 - 도서관은 같은 책 두 권을 '다른 책'이 아니라
+        '한 책 두 권'으로 세므로, 두 권에 같은 번호를 붙이는 것이 맞습니다.
+      */
+      if (body.need_label && !existing.item_code) {
+        const { data: nextCode } = await supabase.rpc("lib_next_item_code");
+        if (nextCode) patch.item_code = String(nextCode);
+      }
 
       const { data: updated, error: updateError } = await supabase
         .from("lib_books")

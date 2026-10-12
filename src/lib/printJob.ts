@@ -22,12 +22,14 @@ export function signatureOf(
   targets: string[],
   options: Record<string, string> = {}
 ): string {
-  const ids = [...new Set(targets.map((t) => t.trim()).filter(Boolean))].sort();
+  const all = targets.map((t) => t.trim()).filter(Boolean);
+  const ids = [...new Set(all)].sort();
   const opts = Object.keys(options)
     .sort()
     .map((key) => `${key}=${options[key]}`)
     .join("&");
-  return hash(`${kind}|${ids.join(",")}|${opts}`);
+  // 장수(all.length)도 넣습니다 - 같은 책 목록이라도 세 장과 한 장은 다른 인쇄입니다.
+  return hash(`${kind}|${ids.join(",")}|${all.length}|${opts}`);
 }
 
 /**

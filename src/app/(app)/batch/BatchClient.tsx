@@ -652,12 +652,27 @@ export default function BatchClient({ locations }: { locations: LibLocation[] })
           error?: string;
         };
         if (!res.ok || !json.book) throw new Error(json.error ?? `등록 실패 (HTTP ${res.status})`);
+        /*
+          ── 등록한 것은 **전부** 인쇄 목록에 넣습니다 ──────────────────────
+          요청: "복본이라고 하더니 인쇄에서 빼버렸네... 무조건 등록한 것들은 인쇄해줘."
+
+          예전에는 '권수만 늘린' 책을 인쇄 목록에서 뺐습니다. 이미 있는 책이니 라벨도 이미
+          붙어 있으리라 여긴 것인데, 틀렸습니다 - 같은 책 두 권 중 한 권에만 바코드가
+          인쇄되어 있는 일이 흔하고, 그래서 표지를 찍어 등록하신 겁니다. 방금 손에 든 그
+          책에 붙일 라벨이 안 나오면 등록한 의미가 없습니다.
+
+          담은 권수만큼 넣습니다 - 같은 책 세 권을 담았으면 라벨도 세 장이어야 책마다
+          한 장씩 붙일 수 있습니다.
+        */
+        for (let i = 0; i < Math.max(1, item.copies); i += 1) ids.push(json.book.id);
+
         if (json.incremented) {
-          moved += 1;
-          patchItem(item.key, { note: `보유 ${json.totalCopies ?? "?"}권으로 늘림` });
+          moved += item.copies;
+          patchItem(item.key, {
+            note: `보유 ${json.totalCopies ?? "?"}권으로 늘림` + coverNote,
+          });
         } else {
           added += item.copies;
-          ids.push(json.book.id);
           patchItem(item.key, {
             note:
               (item.copies > 1 ? `${item.copies}권으로 등록 완료` : "등록 완료") + coverNote,
@@ -740,7 +755,7 @@ export default function BatchClient({ locations }: { locations: LibLocation[] })
               onClick={() => window.open(`/print/labels?ids=${done.ids.join(",")}`, "_blank")}
               className="w-full rounded-2xl bg-slate-900 px-4 py-3.5 text-base font-bold text-white"
             >
-              방금 등록한 {done.ids.length}권 바코드 라벨 인쇄
+              방금 등록한 책 라벨 {done.ids.length}장 인쇄
             </button>
           )}
           <button

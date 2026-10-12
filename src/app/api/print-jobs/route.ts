@@ -48,7 +48,11 @@ export async function POST(request: Request) {
   }
 
   const kind: PrintJobKind = body.kind === "cards" ? "cards" : "labels";
-  const targets = [...new Set((body.targets ?? []).map((t) => String(t).trim()).filter(Boolean))];
+  /*
+    같은 책이 여러 번 들어 있을 수 있습니다(같은 책 세 권이면 라벨도 세 장). 예전에는 여기서
+    중복을 지워 버려서, 기록으로 다시 뽑으면 세 장이 한 장이 됐습니다. 받은 그대로 둡니다.
+  */
+  const targets = (body.targets ?? []).map((t) => String(t).trim()).filter(Boolean);
   if (targets.length === 0) {
     return NextResponse.json({ error: "저장할 목록이 비어 있습니다." }, { status: 400 });
   }

@@ -105,8 +105,19 @@ export default async function PrintLabelsPage({
       : Promise.resolve({ data: [] as LibBook[] }),
   ]);
 
+  /*
+    ── 같은 책이 여러 번 적혀 있으면 그만큼 뽑습니다 ─────────────────────────
+    같은 책 세 권을 담았으면 라벨도 세 장이어야 책마다 한 장씩 붙일 수 있습니다. 데이터베이스는
+    같은 id를 한 줄로만 돌려주므로, **받은 목록 순서대로** 다시 펼칩니다.
+
+    받은 순서를 그대로 쓰는 것에는 덤이 있습니다 - 고른 순서가 유지되어, 책을 빼 놓은 순서와
+    라벨 순서가 같아집니다.
+  */
+  const byId = new Map(((booksRes.data ?? []) as LibBook[]).map((b) => [b.id, b]));
   // 자체 라벨 번호가 있으면 그것을, 없으면 ISBN을 바코드로 만듭니다.
-  const books = ((booksRes.data ?? []) as LibBook[]).filter((b) => b.item_code || b.isbn);
+  const books = idList
+    .map((id) => byId.get(id))
+    .filter((b): b is LibBook => Boolean(b && (b.item_code || b.isbn)));
   const zoneById = new Map<string, LibLocation>(locations.map((l) => [l.id, l]));
 
   /** 칸별로 묶습니다. 자리가 아직 없는 책은 맨 뒤에 따로 모읍니다. */
@@ -209,9 +220,10 @@ export default async function PrintLabelsPage({
                 width: "fit-content",
               }}
             >
-              {group.books.map((book) => (
+              {group.books.map((book, bi) => (
                 <div
-                  key={book.id}
+                  // 같은 책이 여러 장일 수 있어 id만으로는 겹칩니다.
+                  key={`${book.id}-${bi}`}
                   style={{
                     // 이웃과 선 하나를 함께 씁니다 - 한 번 자르면 두 장이 떨어집니다.
                     borderRight: "0.25mm solid #94a3b8",
