@@ -69,6 +69,20 @@ function encodeValues(value: string): number[] {
   return values;
 }
 
+/**
+ * 이 값을 바코드로 그렸을 때 가로로 몇 **모듈**인지(여백 포함).
+ *
+ * 모듈은 바코드에서 가장 가는 막대 한 줄입니다. 라벨 칸 너비를 모듈 수로 나누면 "이 칸을
+ * 꽉 채우는 막대 굵기"가 나옵니다 - 번호가 짧은 책은 굵게, 긴 책은 가늘게 그려서 어느
+ * 라벨이든 칸을 같게 채웁니다. 예전에는 굵기를 숫자로 박아 두어서, 짧은 번호는 칸의 절반만
+ * 쓰고 남았습니다.
+ *
+ * 계산: 시작문자 1 + 데이터 n + 체크문자 1 개가 각 11모듈, 정지문자 13모듈, 양옆 여백.
+ */
+export function code128Modules(value: string, quietZone = 10): number {
+  return 11 * (value.length + 2) + 13 + quietZone * 2;
+}
+
 /** Code 128-B 바코드를 SVG 문자열로 만듭니다. */
 export function code128Svg(value: string, options: Code128Options = {}) {
   const moduleWidth = options.moduleWidth ?? 1.1;

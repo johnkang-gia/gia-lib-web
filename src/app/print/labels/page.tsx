@@ -1,4 +1,5 @@
 import Barcode from "@/components/Barcode";
+import { code128Modules } from "@/lib/code128";
 import PrintButton from "@/components/PrintButton";
 import RecordPrintJob from "@/components/RecordPrintJob";
 import { createClient } from "@/lib/supabase/server";
@@ -6,6 +7,52 @@ import { getLocations } from "@/lib/server/library";
 import type { LibBook, LibLocation } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
+
+/*
+  ── 라벨 치수와 자르기 ──────────────────────────────────────────────────────
+  요청: "다 떨어져 있으니까 자를 때 가위질을 두 번씩 해야 해. 한 번 자르면 분리되도록
+  붙여서 인쇄할 수 있게."
+
+  예전에는 라벨 사이를 5mm 띄워 놓았습니다. 그러면 라벨 하나를 떼는 데 **선이 두 개**라
+  가위질이 두 번입니다. 마흔 장이면 여든 번이고, 띄운 만큼 종이도 버립니다.
+
+  이제 라벨을 **맞붙여** 깝니다. 이웃한 두 라벨이 **선 하나를 함께 씁니다** - 그 선을 한 번
+  자르면 두 장이 동시에 떨어집니다. 가위질이 절반이 되고, 띄우던 자리만큼 라벨이 넓어져서
+  바코드도 같이 커집니다.
+
+  선이 겹쳐 두 겹으로 굵어지지 않도록, 칸마다 **오른쪽과 아래쪽만** 긋고 바깥 테두리의
+  왼쪽·위쪽은 바깥 상자가 긋습니다.
+*/
+
+/**
+ * 라벨 한 장(mm).
+ *
+ * 가로 63 - A4에서 여백 10mm씩을 빼면 190mm이고, 63 × 3 = 189mm로 딱 맞습니다.
+ * 세로 30 - 실제로 재 보고 고른 값입니다. 두 줄짜리 긴 제목("why? 와이 인체 - 초등과학
+ *   학습만화 신체의 신비 편 개정증보판")을 넣어도 넘치지 않는 가장 작은 높이가 28mm인데,
+ *   30mm까지는 **한 장에 들어가는 개수가 27장으로 같습니다**(277 ÷ 30 = 9줄). 같은 값이면
+ *   여유 있는 쪽이 낫습니다 - 프린터나 글꼴이 조금만 달라져도 28mm는 바코드 밑단이 잘립니다.
+ *   32mm로 키우면 8줄 24장으로 줄어듭니다.
+ */
+const LABEL_W = 63;
+const LABEL_H = 30;
+/** 라벨 안쪽 여백(mm). */
+const LABEL_PAD = 2;
+/** 1mm가 CSS 픽셀로 몇인지(바코드 SVG가 px로 그려져서 환산이 필요합니다). */
+const MM = 96 / 25.4;
+
+/**
+ * 이 번호를 라벨 칸에 꽉 차게 그릴 막대 굵기(px).
+ *
+ * 번호가 짧으면 굵게, 길면 가늘게 그려서 어느 라벨이든 칸을 같게 채웁니다. 다만 너무
+ * 가늘면(0.19mm 아래) 보급형 레이저 프린터에서 막대가 뭉개져 안 읽히고, 너무 굵으면
+ * 짧은 번호가 우스꽝스럽게 퍼집니다. 그 사이로 묶어 둡니다.
+ */
+function moduleWidthFor(value: string): number {
+  const usableMm = LABEL_W - LABEL_PAD * 2;
+  const ideal = (usableMm * MM) / code128Modules(value);
+  return Math.min(Math.max(ideal, 0.72), 1.3);
+}
 
 /**
  * 책 바코드 라벨 인쇄 화면(55 × 26mm, A4 한 줄에 3장).
@@ -109,6 +156,11 @@ export default async function PrintLabelsPage({
               책등 아래에 붙이면 스캐너로 바로 읽힙니다.
             </p>
             <p className="mt-1 text-xs leading-relaxed text-slate-500">
+              라벨이 <b>맞붙어</b> 나옵니다. 이웃한 두 장이 선 하나를 함께 쓰므로, 그 선을
+              <b> 한 번만 자르면 두 장이 동시에 떨어집니다</b>. 긴 선부터 쭉 자른 뒤 세로로
+              자르면 가장 빠릅니다.
+            </p>
+            <p className="mt-1 text-xs leading-relaxed text-slate-500">
               <b>칸별로 묶어</b> 나옵니다. 2-1 묶음을 들고 2-1 칸 앞에 서서 그 자리에서 다 붙이고
               다음 칸으로 넘어가시면 됩니다. 라벨마다 칸 이름과 책 제목이 같이 찍혀 있어, 섞여도
               어느 책 것인지 알 수 있습니다.
@@ -120,7 +172,8 @@ export default async function PrintLabelsPage({
 
       <div className="print-sheet mx-auto bg-white shadow-sm" style={{ width: "210mm", padding: "10mm" }}>
         {groups.map((group, gi) => (
-          <section key={group.zone?.id ?? `none-${gi}`} style={{ marginBottom: "6mm", breakInside: "avoid" }}>
+          /* 묶음이 한 페이지보다 길 수 있으므로 묶음째 붙들지 않습니다(붙들면 넘쳐서 잘립니다). */
+          <section key={group.zone?.id ?? `none-${gi}`} style={{ marginBottom: "6mm" }}>
             {/* 칸 이름 - 묶음을 들고 어느 칸으로 갈지 바로 보이게 큼직하게. */}
             <div
               style={{
@@ -145,28 +198,33 @@ export default async function PrintLabelsPage({
               </span>
             </div>
 
+            {/* 바깥 테두리의 왼쪽·위쪽은 여기서 긋습니다(칸마다 그으면 두 겹이 됩니다). */}
             <div
               style={{
                 display: "grid",
-                gridTemplateColumns: "repeat(3, 55mm)",
-                gridAutoRows: "26mm",
-                columnGap: "5mm",
-                rowGap: "1.5mm",
+                gridTemplateColumns: `repeat(3, ${LABEL_W}mm)`,
+                gridAutoRows: `${LABEL_H}mm`,
+                borderTop: "0.25mm solid #94a3b8",
+                borderLeft: "0.25mm solid #94a3b8",
+                width: "fit-content",
               }}
             >
               {group.books.map((book) => (
                 <div
                   key={book.id}
                   style={{
-                    border: "0.2mm dashed #cbd5e1",
-                    borderRadius: "1.5mm",
-                    padding: "1.2mm 2mm",
+                    // 이웃과 선 하나를 함께 씁니다 - 한 번 자르면 두 장이 떨어집니다.
+                    borderRight: "0.25mm solid #94a3b8",
+                    borderBottom: "0.25mm solid #94a3b8",
+                    padding: `${LABEL_PAD}mm`,
                     display: "flex",
                     flexDirection: "column",
-                    justifyContent: "center",
+                    justifyContent: "space-between",
                     alignItems: "center",
                     boxSizing: "border-box",
                     overflow: "hidden",
+                    // 라벨 한 장이 두 페이지에 걸쳐 잘리지 않게 합니다.
+                    breakInside: "avoid",
                   }}
                 >
                   <div
@@ -180,7 +238,7 @@ export default async function PrintLabelsPage({
                     {/* 라벨 한 장만 떨어져 나와도 어느 칸 것인지 알 수 있게. */}
                     <span
                       style={{
-                        fontSize: "2mm",
+                        fontSize: "2.4mm",
                         fontWeight: 800,
                         color: "#0f1b33",
                         flexShrink: 0,
@@ -190,7 +248,7 @@ export default async function PrintLabelsPage({
                     </span>
                     <span
                       style={{
-                        fontSize: "2.4mm",
+                        fontSize: "2.8mm",
                         lineHeight: 1.15,
                         fontWeight: 700,
                         minWidth: 0,
@@ -208,7 +266,7 @@ export default async function PrintLabelsPage({
                   {book.author && (
                     <div
                       style={{
-                        fontSize: "1.9mm",
+                        fontSize: "2.2mm",
                         color: "#64748b",
                         width: "100%",
                         textAlign: "center",
@@ -221,11 +279,16 @@ export default async function PrintLabelsPage({
                     </div>
                   )}
 
+                  {/*
+                    바코드는 칸 너비에 맞춰 키웁니다. 예전에는 굵기를 숫자로 박아 두어
+                    번호가 짧은 책은 칸의 절반만 쓰고 남았습니다 - 작을수록 스캐너가
+                    멀리서 못 읽고, 라벨을 비스듬히 붙이면 더 못 읽습니다.
+                  */}
                   <Barcode
                     value={book.item_code ?? book.isbn ?? ""}
-                    moduleWidth={book.item_code ? 0.85 : 0.62}
-                    height={24}
-                    fontSize={7}
+                    moduleWidth={moduleWidthFor(book.item_code ?? book.isbn ?? "")}
+                    height={46}
+                    fontSize={9}
                   />
                 </div>
               ))}
