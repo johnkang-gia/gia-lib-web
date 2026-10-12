@@ -21,7 +21,12 @@ export const dynamic = "force-dynamic";
  * 연체·보유 권수·폐기 같은 개별 사유는 그 책만 빼고 나머지는 내보냅니다. 돌려주는 결과에
  * 책마다 왜 못 나갔는지가 들어 있어 화면이 그 줄만 빨갛게 표시합니다.
  */
-export type CheckoutLine = {
+/*
+  이 파일에서는 **아무것도 export 하지 않습니다**(POST 와 dynamic 말고는).
+  Next 의 route 파일은 정해진 이름만 내보내도록 되어 있어서, 타입 하나라도 더 내보내면
+  빌드 단계에 따라 걸립니다. 다른 곳에서 쓸 타입은 lib/types.ts 에 둡니다.
+*/
+type CheckoutLine = {
   bookId: string;
   title: string;
   ok: boolean;
