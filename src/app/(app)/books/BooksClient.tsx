@@ -53,13 +53,36 @@ export default function BooksClient({
     void fetchPile().then(setPile);
   }, []);
 
+  /**
+   * 보유 권수만큼 라벨을 펼칩니다.
+   *
+   * 요청: "같은 책 여러 권일 때 여러 개 인쇄해줘야 해. 등록한 개수만큼 인쇄가 되어야 해."
+   *
+   * 도서관은 같은 책 두 권을 '한 책 두 권'으로 세므로 목록에는 한 줄입니다. 그런데 라벨은
+   * **책 한 권마다 한 장씩** 붙여야 합니다. 세 권짜리 한 줄을 골라 놓고 라벨이 한 장만
+   * 나오면, 나머지 두 권은 다시 골라 뽑아야 합니다.
+   *
+   * 번호는 세 장이 모두 같습니다 - 같은 책이니 맞습니다. 스캐너로 어느 권을 찍든 그 책이
+   * 나오고, 몇 권이 나가 있는지는 대출 기록이 셉니다.
+   */
+  function perCopy(books: LibBook[]): string[] {
+    const out: string[] = [];
+    for (const book of books) {
+      for (let i = 0; i < Math.max(1, book.total_copies); i += 1) out.push(book.id);
+    }
+    return out;
+  }
+
   async function stash(books: LibBook[]) {
     setPileBusy(true);
     setPileMsg(null);
     try {
-      const next = await addToPile(books.map((b) => b.id));
+      const sheets = perCopy(books);
+      const next = await addToPile(sheets);
       setPile(next);
-      setPileMsg(`${books.length}장 모아뒀습니다 — 모두 ${next?.count ?? 0}장`);
+      setPileMsg(
+        `${books.length}종 ${sheets.length}장을 모아뒀습니다 — 모두 ${next?.count ?? 0}장`
+      );
       setSelected(new Set());
     } catch (e) {
       setPileMsg(e instanceof Error ? e.message : "모아두지 못했습니다.");
@@ -367,15 +390,13 @@ export default function BooksClient({
             <button
               type="button"
               onClick={() =>
-                window.open(
-                  `/print/labels?ids=${needLabelBooks.map((b) => b.id).join(",")}`,
-                  "_blank"
-                )
+                window.open(`/print/labels?ids=${perCopy(needLabelBooks).join(",")}`, "_blank")
               }
               className="rounded-lg bg-amber-500 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-600"
               title="책에 바코드가 인쇄되어 있지 않아 라벨을 붙여야 하는 책들입니다"
             >
-              🏷 라벨 필요 {needLabelBooks.length}권 인쇄
+              🏷 라벨 필요 {needLabelBooks.length}종 ·{" "}
+              {needLabelBooks.reduce((n, b) => n + Math.max(1, b.total_copies), 0)}장 인쇄
             </button>
           )}
           {labelTargets.length > 0 && (
@@ -386,18 +407,20 @@ export default function BooksClient({
               title="지금 뽑지 않고 모아 둡니다. 한 장 분량이 되면 한꺼번에 뽑으세요."
               className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-40"
             >
-              {pileBusy ? "모아두는 중…" : `📥 모아두기 (${labelTargets.length})`}
+              {pileBusy
+                ? "모아두는 중…"
+                : `📥 모아두기 (${perCopy(labelTargets).length}장)`}
             </button>
           )}
           {labelTargets.length > 0 && (
             <button
               type="button"
               onClick={() =>
-                window.open(`/print/labels?ids=${labelTargets.map((b) => b.id).join(",")}`, "_blank")
+                window.open(`/print/labels?ids=${perCopy(labelTargets).join(",")}`, "_blank")
               }
               className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
             >
-              바로 인쇄 ({labelTargets.length})
+              바로 인쇄 ({perCopy(labelTargets).length}장)
             </button>
           )}
           <button

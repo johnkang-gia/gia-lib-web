@@ -3,8 +3,7 @@ import { code128Modules } from "@/lib/code128";
 import PrintButton from "@/components/PrintButton";
 import RecordPrintJob from "@/components/RecordPrintJob";
 import { createClient } from "@/lib/supabase/server";
-import { getLocations } from "@/lib/server/library";
-import type { LibBook, LibLocation } from "@/lib/types";
+import type { LibBook } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
@@ -62,14 +61,17 @@ function moduleWidthFor(value: string): number {
  *  · ISBN 숫자는 적혀 있는데 바코드가 인쇄되어 있지 않은 책(오래된 책·수입 원서 등)
  *    - 그 ISBN을 바코드로 만들어 인쇄합니다. 스캐너로 찍으면 책에 인쇄된 바코드와 똑같이 읽힙니다.
  *
- * ── 왜 칸별로 묶어서 뽑는가 ───────────────────────────────────────────────
- * 요청: "한꺼번에 뽑을 때 지금 책장 기준 2-1, 2-2 등등으로 구분되어서 뽑혀서 바로 위치를 알 수
- * 있도록".
+ * ── 왜 자리(칸)를 찍지 않는가 ────────────────────────────────────────────
+ * 한동안은 칸별로 묶고 라벨마다 "2-1" 같은 자리를 찍었습니다. 붙이는 사람이 묶음을 들고 그
+ * 칸 앞에 서서 붙이면 되니까요.
  *
- * 라벨 백 장을 한 뭉치로 뽑으면, 붙이는 사람이 라벨 하나를 들고 책장 전체를 뒤져야 합니다.
- * 칸별로 묶어 뽑으면 2-1 묶음을 들고 2-1 칸 앞에 서서 그 자리에서 다 붙이고 다음 칸으로
- * 넘어갑니다. 그래서 묶음마다 칸 이름을 큼직하게 찍고, 라벨 한 장 한 장에도 칸 이름을 넣습니다
- * (라벨이 섞여도 어느 칸 것인지 알 수 있게).
+ * 지금은 뺐습니다. 요청: "자리는 표시되게 하지 말고(아직 임시이기 때문에) 책 이름만".
+ * 책장이 아직 임시 배치라 자리가 계속 바뀝니다. 라벨은 책에 **붙어서 몇 년을 갑니다** -
+ * 오늘 찍은 "2-1"은 다음 달이면 거짓말이 되고, 거짓말이 적힌 라벨은 없느니만 못합니다.
+ * 자리가 정해지고 나면 그때 다시 넣으면 됩니다.
+ *
+ * 받은 순서는 그대로 지킵니다. 고른 순서·등록한 순서가 유지되어, 책을 빼 놓은 순서와
+ * 라벨 순서가 같습니다.
  */
 export default async function PrintLabelsPage({
   searchParams,
@@ -98,12 +100,10 @@ export default async function PrintLabelsPage({
     idList = ((data?.targets as string[] | undefined) ?? []).filter(Boolean);
   }
 
-  const [locations, booksRes] = await Promise.all([
-    getLocations(supabase),
+  const booksRes =
     idList.length > 0
-      ? supabase.from("lib_books").select("*").in("id", idList)
-      : Promise.resolve({ data: [] as LibBook[] }),
-  ]);
+      ? await supabase.from("lib_books").select("*").in("id", idList)
+      : { data: [] as LibBook[] };
 
   /*
     ── 같은 책이 여러 번 적혀 있으면 그만큼 뽑습니다 ─────────────────────────
@@ -118,38 +118,11 @@ export default async function PrintLabelsPage({
   const books = idList
     .map((id) => byId.get(id))
     .filter((b): b is LibBook => Boolean(b && (b.item_code || b.isbn)));
-  const zoneById = new Map<string, LibLocation>(locations.map((l) => [l.id, l]));
-
-  /** 칸별로 묶습니다. 자리가 아직 없는 책은 맨 뒤에 따로 모읍니다. */
-  const groups: { zone: LibLocation | null; books: LibBook[] }[] = [];
-  const index = new Map<string, number>();
-  for (const book of books) {
-    const key = book.location_id ?? "none";
-    let at = index.get(key);
-    if (at === undefined) {
-      at = groups.length;
-      index.set(key, at);
-      groups.push({ zone: book.location_id ? (zoneById.get(book.location_id) ?? null) : null, books: [] });
-    }
-    groups[at].books.push(book);
-  }
-  groups.sort((a, b) => {
-    if (!a.zone) return 1;
-    if (!b.zone) return -1;
-    return (
-      a.zone.sort_order - b.zone.sort_order || a.zone.code.localeCompare(b.zone.code, "ko")
-    );
-  });
-  // 묶음 안에서는 제목순 - 책장 앞에 서서 눈으로 훑기 좋은 순서입니다.
-  for (const g of groups) g.books.sort((x, y) => x.title.localeCompare(y.title, "ko"));
-
   /*
     이 화면을 연 것만으로 기록이 남습니다. 프린터가 안 잡히는 건 뽑으려고 누른 다음에
     알게 되고, 그때는 "저장" 버튼을 눌러 둘 기회가 이미 지난 뒤입니다.
   */
-  const jobTitle = groups.length
-    ? `${groups[0].zone?.code ?? "자리 미정"}${groups.length > 1 ? ` 외 ${groups.length - 1}칸` : ""} · 라벨 ${books.length}장`
-    : `라벨 ${books.length}장`;
+  const jobTitle = `라벨 ${books.length}장`;
 
   return (
     <div className="min-h-screen bg-slate-100 py-6">
@@ -159,9 +132,7 @@ export default async function PrintLabelsPage({
       <div className="no-print mx-auto mb-6 max-w-[210mm] rounded-xl bg-white p-4 text-sm shadow-sm">
         <div className="flex items-center justify-between gap-4">
           <div>
-            <p className="font-bold">
-              책 바코드 라벨 {books.length}장 · 칸 {groups.length}곳
-            </p>
+            <p className="font-bold">책 바코드 라벨 {books.length}장</p>
             <p className="mt-1 text-xs leading-relaxed text-slate-500">
               인쇄 설정에서 <b>배율 100%</b>, <b>여백 없음</b>으로 맞춰주세요. 책 뒤표지 안쪽이나
               책등 아래에 붙이면 스캐너로 바로 읽힙니다.
@@ -172,9 +143,9 @@ export default async function PrintLabelsPage({
               자르면 가장 빠릅니다.
             </p>
             <p className="mt-1 text-xs leading-relaxed text-slate-500">
-              <b>칸별로 묶어</b> 나옵니다. 2-1 묶음을 들고 2-1 칸 앞에 서서 그 자리에서 다 붙이고
-              다음 칸으로 넘어가시면 됩니다. 라벨마다 칸 이름과 책 제목이 같이 찍혀 있어, 섞여도
-              어느 책 것인지 알 수 있습니다.
+              라벨에는 <b>책 이름</b>만 찍습니다. 책장 자리는 아직 임시라 계속 바뀌는데, 라벨은
+              책에 붙어서 몇 년을 갑니다 — 오늘 찍은 자리가 다음 달이면 거짓말이 됩니다.
+              <b> 고른 순서 그대로</b> 나오니, 책을 빼 놓은 순서와 맞춰 붙이시면 됩니다.
             </p>
           </div>
           <PrintButton />
@@ -182,45 +153,18 @@ export default async function PrintLabelsPage({
       </div>
 
       <div className="print-sheet mx-auto bg-white shadow-sm" style={{ width: "210mm", padding: "10mm" }}>
-        {groups.map((group, gi) => (
-          /* 묶음이 한 페이지보다 길 수 있으므로 묶음째 붙들지 않습니다(붙들면 넘쳐서 잘립니다). */
-          <section key={group.zone?.id ?? `none-${gi}`} style={{ marginBottom: "6mm" }}>
-            {/* 칸 이름 - 묶음을 들고 어느 칸으로 갈지 바로 보이게 큼직하게. */}
-            <div
-              style={{
-                display: "flex",
-                alignItems: "baseline",
-                gap: "3mm",
-                borderBottom: "0.4mm solid #0f1b33",
-                paddingBottom: "1.2mm",
-                marginBottom: "2.5mm",
-                printColorAdjust: "exact",
-                WebkitPrintColorAdjust: "exact",
-              }}
-            >
-              <span style={{ fontSize: "6mm", fontWeight: 900, color: "#0f1b33" }}>
-                {group.zone ? group.zone.code : "자리 미정"}
-              </span>
-              {group.zone?.name && (
-                <span style={{ fontSize: "3mm", color: "#64748b" }}>{group.zone.name}</span>
-              )}
-              <span style={{ marginLeft: "auto", fontSize: "3mm", color: "#64748b" }}>
-                {group.books.length}장
-              </span>
-            </div>
-
-            {/* 바깥 테두리의 왼쪽·위쪽은 여기서 긋습니다(칸마다 그으면 두 겹이 됩니다). */}
-            <div
-              style={{
-                display: "grid",
-                gridTemplateColumns: `repeat(3, ${LABEL_W}mm)`,
-                gridAutoRows: `${LABEL_H}mm`,
-                borderTop: "0.25mm solid #94a3b8",
-                borderLeft: "0.25mm solid #94a3b8",
-                width: "fit-content",
-              }}
-            >
-              {group.books.map((book, bi) => (
+        {/* 바깥 테두리의 왼쪽·위쪽은 여기서 긋습니다(칸마다 그으면 두 겹이 됩니다). */}
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: `repeat(3, ${LABEL_W}mm)`,
+            gridAutoRows: `${LABEL_H}mm`,
+            borderTop: "0.25mm solid #94a3b8",
+            borderLeft: "0.25mm solid #94a3b8",
+            width: "fit-content",
+          }}
+        >
+          {books.map((book, bi) => (
                 <div
                   // 같은 책이 여러 장일 수 있어 id만으로는 겹칩니다.
                   key={`${book.id}-${bi}`}
@@ -247,17 +191,6 @@ export default async function PrintLabelsPage({
                       gap: "1.5mm",
                     }}
                   >
-                    {/* 라벨 한 장만 떨어져 나와도 어느 칸 것인지 알 수 있게. */}
-                    <span
-                      style={{
-                        fontSize: "2.4mm",
-                        fontWeight: 800,
-                        color: "#0f1b33",
-                        flexShrink: 0,
-                      }}
-                    >
-                      {group.zone ? group.zone.code : "—"}
-                    </span>
                     <span
                       style={{
                         fontSize: "2.8mm",
@@ -348,10 +281,8 @@ export default async function PrintLabelsPage({
                     fontSize={9}
                   />
                 </div>
-              ))}
-            </div>
-          </section>
-        ))}
+          ))}
+        </div>
       </div>
 
       {books.length === 0 && (
