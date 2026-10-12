@@ -115,7 +115,12 @@ export async function findBook(
     // 질의가 거부당한 것과 "그런 책이 없는 것"은 전혀 다른 일입니다. 묶어서 null 로
     // 돌려주면 화면에 "아직 등록되지 않은 책입니다"가 떠서, 원인을 짐작할 수조차 없습니다.
     if (error) throw new Error(`책을 찾는 중 오류: ${error.message}`);
-    return (data as unknown as LibBookWithShelf | null) ?? null;
+    if (data) return data as unknown as LibBookWithShelf;
+    /*
+      도서관 라벨 번호인데 그런 줄이 없습니다. 여기서 바로 포기하면 안 됩니다 - 겹치는 두 줄을
+      합치면서 사라진 번호가 바로 이 모양(GIA-B-00001)이고, 그 라벨은 아직 책에 붙어 있습니다.
+    */
+    return findByAlias(supabase, code, select);
   }
 
   // 오래된 책은 표지에 10자리, 바코드에 13자리가 적혀 있어서 같은 책이 두 번호를 가집니다.
@@ -138,7 +143,35 @@ export async function findBook(
     .eq("item_code", code)
     .maybeSingle();
   if (itemError) throw new Error(`책을 찾는 중 오류: ${itemError.message}`);
-  return (byItem as unknown as LibBookWithShelf | null) ?? null;
+  if (byItem) return byItem as unknown as LibBookWithShelf;
+
+  /*
+    ── 마지막으로 '옛 번호'를 봅니다 ────────────────────────────────────────
+    겹치는 두 줄을 합치면 한쪽 번호가 주인을 잃습니다. 그런데 그 번호는 **이미 책에 붙어
+    있는 라벨**입니다. 여기서 받아주지 않으면, 멀쩡히 꽂혀 있는 책을 찍었는데 "아직 등록되지
+    않은 책입니다"가 떠서 책이 사라진 것처럼 보입니다.
+
+    맨 끝에서만 봅니다 - 지금 쓰는 번호가 언제나 먼저입니다.
+  */
+  return findByAlias(supabase, code, select);
+}
+
+/** 합치면서 사라진 옛 번호로 책을 찾습니다(lib_book_aliases). */
+async function findByAlias(
+  supabase: SupabaseClient,
+  code: string,
+  select: string
+): Promise<LibBookWithShelf | null> {
+  const codes = Array.from(new Set([code, ...isbnVariants(code)]));
+  const { data } = await supabase
+    .from("lib_book_aliases")
+    .select("book_id")
+    .in("code", codes)
+    .limit(1);
+  const bookId = ((data ?? []) as { book_id: string }[])[0]?.book_id;
+  if (!bookId) return null;
+  const { data: book } = await supabase.from("lib_books").select(select).eq("id", bookId).maybeSingle();
+  return (book as unknown as LibBookWithShelf | null) ?? null;
 }
 
 /**

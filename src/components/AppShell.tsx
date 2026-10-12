@@ -34,6 +34,16 @@ const MENU_GROUPS: {
       { href: "/batch", label: "여러 권 등록", icon: "⚡", desc: "바코드 연속 스캔 → 한 칸에" },
       { href: "/books", label: "장서 관리", icon: "📚", desc: "책 목록 · 수정 · 라벨 인쇄" },
       {
+        /*
+          같은 책인데 두 줄이 되는 건 등록하다 생기는 일이라(한 번은 손으로 제목, 한 번은
+          바코드), 장서 관리 옆에 둡니다.
+        */
+        href: "/duplicates",
+        label: "겹치는 책 합치기",
+        icon: "🔗",
+        desc: "같은 책 두 줄을 한 줄로",
+      },
+      {
         href: "/recent",
         label: "최근 등록",
         icon: "🕘",
