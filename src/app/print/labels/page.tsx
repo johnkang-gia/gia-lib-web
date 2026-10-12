@@ -263,21 +263,66 @@ export default async function PrintLabelsPage({
                     </span>
                   </div>
 
-                  {book.author && (
-                    <div
+                  {/*
+                    ── 우리 도서관 바코드라는 표시 ───────────────────────────
+                    요청: "바코드 헷갈릴 수 있으니까 GIA 마크를 작게 넣어줘".
+
+                    책 뒤표지에는 출판사가 찍은 바코드가 이미 있습니다. 거기에 우리 라벨을
+                    붙이면 바코드가 둘이 되고, 어느 쪽을 찍어야 하는지는 **붙인 사람만**
+                    압니다. 그래서 우리 바코드 **바로 위에** 표시를 둡니다 - 라벨 구석이
+                    아니라 바코드에 붙여야, 둘을 나란히 놓고 보는 순간에 보입니다.
+
+                    문장(그림)만으로는 3mm에서 검은 덩어리로 보여 알아보기 어렵습니다.
+                    그래서 글자를 함께 둡니다 - 출판사 바코드에는 "GIA 도서관"이 적혀
+                    있을 일이 없으니, 글자 하나로 구별이 끝납니다.
+
+                    제목 줄이 아니라 이 줄에 넣은 이유: 제목은 칸 너비를 다 써야 합니다.
+                    위에 넣으면 긴 제목이 "마법천자…"처럼 잘려서 어느 책인지 알 수 없게
+                    됩니다. 저자 이름은 짧거나 비어 있어서 자리를 내줄 여유가 있습니다.
+                  */}
+                  <div
+                    style={{
+                      display: "flex",
+                      width: "100%",
+                      alignItems: "center",
+                      gap: "1mm",
+                      minWidth: 0,
+                    }}
+                  >
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src="/icon-512.png"
+                      alt=""
+                      style={{ height: "3mm", width: "auto", flexShrink: 0 }}
+                    />
+                    <span
                       style={{
-                        fontSize: "2.2mm",
-                        color: "#64748b",
-                        width: "100%",
-                        textAlign: "center",
-                        whiteSpace: "nowrap",
-                        overflow: "hidden",
-                        textOverflow: "ellipsis",
+                        fontSize: "2.1mm",
+                        fontWeight: 800,
+                        color: "#0f1b33",
+                        letterSpacing: "0.1mm",
+                        flexShrink: 0,
+                        printColorAdjust: "exact",
+                        WebkitPrintColorAdjust: "exact",
                       }}
                     >
-                      {book.author}
-                    </div>
-                  )}
+                      GIA 도서관
+                    </span>
+                    {book.author && (
+                      <span
+                        style={{
+                          fontSize: "2.1mm",
+                          color: "#64748b",
+                          minWidth: 0,
+                          overflow: "hidden",
+                          textOverflow: "ellipsis",
+                          whiteSpace: "nowrap",
+                        }}
+                      >
+                        · {book.author}
+                      </span>
+                    )}
+                  </div>
 
                   {/*
                     바코드는 칸 너비에 맞춰 키웁니다. 예전에는 굵기를 숫자로 박아 두어
