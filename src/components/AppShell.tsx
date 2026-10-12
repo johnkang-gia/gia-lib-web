@@ -49,11 +49,16 @@ const MENU_GROUPS: {
   },
   {
     title: "도서 정리",
-    hint: "책장을 새로 정돈할 때 — ①②③ 순서대로",
+    hint: "책장을 새로 정돈할 때 — ①②③④ 순서대로",
     items: [
       { href: "/locations", label: "① 구역 관리", icon: "🗺️", desc: "책장 칸 만들기 · 배치도" },
-      { href: "/plan", label: "② 정리 계획", icon: "🗂️", desc: "분류해서 옮길 자리 정하기" },
-      { href: "/move", label: "③ 정리 실행", icon: "🚚", desc: "찍으면 갈 칸 알려주기" },
+      /*
+        자리 등록이 정렬보다 먼저입니다. 지금 어디에 있는지를 모르면 어디로 옮길지도 정할 수
+        없습니다 - 아이들이 만져서 흩어진 책장을 한 칸씩 비우며 사실대로 적는 단계입니다.
+      */
+      { href: "/place", label: "② 자리 등록", icon: "📍", desc: "한 칸씩 찍어 지금 자리 적기" },
+      { href: "/plan", label: "③ 정리 계획", icon: "🗂️", desc: "분류해서 옮길 자리 정하기" },
+      { href: "/move", label: "④ 정리 실행", icon: "🚚", desc: "찍으면 갈 칸 알려주기" },
       { href: "/labels", label: "지금 라벨 점검", icon: "🏷️", desc: "색 라벨 등급 · 빠진 번호" },
     ],
   },

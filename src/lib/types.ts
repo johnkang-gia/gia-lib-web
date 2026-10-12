@@ -309,6 +309,72 @@ export type MoveResult =
   | { kind: "no_target"; book: LibBook; message: string }
   | { kind: "error"; message: string; detail?: string };
 
+/**
+ * 자리 등록 화면에서 책 한 권을 찍은 결과.
+ *
+ * 이 작업은 **새로 등록하는 게 아니라 이미 등록된 책의 자리를 지금 칸으로 옮기는 것**입니다.
+ * 그래서 화면이 알려줘야 할 것은 "등록됐다"가 아니라 **예전과 무엇이 다른가** 입니다.
+ */
+export type ShelfCheckResult =
+  | {
+      /** 자리를 이 칸으로 기록했습니다. */
+      kind: "placed";
+      book: LibBookWithShelf;
+      /** 찍기 전에 적혀 있던 자리. 달랐으면 화면에서 '2-5 → 2-1' 로 보여줍니다. */
+      from: LibLocation | null;
+      /** 이 칸에서 지금까지 찾은 권수. */
+      copiesHere: number;
+      /** 이 책이 기록되어 있는 다른 칸들(여기 말고). */
+      otherShelves: { code: string; copies: number }[];
+      /** 예전과 다른 점 · 사람이 봐야 할 것들. 없으면 빈 배열입니다. */
+      notices: ShelfNotice[];
+      message: string;
+    }
+  | {
+      /**
+       * 이 칸에서 이미 찍은 책입니다.
+       *
+       * 같은 책이 이 칸에 또 있는 것인지, 손이 미끄러져 두 번 찍힌 것인지는 **사람만**
+       * 압니다. 말없이 권수를 올리면 없는 책이 생기고, 말없이 무시하면 있는 책이 사라집니다.
+       */
+      kind: "again";
+      book: LibBookWithShelf;
+      copiesHere: number;
+      locationCode: string;
+      message: string;
+    }
+  | {
+      /** 같은 ISBN이 등급별로 여러 줄 - 어느 줄의 책인지 사람이 고릅니다. */
+      kind: "choices";
+      books: LibBookWithShelf[];
+      query: string;
+      message: string;
+    }
+  | {
+      /** 등록되지 않은 책. 이 작업은 자리 옮기기라서, 등록은 따로 해야 합니다. */
+      kind: "unknown";
+      code: string;
+      isIsbn: boolean;
+      message: string;
+      detail: string;
+    }
+  | { kind: "error"; message: string; detail?: string };
+
+/** 찍은 책에 대해 사람에게 알려야 할 한 가지. */
+export type ShelfNotice = {
+  tone: "info" | "warn";
+  /** 짧은 제목(큰 글씨). */
+  title: string;
+  /** 한 줄 설명. */
+  detail: string;
+  /**
+   * 화면이 버튼을 붙일 거리.
+   *  · split  - 상품코드 한 줄에 여러 권이 묶여 있음 → 따로 떼기
+   *  · labeled - 이 자리에서 도서관 라벨을 새로 발급했음 → 인쇄 대기에 쌓기
+   */
+  action?: "split" | "labeled";
+};
+
 /** 스캔 한 번의 처리 결과. 화면은 이 값만 보고 큰 글씨/색/소리를 정합니다. */
 export type ScanResult =
   | {
