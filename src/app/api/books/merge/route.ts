@@ -30,7 +30,17 @@ export async function POST(request: Request) {
   const email = auth.user?.email;
   if (!email) return NextResponse.json({ error: "로그인이 필요합니다." }, { status: 401 });
 
-  let body: { keepId?: string; mergeIds?: string[] };
+  let body: {
+    keepId?: string;
+    mergeIds?: string[];
+    /**
+     * 합친 뒤 이 칸으로 옮깁니다(지금 사람이 서 있는 책장 칸).
+     *
+     * 요청: "합치면 각 위치에 있는 책들을 지금 현재 책장 위치로 옮길 수 있도록 해줘."
+     * 여러 칸에서 꺼내 와 한 자리에 모았으니, 자료도 그렇게 적혀야 다음 사람이 찾습니다.
+     */
+    moveToLocationId?: string | null;
+  };
   try {
     body = await request.json();
   } catch {
@@ -220,10 +230,74 @@ export async function POST(request: Request) {
     await supabase.from("lib_book_aliases").upsert(toInsert, { onConflict: "code" });
   }
 
+  /*
+    ── ⑤ 한 칸으로 모읍니다 ────────────────────────────────────────────────
+    요청: "내가 직접 책들을 전부 각 위치에서 가져와서 비교해서 합치고, 합치면 각 위치에 있는
+    책들을 지금 현재 책장 위치로 옮길 수 있도록."
+
+    사람이 2-1 · 3-3 · 4-7 세 칸에서 책을 꺼내 와 한 자리에 모아 놓고 합쳤습니다. 그러면
+    자료도 "이제 전부 여기 있다"가 되어야 합니다. 그렇지 않으면 다음 사람이 3-3 앞에서
+    없는 책을 찾습니다.
+
+    세어 둔 권수는 **더해서 한 줄**로 만듭니다 - 권이 사라진 게 아니라 자리를 옮긴 것입니다.
+  */
+  let movedTo: string | null = null;
+  if (body.moveToLocationId) {
+    const { data: locRow } = await supabase
+      .from("lib_locations")
+      .select("id, code")
+      .eq("id", body.moveToLocationId)
+      .maybeSingle();
+    const target = locRow as { id: string; code: string } | null;
+    if (target) {
+      const { data: allRows } = await supabase
+        .from("lib_shelf_check")
+        .select("id,location_id,copies")
+        .eq("book_id", keep.id);
+      const rowsNow = (allRows ?? []) as { id: string; location_id: string; copies: number }[];
+      const total = rowsNow.reduce((n, r) => n + r.copies, 0);
+      const mine = rowsNow.find((r) => r.location_id === target.id);
+      const strays = rowsNow.filter((r) => r.location_id !== target.id);
+
+      if (total > 0) {
+        if (mine) {
+          await supabase
+            .from("lib_shelf_check")
+            .update({ copies: total, checked_at: new Date().toISOString(), checked_by: email })
+            .eq("id", mine.id);
+        } else {
+          await supabase.from("lib_shelf_check").insert({
+            book_id: keep.id,
+            location_id: target.id,
+            copies: total,
+            checked_by: email,
+          });
+        }
+        if (strays.length > 0) {
+          await supabase
+            .from("lib_shelf_check")
+            .delete()
+            .in("id", strays.map((r) => r.id));
+        }
+      }
+
+      await supabase.from("lib_books").update({ location_id: target.id }).eq("id", keep.id);
+      movedTo = target.code;
+    }
+  }
+
+  const { data: finalBook } = await supabase
+    .from("lib_books")
+    .select("*")
+    .eq("id", keep.id)
+    .maybeSingle();
+
   return NextResponse.json({
-    book: updated as LibBook,
+    book: (finalBook as LibBook | null) ?? (updated as LibBook),
     merged: others.length,
-    totalCopies: (updated as LibBook).total_copies,
+    totalCopies: ((finalBook as LibBook | null) ?? (updated as LibBook)).total_copies,
     aliases: toInsert.map((a) => a.code),
+    /** 합친 책을 옮겨 둔 칸 이름. 안 옮겼으면 null 입니다. */
+    movedTo,
   });
 }

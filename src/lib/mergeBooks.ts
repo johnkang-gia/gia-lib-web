@@ -83,10 +83,34 @@ export function groupSameTitle<T extends MergeCandidate>(rows: T[]): T[][] {
       })
     );
   }
-  // 권수가 많이 걸린 묶음부터 - 고치면 숫자가 가장 많이 바로잡히는 순서입니다.
-  return groups.sort(
-    (a, b) =>
-      b.reduce((n, r) => n + r.total_copies, 0) - a.reduce((n, r) => n + r.total_copies, 0)
+  return sortGroups(groups, "title");
+}
+
+/**
+ * 묶음을 어떤 순서로 보여줄지.
+ *
+ * 기본은 **이름순**입니다. 요청: "정렬은 알파벳 순으로 해주고, 같은 종류는 한 곳으로 정리될 수
+ * 있도록."
+ *
+ * 이 화면을 들고 실제로 책장 앞을 돌기 때문입니다. 책은 책장에 이름순으로 꽂혀 있으므로,
+ * 목록도 같은 순서여야 위에서 아래로 한 번에 훑습니다. '권수 많은 순'은 고칠 게 많은 것부터
+ * 보고 싶을 때 쓰는 순서라 따로 남겨 둡니다.
+ *
+ * 한글·영어가 섞여 있어서 localeCompare 에 'ko' 를 줍니다. 한글이 먼저 오고 그 다음이
+ * 영어인데, 책장에서도 한글 책과 영어 책은 따로 꽂히므로 두 덩어리가 섞이지 않는 편이 들고
+ * 돌기 좋습니다. numeric 을 켜서 '마법천자문 2' 가 '마법천자문 10' 보다 앞에 옵니다 - 글자로만
+ * 비교하면 1, 10, 2 순서가 되어 책장과 어긋납니다.
+ */
+export function sortGroups<T extends MergeCandidate>(groups: T[][], by: "title" | "copies"): T[][] {
+  const sorted = [...groups];
+  if (by === "copies") {
+    return sorted.sort(
+      (a, b) =>
+        b.reduce((n, r) => n + r.total_copies, 0) - a.reduce((n, r) => n + r.total_copies, 0)
+    );
+  }
+  return sorted.sort((a, b) =>
+    a[0].title.localeCompare(b[0].title, "ko", { numeric: true, sensitivity: "base" })
   );
 }
 
