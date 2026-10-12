@@ -17,6 +17,8 @@
  * 그래서 넓게 묶어 보여주고, **합칠지는 사람이 책을 보고 정합니다.** 자동으로 합치지 않습니다.
  */
 
+import { hasProductCodeAsId } from "@/lib/scan";
+
 /**
  * 제목을 비교용으로 다듬습니다.
  *
@@ -45,8 +47,14 @@ export type MergeCandidate = {
 /**
  * 제목이 같은 줄끼리 묶습니다. 두 줄 이상인 묶음만 돌려줍니다.
  *
- * 묶음 안의 순서: ISBN이 있는 줄을 앞에 둡니다. 합칠 때 남길 줄(대표)의 기본값이 되는데,
- * ISBN이 있는 줄을 남겨야 책 뒤표지 바코드를 찍었을 때 바로 찾힙니다.
+ * 묶음 안의 **첫 줄이 '남길 줄'의 기본값**이 됩니다. 그래서 순서가 곧 추천입니다.
+ *
+ *   ① 번호가 상품코드가 **아닌** 줄 — 상품코드는 시리즈 전체가 같은 번호라서 그 책 하나를
+ *      가리키지 못합니다. 그런 줄을 남기면 합쳐 놓고도 다시 라벨을 발급해야 합니다.
+ *   ② ISBN이 있는 줄 — 책 뒤표지 바코드를 찍었을 때 바로 찾힙니다.
+ *   ③ 권수가 많은 줄 — 손이 덜 가는 쪽입니다.
+ *
+ * 어디까지나 기본값이고, 화면에서 사람이 바꿀 수 있습니다.
  */
 export function groupSameTitle<T extends MergeCandidate>(rows: T[]): T[][] {
   const byKey = new Map<string, T[]>();
@@ -63,11 +71,14 @@ export function groupSameTitle<T extends MergeCandidate>(rows: T[]): T[][] {
     if (list.length < 2) continue;
     groups.push(
       [...list].sort((a, b) => {
-        // ① ISBN 있는 줄 먼저 ② 권수 많은 줄 먼저 ③ 그래도 같으면 id 순(화면이 흔들리지 않게)
+        const pa = hasProductCodeAsId(a) ? 1 : 0;
+        const pb = hasProductCodeAsId(b) ? 1 : 0;
+        if (pa !== pb) return pa - pb;
         const ia = a.isbn ? 0 : 1;
         const ib = b.isbn ? 0 : 1;
         if (ia !== ib) return ia - ib;
         if (a.total_copies !== b.total_copies) return b.total_copies - a.total_copies;
+        // 그래도 같으면 id 순 - 새로고침할 때마다 순서가 흔들리면 누르던 자리가 바뀝니다.
         return a.id < b.id ? -1 : 1;
       })
     );
