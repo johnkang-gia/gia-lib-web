@@ -37,14 +37,16 @@ export const dynamic = "force-dynamic";
  */
 export async function POST(request: Request) {
   const supabase = await createClient();
-  const { data: auth } = await supabase.auth.getUser();
-  const email = auth.user?.email ?? null;
-  if (!email) {
-    return NextResponse.json<ScanResult>(
-      { kind: "error", message: "로그인이 필요합니다." },
-      { status: 401 }
-    );
-  }
+  /*
+    ── 로그인 확인을 '먼저 보내 놓고' 기다립니다 ────────────────────────────
+    getUser() 는 쿠키를 읽는 게 아니라 Supabase 에 한 번 물어보는 길입니다. 예전처럼 여기서
+    await 하면 그 왕복이 끝나야 비로소 학생/책을 찾기 시작합니다 - 한 번 찍을 때마다 왕복이
+    하나 더 쌓입니다.
+
+    보내 놓고 바로 다음 일을 시작한 뒤, 답을 쓰기 직전에 받습니다. 먼저 던진 조회가 로그인
+    안 한 사람에게 무언가를 흘리지는 않습니다 - 표마다 걸린 RLS 가 그대로 막습니다.
+  */
+  const authPromise = supabase.auth.getUser();
 
   let body: {
     code?: string;
@@ -80,7 +82,15 @@ export async function POST(request: Request) {
 
   // ── ① 학생카드를 찍은 경우 ───────────────────────────────────────────────
   if (isStudentCode(code)) {
-    const student = await findStudent(supabase, code);
+    // 로그인 확인과 학생 찾기를 나란히 보냅니다 - 가장 자주 지나는 길이라 왕복 하나가 그대로
+    // 체감 시간입니다.
+    const [{ data: auth }, student] = await Promise.all([authPromise, findStudent(supabase, code)]);
+    if (!auth.user?.email) {
+      return NextResponse.json<ScanResult>(
+        { kind: "error", message: "로그인이 필요합니다." },
+        { status: 401 }
+      );
+    }
     if (!student) {
       return NextResponse.json<ScanResult>({
         kind: "error",
@@ -115,6 +125,15 @@ export async function POST(request: Request) {
       photoUrl: photos[student.student_no] ?? null,
       message: `${student.name} 학생 · 빌린 책 ${activeLoans.length}권`,
     });
+  }
+
+  const { data: auth } = await authPromise;
+  const email = auth.user?.email ?? null;
+  if (!email) {
+    return NextResponse.json<ScanResult>(
+      { kind: "error", message: "로그인이 필요합니다." },
+      { status: 401 }
+    );
   }
 
   // ── ①-2 카드를 안 가져온 학생 - 이름으로 찾기 ───────────────────────────
