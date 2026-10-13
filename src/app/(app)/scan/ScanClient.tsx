@@ -583,7 +583,15 @@ export default function ScanClient({
       )}
 
       {/* ── 본문: 왼쪽 학생 · 오른쪽 대출 관리 ─────────────────────────── */}
-      <div className="grid min-h-0 flex-1 gap-3 lg:grid-cols-[minmax(0,22rem)_minmax(0,1fr)] xl:grid-cols-[minmax(0,26rem)_minmax(0,1fr)]">
+      {/*
+        왼쪽과 오른쪽을 **반반**으로 둡니다.
+
+        처음에는 왼쪽을 좁게(3:7) 잡았습니다. 목록이 주인공이라고 생각해서였는데, 실제로 창구에
+        서 보니 왼쪽이 더 자주 쓰입니다 - 카드를 내민 아이가 맞는지 사진으로 확인하고, 연체가
+        있는지 보고, 지금 몇 권 들고 있는지 셉니다. 좁은 칸에서는 사진이 우표만 하고 이름이
+        한 줄로 눌려서, 결국 몸을 숙여 들여다봐야 했습니다.
+      */}
+      <div className="grid min-h-0 flex-1 gap-3 lg:grid-cols-2">
         {/* ── 왼쪽 ──────────────────────────────────────────────────── */}
         <section className="flex min-h-0 flex-col gap-3 overflow-y-auto rounded-2xl bg-white p-4 shadow-sm ring-1 ring-slate-200">
           {!student ? (
@@ -597,30 +605,37 @@ export default function ScanClient({
           ) : (
             <>
               <div className="flex items-center gap-4">
+                {/*
+                  사진은 건너편에서도 알아볼 수 있어야 합니다. 카드를 바꿔 들고 오거나 친구
+                  카드를 내미는 일이 실제로 생깁니다.
+                */}
                 {student.photoUrl ? (
                   // eslint-disable-next-line @next/next/no-img-element
                   <img
                     src={student.photoUrl}
                     alt=""
-                    className="h-24 w-[4.67rem] shrink-0 rounded-xl object-cover shadow-md ring-1 ring-slate-200"
+                    className="h-36 w-28 shrink-0 rounded-2xl object-cover shadow-md ring-1 ring-slate-200"
                   />
                 ) : (
-                  <div className="flex h-24 w-[4.67rem] shrink-0 items-center justify-center rounded-xl bg-slate-100 text-3xl text-slate-300">
+                  <div className="flex h-36 w-28 shrink-0 items-center justify-center rounded-2xl bg-slate-100 text-5xl text-slate-300">
                     🙂
                   </div>
                 )}
                 <div className="min-w-0">
-                  <p className="truncate text-4xl leading-none font-black text-gia-navy">
+                  <p className="truncate text-5xl leading-none font-black text-gia-navy">
                     {student.student.name}
                   </p>
-                  <p className="mt-1.5 text-lg text-slate-400">
+                  <p className="mt-2 text-xl text-slate-400">
                     {[student.student.grade, student.student.class_name].filter(Boolean).join(" ")}
+                  </p>
+                  <p className="mt-0.5 font-mono text-xs text-slate-300">
+                    {student.student.student_no}
                   </p>
                   <a
                     href={`/records/${encodeURIComponent(student.student.student_no)}`}
                     target="_blank"
                     rel="noreferrer"
-                    className="mt-1 inline-block text-xs font-semibold text-gia-gold hover:underline"
+                    className="mt-2 inline-block text-sm font-semibold text-gia-gold hover:underline"
                   >
                     📖 도서기록 보기 · 인쇄
                   </a>
@@ -628,8 +643,8 @@ export default function ScanClient({
               </div>
 
               {student.overdueCount > 0 && (
-                <p className="rounded-xl bg-red-50 px-3 py-2 text-sm font-bold text-red-700 ring-1 ring-red-200">
-                  연체 {student.overdueCount}권 — 먼저 반납해야 빌릴 수 있습니다
+                <p className="rounded-xl bg-red-50 px-4 py-3 text-base font-black text-red-700 ring-1 ring-red-200">
+                  ⚠ 연체 {student.overdueCount}권 — 먼저 반납해야 빌릴 수 있습니다
                 </p>
               )}
 
@@ -682,8 +697,8 @@ export default function ScanClient({
                     key={tile.label}
                     className="rounded-2xl bg-white px-2 py-2.5 text-center ring-1 ring-slate-200"
                   >
-                    <p className="text-[11px] font-semibold text-slate-400">{tile.label}</p>
-                    <p className="text-xl font-black text-gia-navy">
+                    <p className="text-xs font-semibold text-slate-400">{tile.label}</p>
+                    <p className="text-2xl font-black text-gia-navy">
                       {tile.value}
                       <span className="ml-0.5 text-sm font-medium text-slate-400">권</span>
                     </p>
@@ -802,31 +817,61 @@ export default function ScanClient({
                     </span>
                   )}
                   <div className="min-w-0 flex-1">
-                    <p className="truncate text-base font-bold">{item.book.title}</p>
+                    <p className="text-base font-bold break-words">{item.book.title}</p>
                     <p className="truncate text-xs text-slate-400">{item.book.author ?? ""}</p>
-                    {/*
-                      요청: "이 학생이 대출을 예전에 한 적이 있다면 언제 대출했는지."
-                      아이들은 같은 책을 또 집어 옵니다. 빌려주기 전에 보이면 "저번에 빌렸던
-                      거야, 다른 거 볼래?" 한마디를 할 수 있습니다.
-                    */}
-                    {before && (
-                      <p className="mt-0.5 inline-block rounded bg-amber-100 px-1.5 py-0.5 text-[11px] font-bold text-amber-800">
-                        예전에 빌린 책 — {formatDay(before.borrowedAt.slice(0, 10))}
-                        {before.times > 1 ? ` · ${before.times}번째` : ""}
-                      </p>
-                    )}
+                    <div className="mt-1 flex flex-wrap items-center gap-1.5">
+                      {/* 등급 - 책에 붙은 색 라벨과 같은 색입니다. */}
+                      {item.book.label_level != null && (
+                        <span
+                          className="rounded px-1.5 py-0.5 text-[11px] font-bold"
+                          style={{
+                            background: `${levelColor(item.book.label_level)}1f`,
+                            color: levelColor(item.book.label_level),
+                          }}
+                        >
+                          {item.book.label_level}등급
+                          {item.book.label_no ? ` ${item.book.label_no}` : ""}
+                        </span>
+                      )}
+                      {/*
+                        지금 자리. 아이가 "이 책 어디서 가져왔어?" 를 묻기도 하고, 대출을 안
+                        하고 두고 가면 다시 꽂아야 하는데 그때 어디로 가야 하는지가 여기 있습니다.
+                      */}
+                      {item.book.shelf ? (
+                        <span
+                          className="rounded px-1.5 py-0.5 text-[11px] font-bold"
+                          style={{
+                            background: `${item.book.shelf.color}1f`,
+                            color: item.book.shelf.color,
+                          }}
+                        >
+                          📍 {item.book.shelf.code}
+                          {item.book.shelf.name ? ` ${item.book.shelf.name}` : ""}
+                        </span>
+                      ) : (
+                        <span className="rounded bg-slate-200 px-1.5 py-0.5 text-[11px] font-semibold text-slate-500">
+                          📍 자리 미정
+                        </span>
+                      )}
+                      {/*
+                        요청: "이 학생이 대출을 예전에 한 적이 있다면 언제 대출했는지."
+                        아이들은 같은 책을 또 집어 옵니다. 빌려주기 전에 보이면 "저번에 빌렸던
+                        거야, 다른 거 볼래?" 한마디를 할 수 있습니다.
+                      */}
+                      {before ? (
+                        <span className="rounded bg-amber-100 px-1.5 py-0.5 text-[11px] font-bold text-amber-800">
+                          🔁 예전에 빌림 — {formatDay(before.borrowedAt.slice(0, 10))}
+                          {before.times > 1 ? ` · ${before.times}번째` : ""}
+                        </span>
+                      ) : (
+                        student && (
+                          <span className="rounded bg-emerald-50 px-1.5 py-0.5 text-[11px] font-semibold text-emerald-700">
+                            처음 빌리는 책
+                          </span>
+                        )
+                      )}
+                    </div>
                   </div>
-                  {item.book.label_level != null && (
-                    <span
-                      className="shrink-0 rounded px-1.5 py-0.5 text-[11px] font-bold"
-                      style={{
-                        background: `${levelColor(item.book.label_level)}1f`,
-                        color: levelColor(item.book.label_level),
-                      }}
-                    >
-                      {item.book.label_level}등급
-                    </span>
-                  )}
                   <button
                     type="button"
                     onClick={() => removeFromCart(item.key)}
@@ -863,33 +908,51 @@ export default function ScanClient({
           </div>
 
           {/* ── 방금 반납한 책 ────────────────────────────────────── */}
+          {/*
+            ── 반납한 책을 어디에 꽂는가 ─────────────────────────────────
+            요청: "반납할 때도 어느 구역에 넣으면 되는지 안내해줘."
+
+            반납받은 책은 바로 책상에 쌓입니다. 나중에 한 번에 꽂으려면 그때 다시 한 권씩
+            찍어 자리를 확인해야 합니다. 그래서 **칸 이름을 크게** 적어 둡니다 - 종이에
+            옮겨 적지 않고 화면만 보고 그대로 들고 가면 됩니다.
+          */}
           {returned.length > 0 && (
             <div className="mt-3 shrink-0 border-t border-slate-100 pt-3">
               <p className="mb-1.5 text-sm font-bold text-blue-600">
-                방금 반납 {returned.length}권 — 꽂을 자리
+                방금 반납 {returned.length}권 — 아래 칸에 꽂아주세요
               </p>
-              <ul className="max-h-32 space-y-1 overflow-y-auto">
+              <ul className="max-h-44 space-y-1.5 overflow-y-auto">
                 {returned.map((r) => (
                   <li
                     key={r.key}
-                    className="flex items-center gap-2 rounded-xl bg-blue-50 px-3 py-1.5 text-sm"
+                    className="flex items-center gap-3 rounded-xl bg-blue-50 px-3 py-2"
                   >
-                    <span className="min-w-0 flex-1 truncate font-semibold">{r.title}</span>
-                    {r.late > 0 && (
-                      <span className="shrink-0 text-xs font-bold text-red-600">
-                        {r.late}일 연체
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-sm font-bold">{r.title}</span>
+                      {r.late > 0 && (
+                        <span className="text-xs font-bold text-red-600">{r.late}일 연체</span>
+                      )}
+                    </span>
+                    {r.shelf ? (
+                      <span
+                        className="shrink-0 rounded-xl px-3 py-1.5 text-center"
+                        style={{ background: `${r.shelf.color}1f`, color: r.shelf.color }}
+                      >
+                        <span className="block text-xl leading-none font-black">
+                          {r.shelf.code}
+                        </span>
+                        {r.shelf.name && (
+                          <span className="block text-[11px] font-semibold">{r.shelf.name}</span>
+                        )}
+                      </span>
+                    ) : (
+                      <span className="shrink-0 rounded-xl bg-amber-100 px-3 py-2 text-xs font-bold text-amber-800">
+                        자리 미정
+                        <span className="block text-[10px] font-medium">
+                          자리 등록에서 칸을 정해주세요
+                        </span>
                       </span>
                     )}
-                    <span
-                      className="shrink-0 rounded-lg px-2 py-0.5 text-sm font-black"
-                      style={
-                        r.shelf
-                          ? { background: `${r.shelf.color}1f`, color: r.shelf.color }
-                          : { color: "#94a3b8" }
-                      }
-                    >
-                      {r.shelf ? r.shelf.code : "자리미정"}
-                    </span>
                   </li>
                 ))}
               </ul>
