@@ -438,6 +438,22 @@ function ResultPanel({
                 이 칸에서 {result.copiesHere}권째
               </p>
             )}
+            {/*
+              요청: "두 권째 찍히면 3권 중 2권이 2-1에 있다고 표시해주고, 한 권 더 찍으면
+              3/3으로 표기." 묻지 않는 대신 이 숫자가 사람에게 "이 칸은 다 나왔다"를
+              알려줍니다. 한 권짜리 책에는 셀 것이 없으니 띄우지 않습니다.
+            */}
+            {result.recordedCopies > 1 && (
+              <p
+                className={`mt-1 text-sm font-bold ${
+                  result.foundTotal >= result.recordedCopies ? "text-emerald-600" : "text-slate-400"
+                }`}
+              >
+                {result.foundTotal >= result.recordedCopies
+                  ? `${result.foundTotal}/${result.recordedCopies} 다 찾음`
+                  : `${result.recordedCopies}권 중 ${result.foundTotal}권`}
+              </p>
+            )}
           </div>
         </div>
 
@@ -496,17 +512,21 @@ function ResultPanel({
   if (result.kind === "again") {
     /*
       같은 책이 이 칸에 또 있는 것인지, 손이 미끄러져 두 번 찍힌 것인지는 사람만 압니다.
-      그래서 묻습니다 - 둘 중 어느 쪽이냐에 따라 권수가 달라집니다.
+      다만 적힌 권수 안에서는 묻지 않습니다 - 3권짜리 책이 세 권 나오는 것은 새로운 사실이
+      아니고, 한 칸에 서른 권을 찍는 사람에게 그 물음은 곧 일입니다. 이 카드는 적힌 권수를
+      **넘겼을 때만** 뜹니다. 그때가 기록이 틀렸다는 뜻이고, 사람이 책을 손에 들고 있을 때만
+      확인해 줄 수 있는 유일한 순간입니다.
     */
     return (
       <div className="gia-pop rounded-3xl bg-amber-50 p-6 ring-1 ring-amber-300">
         <p className="text-sm font-bold text-amber-700">{result.message}</p>
         <p className="mt-1 text-xl font-bold text-amber-950">{result.book.title}</p>
         <p className="mt-1 text-xs text-amber-800">
-          이 칸에서 {result.copiesHere}권 셈 · 장서에는 {result.recordedCopies}권으로 적혀 있습니다
+          장서에 {result.recordedCopies}권 · 지금까지 {result.foundTotal}권 찾음{result.copiesHere > 0 && ` (${result.locationCode}에 ${result.copiesHere}권)`}
         </p>
         <p className="mt-3 text-sm text-amber-900">
-          지금 손에 든 책이 <b>아까 그 책</b>인가요, <b>한 권이 더 있는</b> 건가요?
+          적힌 권수는 이미 다 찾았습니다. 지금 손에 든 책이 <b>아까 그 책</b>인가요,{" "}
+          <b>기록에 없던 한 권</b>인가요?
         </p>
         <div className="mt-3 flex flex-wrap gap-2">
           {/*
@@ -533,7 +553,7 @@ function ResultPanel({
             onClick={() => onAdd(result.book.id)}
             className="rounded-xl bg-amber-600 px-4 py-2.5 text-left text-sm font-bold text-white disabled:opacity-50"
           >
-            ➕ 장서추가 — {result.copiesHere + 1}권째
+            ➕ 장서추가 — {result.foundTotal + 1}권째
             <span className="block text-[11px] font-medium opacity-85">
               장서도 {result.recordedCopies} → {result.recordedCopies + 1}권
             </span>

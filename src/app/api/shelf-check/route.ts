@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { hasProductCodeAsId, isIsbn, normalizeScan } from "@/lib/scan";
 import { findBook, findBooksByIsbn } from "@/lib/server/library";
+import { progressTitle, repeatScan } from "@/lib/shelfCount";
 import type { LibBookWithShelf, LibLocation, ShelfCheckResult, ShelfNotice } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -157,22 +158,54 @@ export async function POST(request: Request) {
     .maybeSingle();
   const existing = (existingRow as CheckRow | null) ?? null;
 
-  if (existing && !body.confirm) {
-    /*
-      같은 책이 이 칸에 또 있는 것인지, 손이 미끄러져 두 번 찍힌 것인지는 사람만 압니다.
-      말없이 권수를 올리면 없는 책이 생기고, 말없이 무시하면 있는 책이 사라집니다.
+  /*
+    ── 이 책이 적혀 있는 다른 칸들 ─────────────────────────────────────────
+    또 찍혔을 때 묻느냐 세느냐를 가리려면 이 칸만 봐서는 안 됩니다. 3권짜리 책을 1-2에서
+    두 권 세어 둔 뒤 2-1에서 세 권을 찍으면 합계 다섯 권인데, 이 칸만 보는 규칙은 세
+    번째까지 조용히 받아 버립니다. 그래서 다른 칸을 먼저 세어 둡니다.
+  */
+  const { data: otherRows } = await supabase
+    .from("lib_shelf_check")
+    .select("copies, location:lib_locations!location_id(code, sort_order)")
+    .eq("book_id", book.id)
+    .neq("location_id", here.id);
+  const otherShelves = ((otherRows ?? []) as unknown as {
+    copies: number;
+    location: { code: string; sort_order: number } | null;
+  }[])
+    .filter((r) => r.location)
+    .sort((a, b) => (a.location!.sort_order ?? 0) - (b.location!.sort_order ?? 0))
+    .map((r) => ({ code: r.location!.code, copies: r.copies }));
+  const otherTotal = otherShelves.reduce((n, s) => n + s.copies, 0);
 
-      보유 권수를 함께 돌려주는 이유: '한 권 더'인지 아닌지를 고르려면 장서에 몇 권이라고
-      적혀 있는지를 봐야 합니다. 기록이 1권인데 손에 두 권이 있으면 그건 장서추가입니다.
+  /*
+    ── 또 찍혔습니다. 먼저 장서에 적힌 권수를 봅니다 ────────────────────────
+    규칙과 그 이유는 src/lib/shelfCount.ts 에 적어 두었습니다. 요약하면: 적힌 권수 안에서는
+    묻지 않고 세고, 넘기는 순간에만 묻습니다. '여러 권 등록'(/batch)은 지금까지와 같습니다 -
+    거기서 또 찍는 것은 "한 권 더 등록한다"는 뜻이라 바로 장서추가가 맞습니다.
+  */
+  const repeat = repeatScan({
+    copiesHere: existing?.copies ?? 0,
+    otherCopies: otherTotal,
+    recorded: book.total_copies,
+  });
+
+  if (existing && !body.confirm && repeat.ask) {
+    /*
+      여기까지 왔으면 적힌 권수보다 한 권이 더 나온 것입니다 - 기록이 틀렸다는 뜻이고,
+      같은 책 한 권인지(자리이동) 기록에 없던 한 권인지(장서추가)는 책을 손에 들고 있는
+      사람만 압니다. 말없이 권수를 올리면 없는 책이 생기고, 말없이 무시하면 있는 책이
+      사라집니다. 그래서 이때만 묻습니다.
     */
     return NextResponse.json<ShelfCheckResult>({
       kind: "again",
       book,
       copiesHere: existing.copies,
       recordedCopies: book.total_copies,
+      foundTotal: repeat.foundSoFar,
       locationCode: here.code,
       homeCode: (await findHome())?.code ?? null,
-      message: `이 칸에서 이미 ${existing.copies}권 찍은 책입니다`,
+      message: `기록상 ${book.total_copies}권인데 ${repeat.foundAfter}권째입니다`,
     });
   }
 
@@ -237,6 +270,9 @@ export async function POST(request: Request) {
       book: (moved as unknown as LibBookWithShelf | null) ?? book,
       from: here,
       copiesHere: home.copies + 1,
+      // 옮긴 것이므로 찾은 권수의 합은 그대로입니다(이 칸 -1, 원래 칸 +1).
+      foundTotal: existing ? existing.copies + otherTotal : otherTotal + 1,
+      recordedCopies: book.total_copies,
       otherShelves: [],
       notices: [
         {
@@ -441,21 +477,27 @@ export async function POST(request: Request) {
     return { title: spotsOf(titleIds), series: spotsOf(seriesIds) };
   }
 
-  // ── 이 책이 적혀 있는 다른 칸들 ──────────────────────────────────────────
-  const { data: otherRows } = await supabase
-    .from("lib_shelf_check")
-    .select("copies, location:lib_locations!location_id(code, sort_order)")
-    .eq("book_id", book.id)
-    .neq("location_id", here.id);
-  const otherShelves = ((otherRows ?? []) as unknown as {
-    copies: number;
-    location: { code: string; sort_order: number } | null;
-  }[])
-    .filter((r) => r.location)
-    .sort((a, b) => (a.location!.sort_order ?? 0) - (b.location!.sort_order ?? 0))
-    .map((r) => ({ code: r.location!.code, copies: r.copies }));
+  const foundTotal = copiesHere + otherTotal;
+  /** 장서에 적힌 권수. 이번에 '장서추가'를 눌렀으면 올린 뒤의 값입니다. */
+  const recordedTotal = (patch.total_copies as number | undefined) ?? book.total_copies;
 
-  const foundTotal = copiesHere + otherShelves.reduce((n, s) => n + s.copies, 0);
+  /*
+    적힌 권수 안이라 묻지 않고 센 경우입니다. 묻지 않은 대신 몇 권째인지는 반드시
+    보여줍니다 - 요청: "두 권째 찍히면 3권 중 2권이 2-1에 있다고 표시해주고, 한 권 더
+    찍으면 3/3으로 표기." 사람은 그 숫자를 보고 "이 칸은 다 나왔다"를 압니다.
+  */
+  if (existing && !body.confirm) {
+    notices.push({
+      tone: "info",
+      title: progressTitle(foundTotal, recordedTotal),
+      detail:
+        otherTotal > 0
+          ? `${here.code}에 ${copiesHere}권 · 다른 칸에 ${otherTotal}권. 적힌 권수 안이라 묻지 않고 세었습니다.`
+          : `${recordedTotal}권 중 ${copiesHere}권이 ${here.code}에 있습니다.${
+              repeat.done ? " 한 권이 더 나오면 그때 물어봅니다." : ""
+            }`,
+    });
+  }
   if (otherShelves.length > 0) {
     notices.push({
       tone: "info",
@@ -471,10 +513,10 @@ export async function POST(request: Request) {
     말없이 고치지는 않습니다 - 아직 못 돈 칸에 더 있을 수도 있어서, 다 돌기 전에는 어느
     쪽이 맞는지 알 수 없습니다.
   */
-  if (foundTotal > book.total_copies) {
+  if (foundTotal > recordedTotal) {
     notices.push({
       tone: "warn",
-      title: `기록상 ${book.total_copies}권인데 ${foundTotal}권째입니다`,
+      title: `기록상 ${recordedTotal}권인데 ${foundTotal}권째입니다`,
       detail: "다 돌고 나서 장서 관리에서 보유 권수를 고쳐주세요.",
     });
   }
@@ -511,6 +553,8 @@ export async function POST(request: Request) {
     book: (updated as unknown as LibBookWithShelf | null) ?? book,
     from,
     copiesHere,
+    foundTotal,
+    recordedCopies: recordedTotal,
     otherShelves,
     notices,
     message: copiesHere > 1 ? `${here.code} · ${copiesHere}권째` : here.code,

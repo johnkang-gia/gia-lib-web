@@ -332,6 +332,13 @@ export type ShelfCheckResult =
       from: LibLocation | null;
       /** 이 칸에서 지금까지 찾은 권수. */
       copiesHere: number;
+      /**
+       * 이 책을 지금까지 모두 몇 권 찾았는지(이 칸 + 다른 칸).
+       * 화면은 이것으로 '3권 중 2권' · '3/3' 을 보여줍니다.
+       */
+      foundTotal: number;
+      /** 장서에 적혀 있는 보유 권수(이번에 올렸으면 올린 뒤의 값). */
+      recordedCopies: number;
       /** 이 책이 기록되어 있는 다른 칸들(여기 말고). */
       otherShelves: { code: string; copies: number }[];
       /** 예전과 다른 점 · 사람이 봐야 할 것들. 없으면 빈 배열입니다. */
@@ -340,16 +347,20 @@ export type ShelfCheckResult =
     }
   | {
       /**
-       * 이 칸에서 이미 찍은 책입니다.
+       * 적힌 권수를 넘겨 찍혔습니다.
        *
-       * 같은 책이 이 칸에 또 있는 것인지, 손이 미끄러져 두 번 찍힌 것인지는 **사람만**
-       * 압니다. 말없이 권수를 올리면 없는 책이 생기고, 말없이 무시하면 있는 책이 사라집니다.
+       * 적힌 권수 안이면 묻지 않고 셉니다(3권짜리 책이 세 권 나오는 것은 새로운 사실이
+       * 아닙니다). 넘기는 순간에만 묻습니다 - 그때는 기록이 틀렸다는 뜻이고, 같은 책 한
+       * 권인지 기록에 없던 한 권인지는 **사람만** 압니다. 말없이 권수를 올리면 없는 책이
+       * 생기고, 말없이 무시하면 있는 책이 사라집니다.
        */
       kind: "again";
       book: LibBookWithShelf;
       copiesHere: number;
       /** 장서에 적혀 있는 보유 권수. 고를 때 '한 권 더인지'를 판단하는 근거입니다. */
       recordedCopies: number;
+      /** 이번 한 권을 세기 전까지 찾은 권수(이 칸 + 다른 칸). */
+      foundTotal: number;
       locationCode: string;
       /** 이 책이 이미 세어져 있는 **다른** 칸(가장 많은 쪽). 없으면 null 입니다. */
       homeCode: string | null;
