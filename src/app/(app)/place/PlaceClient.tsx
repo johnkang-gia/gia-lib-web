@@ -10,6 +10,17 @@ import { addToPile, fetchPile, type Pile } from "@/lib/pileClient";
 import type { LibBook, LibBookWithShelf, LibLocation, ShelfCheckResult } from "@/lib/types";
 import type { ShelfListRow } from "@/app/api/shelf-check/list/route";
 
+/** 한 칸의 기록 전체. */
+type ShelfList = {
+  titles: number;
+  copies: number;
+  /** 그중 지금 대출 나가 있어 책장에는 없는 권수. */
+  onLoan: number;
+  /** 지금 책장에 꽂혀 있어야 하는 권수 = copies - onLoan. */
+  onShelf: number;
+  rows: ShelfListRow[];
+};
+
 /** 방금 찍어서 이 칸에 적어 둔 한 권. 되돌리려면 찍기 전 자리를 알아야 합니다. */
 type Done = {
   key: string;
@@ -66,9 +77,21 @@ export default function PlaceClient({
     책인지 모르면 칸을 통째로 다시 찍어야 하고, 그건 한나절짜리 일입니다.
   */
   const [listOf, setListOf] = useState<LibLocation | null>(null);
-  const [list, setList] = useState<{ titles: number; copies: number; rows: ShelfListRow[] } | null>(
-    null
+  const [list, setList] = useState<ShelfList | null>(null);
+  /*
+    ── 대조 검사 ─────────────────────────────────────────────────────────
+    요청: "확인은 등록되어 있는 책장에서 실물 책들을 빼서 다시 찍어서 지금 자리 등록에 들어가
+    있는 책들과 비교할 수 있도록 만들어줘."
+
+    검사하는 동안에는 **아무것도 쓰지 않습니다.** 세면서 기록이 바뀌면 무엇과 무엇을 맞추고
+    있는지 알 수 없게 됩니다. 다 세고 나서 사람이 한 번에 맞춥니다.
+  */
+  const [audit, setAudit] = useState<Map<string, number> | null>(null);
+  const [auditNote, setAuditNote] = useState<string | null>(null);
+  const [auditBooks, setAuditBooks] = useState<Record<string, { title: string; level: number | null }>>(
+    {}
   );
+  const auditRef = useRef<HTMLInputElement>(null);
   const [listBusy, setListBusy] = useState(false);
 
   const loadList = useCallback(async (loc: LibLocation) => {
@@ -77,9 +100,9 @@ export default function PlaceClient({
     setListBusy(true);
     try {
       const res = await fetch(`/api/shelf-check/list?locationId=${encodeURIComponent(loc.id)}`);
-      setList((await res.json()) as { titles: number; copies: number; rows: ShelfListRow[] });
+      setList((await res.json()) as ShelfList);
     } catch {
-      setList({ titles: 0, copies: 0, rows: [] });
+      setList({ titles: 0, copies: 0, onLoan: 0, onShelf: 0, rows: [] });
     } finally {
       setListBusy(false);
     }
@@ -97,7 +120,7 @@ export default function PlaceClient({
           body: JSON.stringify({ bookId, locationId: listOf.id, action }),
         });
         const res = await fetch(`/api/shelf-check/list?locationId=${encodeURIComponent(listOf.id)}`);
-        setList((await res.json()) as { titles: number; copies: number; rows: ShelfListRow[] });
+        setList((await res.json()) as ShelfList);
         router.refresh();
       } finally {
         setListBusy(false);
@@ -105,6 +128,102 @@ export default function PlaceClient({
     },
     [listOf, listBusy, router]
   );
+
+  /** 검사하며 찍습니다. 세기만 하고 아무것도 쓰지 않습니다. */
+  const auditScan = useCallback(
+    async (raw: string) => {
+      const code = normalizeScan(raw);
+      if (!code || !audit) return;
+      setAuditNote(null);
+      try {
+        const res = await fetch(`/api/shelf-check/find?code=${encodeURIComponent(code)}`);
+        const json = (await res.json()) as {
+          book?: LibBookWithShelf | null;
+          choices?: LibBookWithShelf[];
+          error?: string;
+        };
+        if (json.choices && json.choices.length > 1) {
+          setAuditNote(
+            `${json.choices[0].title} — 같은 ISBN이 등급별로 ${json.choices.length}줄입니다. 이 책은 '등록' 화면에서 등급을 골라 찍어주세요.`
+          );
+          return;
+        }
+        const book = json.book;
+        if (!book) {
+          setAuditNote(`${code} — 등록되지 않은 책입니다. '등록' 화면에서 먼저 등록해주세요.`);
+          return;
+        }
+        setAuditBooks((prev) => ({
+          ...prev,
+          [book.id]: { title: book.title, level: book.label_level },
+        }));
+        setAudit((prev) => {
+          const next = new Map(prev);
+          next.set(book.id, (next.get(book.id) ?? 0) + 1);
+          return next;
+        });
+        setAuditNote(`✔ ${book.title}`);
+      } catch {
+        setAuditNote("찾는 중 오류가 났습니다.");
+      }
+    },
+    [audit]
+  );
+
+  /** 다 세고 나서, 찍은 대로 이 칸의 기록을 바꿉니다. */
+  const applyAudit = useCallback(async () => {
+    if (!listOf || !audit || listBusy) return;
+    const counts = [...audit.entries()].map(([bookId, copies]) => ({ bookId, copies }));
+    const copies = counts.reduce((n, c) => n + c.copies, 0);
+    if (
+      !window.confirm(
+        `${listOf.code} 칸의 기록을 방금 찍은 ${counts.length}종 ${copies}권으로 바꿉니다.\n\n` +
+          "찍히지 않은 책은 이 칸에서 빠집니다(대출 나간 책이 있으면 그 책도 빠지니 주의하세요).\n\n진행할까요?"
+      )
+    )
+      return;
+    setListBusy(true);
+    try {
+      await fetch("/api/shelf-check/list", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ locationId: listOf.id, action: "apply", counts }),
+      });
+      const res = await fetch(`/api/shelf-check/list?locationId=${encodeURIComponent(listOf.id)}`);
+      setList((await res.json()) as ShelfList);
+      setAudit(null);
+      setAuditNote(null);
+      router.refresh();
+    } finally {
+      setListBusy(false);
+    }
+  }, [listOf, audit, listBusy, router]);
+
+  /** 이 칸의 센 기록을 통째로 지웁니다(책과 장서 권수는 그대로). */
+  const resetShelf = useCallback(async () => {
+    if (!listOf || listBusy) return;
+    if (
+      !window.confirm(
+        `${listOf.code} 칸에서 센 기록을 통째로 지웁니다.\n\n` +
+          "책이 지워지는 것이 아니라 '이 칸에서 몇 권 찾았나'만 지워집니다. 장서의 보유 권수는 그대로입니다.\n\n진행할까요?"
+      )
+    )
+      return;
+    setListBusy(true);
+    try {
+      await fetch("/api/shelf-check/list", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ locationId: listOf.id, action: "reset" }),
+      });
+      const res = await fetch(`/api/shelf-check/list?locationId=${encodeURIComponent(listOf.id)}`);
+      setList((await res.json()) as ShelfList);
+      setAudit(null);
+      router.refresh();
+    } finally {
+      setListBusy(false);
+    }
+  }, [listOf, listBusy, router]);
   const inputRef = useRef<HTMLInputElement>(null);
   /** 찍기를 멈춘 뒤에 한 번만 숫자를 맞추려고 들고 있는 타이머. */
   const refreshTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -246,8 +365,50 @@ export default function PlaceClient({
             {listOf.code}
           </span>
           <span className="min-w-0 flex-1 text-sm font-bold text-slate-600">
-            {list ? `${list.titles}종 · ${list.copies}권` : "세는 중…"}
+            {list ? (
+              <>
+                {list.titles}종 · {list.copies}권
+                {/*
+                  "다 맞는데 왜 71권이지?"의 답이 보통 여기 있습니다. 찍을 때는 칸에 있었지만
+                  그 뒤에 빌려 나간 책은 기록에 남고 책장에는 없습니다. 손으로 센 숫자와
+                  맞춰 볼 숫자는 '책장에 있어야 할' 쪽입니다.
+                */}
+                {list.onLoan > 0 && (
+                  <span className="ml-2 font-normal text-slate-500">
+                    — 대출 중 {list.onLoan}권 ·{" "}
+                    <b className="text-gia-navy">책장에 있어야 할 {list.onShelf}권</b>
+                  </span>
+                )}
+              </>
+            ) : (
+              "세는 중…"
+            )}
           </span>
+          {list && !audit && (
+            <>
+              <button
+                type="button"
+                disabled={listBusy}
+                onClick={() => {
+                  setAudit(new Map());
+                  setAuditBooks({});
+                  setAuditNote(null);
+                  setTimeout(() => auditRef.current?.focus(), 50);
+                }}
+                className="rounded-lg bg-gia-navy px-3 py-1.5 text-xs font-bold text-white disabled:opacity-50"
+              >
+                ✅ 대조 검사
+              </button>
+              <button
+                type="button"
+                disabled={listBusy}
+                onClick={() => void resetShelf()}
+                className="rounded-lg border border-rose-300 px-3 py-1.5 text-xs font-bold text-rose-700 disabled:opacity-50"
+              >
+                🔄 리셋
+              </button>
+            </>
+          )}
           <button
             type="button"
             onClick={() => {
@@ -260,68 +421,193 @@ export default function PlaceClient({
           </button>
         </div>
 
-        <p className="bg-amber-50 px-5 py-2.5 text-xs leading-relaxed text-amber-900">
-          실제 책장과 권수가 다르면 여기서 고칩니다. <b>−1권</b>은 두 번 찍힌 것,{" "}
-          <b>이 칸에서 빼기</b>는 애초에 이 칸 책이 아니었던 것입니다. 장서의 보유 권수는
-          건드리지 않습니다.
-        </p>
+        {audit ? (
+          (() => {
+            /*
+              ── 대조 검사 ───────────────────────────────────────────────
+              칸을 비워 한 권씩 찍으면서, 기록과 손에 든 것을 맞춰 봅니다. 세 가지만 보면
+              됩니다: 기록에 있는데 안 나온 책 · 나왔는데 기록에 없는 책 · 권수가 다른 책.
+              대출 나간 책은 '안 나온' 쪽에 뜨는 게 정상이라 따로 표시해 둡니다.
+            */
+            const recorded = new Map((list?.rows ?? []).map((r) => [r.bookId, r]));
+            const scannedCopies = [...audit.values()].reduce((n, c) => n + c, 0);
+            const missing = (list?.rows ?? []).filter((r) => (audit.get(r.bookId) ?? 0) < r.copies);
+            const extra = [...audit.entries()].filter(
+              ([id, c]) => (recorded.get(id)?.copies ?? 0) < c
+            );
+            const same = (list?.rows ?? []).filter((r) => (audit.get(r.bookId) ?? 0) === r.copies);
+            return (
+              <>
+                <div className="border-b border-slate-100 px-5 py-3">
+                  <input
+                    ref={auditRef}
+                    autoFocus
+                    onKeyDown={(e) => {
+                      if (e.key !== "Enter") return;
+                      const v = (e.target as HTMLInputElement).value;
+                      (e.target as HTMLInputElement).value = "";
+                      void auditScan(v);
+                    }}
+                    placeholder={`${listOf.code} 칸에서 꺼낸 책을 하나씩 찍으세요 — 아직 아무것도 바뀌지 않습니다`}
+                    className="scan-input w-full rounded-xl border-2 border-dashed border-gia-gold bg-amber-50/50 px-4 py-3 text-center outline-none"
+                    autoComplete="off"
+                    spellCheck={false}
+                  />
+                  <p className="mt-2 flex flex-wrap items-center gap-3 text-sm">
+                    <span className="font-bold text-emerald-700">
+                      찍음 {audit.size}종 · {scannedCopies}권
+                    </span>
+                    <span className="text-slate-400">
+                      기록 {list?.titles ?? 0}종 · {list?.copies ?? 0}권
+                    </span>
+                    {auditNote && <span className="truncate text-xs text-slate-500">{auditNote}</span>}
+                  </p>
+                </div>
 
-        <ul className="min-h-0 flex-1 divide-y divide-slate-100 overflow-y-auto">
-          {list?.rows.map((r) => (
-            <li key={r.bookId} className="flex items-center gap-3 px-5 py-2.5">
-              <span className="min-w-0 flex-1">
-                <span className="block truncate text-sm font-semibold">{r.title}</span>
-                <span className="block truncate text-[11px] text-slate-400">
-                  {r.author ?? ""}
-                  {r.itemCode ? ` · ${r.itemCode}` : r.isbn ? ` · ${r.isbn}` : ""}
-                </span>
-              </span>
-              {r.level != null && (
-                <span
-                  className="shrink-0 rounded px-1.5 py-0.5 text-[11px] font-bold"
-                  style={{
-                    background: `${levelColor(r.level)}1f`,
-                    color: levelColor(r.level),
-                  }}
-                >
-                  {r.level}
-                  {r.labelNo ? ` ${r.labelNo}` : ""}
-                </span>
+                <div className="min-h-0 flex-1 overflow-y-auto">
+                  {missing.length > 0 && (
+                    <section>
+                      <p className="sticky top-0 bg-amber-100 px-5 py-1.5 text-xs font-bold text-amber-900">
+                        기록에 있는데 안 나왔습니다 — {missing.length}종
+                      </p>
+                      <ul className="divide-y divide-slate-100">
+                        {missing.map((r) => (
+                          <li key={r.bookId} className="flex items-center gap-3 px-5 py-2 text-sm">
+                            <span className="min-w-0 flex-1 truncate">{r.title}</span>
+                            {r.onLoan > 0 && (
+                              <span className="shrink-0 rounded bg-sky-50 px-1.5 py-0.5 text-[11px] font-bold text-sky-700">
+                                📕 대출 중 {r.onLoan}권
+                              </span>
+                            )}
+                            <span className="shrink-0 text-xs text-slate-500">
+                              기록 {r.copies}권 · 찍음 {audit.get(r.bookId) ?? 0}권
+                            </span>
+                          </li>
+                        ))}
+                      </ul>
+                    </section>
+                  )}
+                  {extra.length > 0 && (
+                    <section>
+                      <p className="sticky top-0 bg-rose-100 px-5 py-1.5 text-xs font-bold text-rose-900">
+                        나왔는데 기록보다 많습니다 — {extra.length}종
+                      </p>
+                      <ul className="divide-y divide-slate-100">
+                        {extra.map(([id, c]) => (
+                          <li key={id} className="flex items-center gap-3 px-5 py-2 text-sm">
+                            <span className="min-w-0 flex-1 truncate">
+                              {auditBooks[id]?.title ?? id}
+                            </span>
+                            <span className="shrink-0 text-xs text-slate-500">
+                              기록 {recorded.get(id)?.copies ?? 0}권 · 찍음 {c}권
+                            </span>
+                          </li>
+                        ))}
+                      </ul>
+                    </section>
+                  )}
+                  <p className="px-5 py-3 text-xs text-slate-400">
+                    맞는 책 {same.length}종. 다 찍으셨으면 아래에서 이 칸의 기록을 바꿉니다.
+                  </p>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-2 border-t border-slate-100 bg-slate-50 px-5 py-3">
+                  <button
+                    type="button"
+                    disabled={listBusy || audit.size === 0}
+                    onClick={() => void applyAudit()}
+                    className="rounded-xl bg-gia-navy px-4 py-2 text-sm font-bold text-white disabled:opacity-40"
+                  >
+                    찍은 대로 맞추기 — {audit.size}종 {scannedCopies}권
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setAudit(null);
+                      setAuditNote(null);
+                    }}
+                    className="rounded-xl px-4 py-2 text-sm font-semibold text-slate-600 underline"
+                  >
+                    검사 그만두기
+                  </button>
+                  <span className="text-[11px] text-slate-400">
+                    바꾸지 않고 그만둬도 됩니다 — 검사 중에는 아무것도 저장되지 않습니다.
+                  </span>
+                </div>
+              </>
+            );
+          })()
+        ) : (
+          <>
+            <p className="bg-amber-50 px-5 py-2.5 text-xs leading-relaxed text-amber-900">
+              실제 책장과 권수가 다르면 여기서 고칩니다. <b>−1권</b>은 두 번 찍힌 것,{" "}
+              <b>빼기</b>는 애초에 이 칸 책이 아니었던 것입니다. 어디서부터 어긋났는지 모르겠으면{" "}
+              <b>✅ 대조 검사</b>로 칸을 비우고 다시 찍어 맞춰 보세요.
+            </p>
+
+            <ul className="min-h-0 flex-1 divide-y divide-slate-100 overflow-y-auto">
+              {list?.rows.map((r) => (
+                <li key={r.bookId} className="flex items-center gap-3 px-5 py-2.5">
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-sm font-semibold">{r.title}</span>
+                    <span className="block truncate text-[11px] text-slate-400">
+                      {r.author ?? ""}
+                      {r.itemCode ? ` · ${r.itemCode}` : r.isbn ? ` · ${r.isbn}` : ""}
+                    </span>
+                  </span>
+                  {/* 찍은 뒤에 빌려 나간 책입니다 - 기록에는 있고 책장에는 없습니다. */}
+                  {r.onLoan > 0 && (
+                    <span className="shrink-0 rounded bg-sky-50 px-1.5 py-0.5 text-[11px] font-bold text-sky-700">
+                      📕 대출 {r.onLoan}
+                    </span>
+                  )}
+                  {r.level != null && (
+                    <span
+                      className="shrink-0 rounded px-1.5 py-0.5 text-[11px] font-bold"
+                      style={{
+                        background: `${levelColor(r.level)}1f`,
+                        color: levelColor(r.level),
+                      }}
+                    >
+                      {r.level}
+                      {r.labelNo ? ` ${r.labelNo}` : ""}
+                    </span>
+                  )}
+                  <span
+                    className={`w-12 shrink-0 text-right text-sm font-black ${
+                      r.copies > 1 ? "text-amber-600" : "text-slate-500"
+                    }`}
+                  >
+                    {r.copies}권
+                  </span>
+                  <span className="flex shrink-0 gap-1">
+                    <button
+                      type="button"
+                      disabled={listBusy}
+                      onClick={() => void fixRow(r.bookId, "minus")}
+                      className="rounded-lg border border-slate-300 px-2 py-1 text-xs font-bold text-slate-700 disabled:opacity-40"
+                    >
+                      −1권
+                    </button>
+                    <button
+                      type="button"
+                      disabled={listBusy}
+                      onClick={() => void fixRow(r.bookId, "remove")}
+                      className="rounded-lg border border-rose-300 px-2 py-1 text-xs font-bold text-rose-700 disabled:opacity-40"
+                    >
+                      빼기
+                    </button>
+                  </span>
+                </li>
+              ))}
+              {list && list.rows.length === 0 && (
+                <li className="px-5 py-10 text-center text-sm text-slate-400">
+                  이 칸에 적힌 책이 없습니다.
+                </li>
               )}
-              {/* 한 책이 이 칸에 두 권 이상이면 그게 보통 어긋난 자리입니다 - 눈에 띄게 둡니다. */}
-              <span
-                className={`w-12 shrink-0 text-right text-sm font-black ${
-                  r.copies > 1 ? "text-amber-600" : "text-slate-500"
-                }`}
-              >
-                {r.copies}권
-              </span>
-              <span className="flex shrink-0 gap-1">
-                <button
-                  type="button"
-                  disabled={listBusy}
-                  onClick={() => void fixRow(r.bookId, "minus")}
-                  className="rounded-lg border border-slate-300 px-2 py-1 text-xs font-bold text-slate-700 disabled:opacity-40"
-                >
-                  −1권
-                </button>
-                <button
-                  type="button"
-                  disabled={listBusy}
-                  onClick={() => void fixRow(r.bookId, "remove")}
-                  className="rounded-lg border border-rose-300 px-2 py-1 text-xs font-bold text-rose-700 disabled:opacity-40"
-                >
-                  빼기
-                </button>
-              </span>
-            </li>
-          ))}
-          {list && list.rows.length === 0 && (
-            <li className="px-5 py-10 text-center text-sm text-slate-400">
-              이 칸에 적힌 책이 없습니다.
-            </li>
-          )}
-        </ul>
+            </ul>
+          </>
+        )}
       </div>
     </div>
   );
