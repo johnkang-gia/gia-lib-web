@@ -345,7 +345,11 @@ export async function POST(request: Request) {
       .from("lib_loans")
       .insert({
         book_id: book.id,
-        student_id: student.id,
+      /*
+        학생일 때만 명부 칸을 채웁니다. 점검용·교직원 카드의 id 는 학교 명부에 없는 값이라
+        그대로 넣으면 저장이 거절됩니다. 번호와 이름은 아래에 그대로 남으므로 기록은 온전합니다.
+      */
+        student_id: student.kind && student.kind !== "학생" ? null : student.id,
         student_no: student.student_no,
         student_name: student.name,
         student_class: [student.grade, student.class_name].filter(Boolean).join(" ") || null,

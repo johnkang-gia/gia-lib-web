@@ -77,6 +77,12 @@ const MENU_GROUPS: {
     hint: "학기 초에 한 번",
     items: [
       { href: "/cards", label: "도서카드 인쇄", icon: "🪪", desc: "학생 카드 만들기" },
+      {
+        href: "/staff-cards",
+        label: "교직원 · 점검 카드",
+        icon: "🧑‍🏫",
+        desc: "학생이 아닌 사람의 도서카드",
+      },
       { href: "/students", label: "학생별 이력", icon: "🙋", desc: "학생이 빌린 책 기록" },
       { href: "/settings", label: "설정", icon: "⚙️", desc: "대출 기간 · 권수 규칙" },
     ],

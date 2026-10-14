@@ -31,7 +31,17 @@ export function departmentOf(row: { department?: string | null; grade?: string |
   return d === "유치부" || d === "초등부" || d === "중고등부" ? d : null;
 }
 
-/** 명부 줄의 부서를 판정값으로 바꿔 돌려줍니다. 화면은 이것만 받습니다. */
-export function withDepartment<T extends Pick<LibStudent, "department" | "grade">>(rows: T[]): T[] {
-  return rows.map((r) => ({ ...r, department: departmentOf(r) }));
+/**
+ * 명부 줄의 부서를 판정값으로 바꿔 돌려줍니다. 화면은 이것만 받습니다.
+ *
+ * 학생이 아닌 카드(개발·점검용·교직원)는 건드리지 않습니다. 그 줄의 '학년' 자리에는 담당이
+ * 들어 있어서 학년으로 읽으면 엉뚱한 부서가 나오고, 애초에 유치부·초등부·중고등부 중 하나일
+ * 이유가 없습니다.
+ */
+export function withDepartment<T extends Pick<LibStudent, "department" | "grade"> & { kind?: string }>(
+  rows: T[]
+): T[] {
+  return rows.map((r) =>
+    r.kind && r.kind !== "학생" ? r : { ...r, department: departmentOf(r) }
+  );
 }
