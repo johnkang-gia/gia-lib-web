@@ -8,6 +8,7 @@ import { formatIsbn, isBookBarcode, normalizeScan } from "@/lib/scan";
 import { levelColor } from "@/lib/bookLevels";
 import { addToPile, fetchPile, type Pile } from "@/lib/pileClient";
 import type { LibBook, LibBookWithShelf, LibLocation, ShelfCheckResult } from "@/lib/types";
+import type { ShelfListRow } from "@/app/api/shelf-check/list/route";
 
 /** 방금 찍어서 이 칸에 적어 둔 한 권. 되돌리려면 찍기 전 자리를 알아야 합니다. */
 type Done = {
@@ -56,7 +57,60 @@ export default function PlaceClient({
     **그 자리에서 이 칸에 바로 꽂습니다**(등록 → 자리 등록까지 한 번에).
   */
   const [register, setRegister] = useState<{ isbn?: string; code?: string } | null>(null);
+  /*
+    ── 목록보기 ──────────────────────────────────────────────────────────
+    요청: "목록보기를 누르면 등록된 권수와 어떤 책이 그 책장에 들어갔는지 나왔으면 좋겠어 ...
+    실제 책장에는 68권인데 앱에서는 71권이래 ... 수정할 방법이 없어서 수정할 수 있게."
+
+    숫자만 보여주면 어긋났을 때 **어디가 어긋났는지 알 길이 없습니다.** 3권 차이가 어느
+    책인지 모르면 칸을 통째로 다시 찍어야 하고, 그건 한나절짜리 일입니다.
+  */
+  const [listOf, setListOf] = useState<LibLocation | null>(null);
+  const [list, setList] = useState<{ titles: number; copies: number; rows: ShelfListRow[] } | null>(
+    null
+  );
+  const [listBusy, setListBusy] = useState(false);
+
+  const loadList = useCallback(async (loc: LibLocation) => {
+    setListOf(loc);
+    setList(null);
+    setListBusy(true);
+    try {
+      const res = await fetch(`/api/shelf-check/list?locationId=${encodeURIComponent(loc.id)}`);
+      setList((await res.json()) as { titles: number; copies: number; rows: ShelfListRow[] });
+    } catch {
+      setList({ titles: 0, copies: 0, rows: [] });
+    } finally {
+      setListBusy(false);
+    }
+  }, []);
+
+  /** 두 번 세어진 책을 한 권 줄이거나, 이 칸 책이 아니었던 것을 통째로 뺍니다. */
+  const fixRow = useCallback(
+    async (bookId: string, action: "minus" | "remove") => {
+      if (!listOf || listBusy) return;
+      setListBusy(true);
+      try {
+        await fetch("/api/shelf-check/list", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ bookId, locationId: listOf.id, action }),
+        });
+        const res = await fetch(`/api/shelf-check/list?locationId=${encodeURIComponent(listOf.id)}`);
+        setList((await res.json()) as { titles: number; copies: number; rows: ShelfListRow[] });
+        router.refresh();
+      } finally {
+        setListBusy(false);
+      }
+    },
+    [listOf, listBusy, router]
+  );
   const inputRef = useRef<HTMLInputElement>(null);
+  /** 찍기를 멈춘 뒤에 한 번만 숫자를 맞추려고 들고 있는 타이머. */
+  const refreshTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => {
+    if (refreshTimer.current) clearTimeout(refreshTimer.current);
+  }, []);
 
   /*
     스캐너는 키보드처럼 동작합니다. 칸을 고른 뒤에는 커서가 입력칸에 머물러야 바코드가 흘러
@@ -107,7 +161,16 @@ export default function PlaceClient({
             },
             ...prev,
           ]);
-          router.refresh();
+          /*
+            칸 누적 숫자를 맞추려고 찍을 때마다 화면 전체를 서버에서 다시 그려 왔습니다.
+            그 한 번이 150~200ms 이고, 그 사이 화면이 통째로 갈리면서 커서가 입력칸에서
+            떨어집니다. 바코드는 키보드처럼 들어오니 그 틈에 찍은 것이 흘러내립니다.
+
+            그래서 **손을 멈출 때까지 미룹니다.** 쭉 찍는 동안에는 한 번도 안 그리고,
+            1.5초 쉬면 그때 숫자를 맞춥니다.
+          */
+          if (refreshTimer.current) clearTimeout(refreshTimer.current);
+          refreshTimer.current = setTimeout(() => router.refresh(), 1500);
         }
       } catch {
         setResult({ kind: "error", message: "처리 중 오류가 생겼습니다." });
@@ -170,10 +233,104 @@ export default function PlaceClient({
   }
 
 
+  /*
+    ── 한 칸에 무엇이 들어 있나 ─────────────────────────────────────────────
+    찍는 화면에서도, 칸 고르는 화면에서도 같은 것을 봅니다. 숫자가 이상할 때는 보통 찍다
+    말고 확인하게 되므로, 찍던 자리에서 바로 열려야 합니다.
+  */
+  const listPanel = listOf && (
+    <div className="fixed inset-0 z-40 flex items-end justify-center bg-slate-900/40 p-0 sm:items-center sm:p-6">
+      <div className="flex max-h-[88vh] w-full max-w-3xl flex-col overflow-hidden rounded-t-3xl bg-white shadow-xl sm:rounded-3xl">
+        <div className="flex items-center gap-3 border-b border-slate-100 px-5 py-4">
+          <span className="text-2xl font-black" style={{ color: listOf.color }}>
+            {listOf.code}
+          </span>
+          <span className="min-w-0 flex-1 text-sm font-bold text-slate-600">
+            {list ? `${list.titles}종 · ${list.copies}권` : "세는 중…"}
+          </span>
+          <button
+            type="button"
+            onClick={() => {
+              setListOf(null);
+              setList(null);
+            }}
+            className="rounded-lg px-3 py-1.5 text-sm font-bold text-slate-500 hover:bg-slate-100"
+          >
+            닫기
+          </button>
+        </div>
+
+        <p className="bg-amber-50 px-5 py-2.5 text-xs leading-relaxed text-amber-900">
+          실제 책장과 권수가 다르면 여기서 고칩니다. <b>−1권</b>은 두 번 찍힌 것,{" "}
+          <b>이 칸에서 빼기</b>는 애초에 이 칸 책이 아니었던 것입니다. 장서의 보유 권수는
+          건드리지 않습니다.
+        </p>
+
+        <ul className="min-h-0 flex-1 divide-y divide-slate-100 overflow-y-auto">
+          {list?.rows.map((r) => (
+            <li key={r.bookId} className="flex items-center gap-3 px-5 py-2.5">
+              <span className="min-w-0 flex-1">
+                <span className="block truncate text-sm font-semibold">{r.title}</span>
+                <span className="block truncate text-[11px] text-slate-400">
+                  {r.author ?? ""}
+                  {r.itemCode ? ` · ${r.itemCode}` : r.isbn ? ` · ${r.isbn}` : ""}
+                </span>
+              </span>
+              {r.level != null && (
+                <span
+                  className="shrink-0 rounded px-1.5 py-0.5 text-[11px] font-bold"
+                  style={{
+                    background: `${levelColor(r.level)}1f`,
+                    color: levelColor(r.level),
+                  }}
+                >
+                  {r.level}
+                  {r.labelNo ? ` ${r.labelNo}` : ""}
+                </span>
+              )}
+              {/* 한 책이 이 칸에 두 권 이상이면 그게 보통 어긋난 자리입니다 - 눈에 띄게 둡니다. */}
+              <span
+                className={`w-12 shrink-0 text-right text-sm font-black ${
+                  r.copies > 1 ? "text-amber-600" : "text-slate-500"
+                }`}
+              >
+                {r.copies}권
+              </span>
+              <span className="flex shrink-0 gap-1">
+                <button
+                  type="button"
+                  disabled={listBusy}
+                  onClick={() => void fixRow(r.bookId, "minus")}
+                  className="rounded-lg border border-slate-300 px-2 py-1 text-xs font-bold text-slate-700 disabled:opacity-40"
+                >
+                  −1권
+                </button>
+                <button
+                  type="button"
+                  disabled={listBusy}
+                  onClick={() => void fixRow(r.bookId, "remove")}
+                  className="rounded-lg border border-rose-300 px-2 py-1 text-xs font-bold text-rose-700 disabled:opacity-40"
+                >
+                  빼기
+                </button>
+              </span>
+            </li>
+          ))}
+          {list && list.rows.length === 0 && (
+            <li className="px-5 py-10 text-center text-sm text-slate-400">
+              이 칸에 적힌 책이 없습니다.
+            </li>
+          )}
+        </ul>
+      </div>
+    </div>
+  );
+
   // ── 칸 고르기 ────────────────────────────────────────────────────────────
   if (!here) {
     return (
       <div className="space-y-4">
+        {listPanel}
         <div className="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200">
           <h1 className="text-lg font-bold">자리 등록</h1>
           <p className="mt-1 text-sm text-slate-500">
@@ -199,31 +356,50 @@ export default function PlaceClient({
               {locations.map((loc) => {
                 const seen = checked[loc.id];
                 return (
-                  <li key={loc.id}>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setHere(loc);
-                        setDone([]);
-                        setResult(null);
-                      }}
-                      className="w-full rounded-xl px-3 py-3 text-left ring-1 transition hover:brightness-95"
-                      style={{ background: `${loc.color}14`, borderColor: loc.color }}
-                    >
-                      <span className="block text-xl font-black" style={{ color: loc.color }}>
-                        {loc.code}
-                      </span>
-                      {loc.name && (
-                        <span className="block truncate text-xs text-slate-500">{loc.name}</span>
-                      )}
-                      {/*
-                        이미 확인한 칸이라고 적어 둡니다. 여럿이 나눠 하거나 며칠에 걸쳐 할 때
-                        어디까지 했는지 모르면 같은 칸을 두 번 돌게 됩니다.
-                      */}
-                      <span className="mt-1 block text-[11px] font-semibold text-slate-400">
-                        {seen ? `✔ ${seen.titles}종 · ${seen.copies}권 확인함` : "아직 안 함"}
-                      </span>
-                    </button>
+                  <li
+                    key={loc.id}
+                    className="rounded-xl px-3 py-3 ring-1"
+                    style={{ background: `${loc.color}14`, borderColor: loc.color }}
+                  >
+                    <span className="block text-xl font-black" style={{ color: loc.color }}>
+                      {loc.code}
+                    </span>
+                    {loc.name && (
+                      <span className="block truncate text-xs text-slate-500">{loc.name}</span>
+                    )}
+                    {/*
+                      이미 확인한 칸이라고 적어 둡니다. 여럿이 나눠 하거나 며칠에 걸쳐 할 때
+                      어디까지 했는지 모르면 같은 칸을 두 번 돌게 됩니다.
+                    */}
+                    <span className="mt-1 block text-[11px] font-semibold text-slate-400">
+                      {seen ? `✔ ${seen.titles}종 · ${seen.copies}권 확인함` : "아직 안 함"}
+                    </span>
+                    {/*
+                      찍으러 들어가는 길과 들여다보는 길을 갈라 둡니다. 숫자가 이상할 때
+                      칸을 고르면 곧바로 찍기 화면으로 들어가 버리면, 확인하려다 실수로
+                      한 권 더 찍게 됩니다.
+                    */}
+                    <span className="mt-2 flex gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setHere(loc);
+                          setDone([]);
+                          setResult(null);
+                        }}
+                        className="flex-1 rounded-lg bg-white/80 px-2 py-1.5 text-xs font-bold text-slate-700 ring-1 ring-slate-300 hover:bg-white"
+                      >
+                        📷 등록
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => void loadList(loc)}
+                        disabled={!seen}
+                        className="flex-1 rounded-lg bg-white/80 px-2 py-1.5 text-xs font-bold text-slate-700 ring-1 ring-slate-300 hover:bg-white disabled:opacity-40"
+                      >
+                        📋 목록보기
+                      </button>
+                    </span>
                   </li>
                 );
               })}
@@ -239,6 +415,7 @@ export default function PlaceClient({
 
   return (
     <div className="space-y-4">
+      {listPanel}
       <div className="flex flex-wrap items-center gap-3 rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200">
         <div className="min-w-0">
           <p className="text-xs text-slate-400">지금 비우는 칸</p>
@@ -258,6 +435,13 @@ export default function PlaceClient({
             <p className="text-xs text-slate-400">이 칸 누적</p>
             <p className="text-2xl font-black text-slate-700">{seen?.copies ?? 0}권</p>
           </div>
+          <button
+            type="button"
+            onClick={() => void loadList(here)}
+            className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+          >
+            📋 이 칸 목록
+          </button>
           <button
             type="button"
             onClick={() => setCamera((v) => !v)}
@@ -297,8 +481,24 @@ export default function PlaceClient({
               setValue("");
             }
           }}
-          placeholder={`여기에 커서를 두고 ${here.code} 칸의 책을 찍으세요`}
-          className="scan-input w-full rounded-2xl border-2 border-dashed border-slate-300 bg-slate-50 px-4 py-4 text-center text-lg outline-none focus:border-gia-gold focus:bg-white"
+          placeholder={
+            busy ? "읽는 중… 다시 찍지 마세요" : `여기에 커서를 두고 ${here.code} 칸의 책을 찍으세요`
+          }
+          /*
+            처리 중에는 찍어도 받지 않습니다(두 번 세어지는 것보다 한 번 놓치는 쪽이 낫습니다).
+            그래서 처리 중이라는 것이 눈에 보여야 합니다 - 안 보이면 사람이 "안 먹었나" 하고
+            한 번 더 찍고, 그게 두 번 세어진 바로 그 경로입니다.
+
+            disabled 가 아니라 readOnly 인 이유: disabled 로 막으면 커서가 입력칸에서 떨어지고,
+            다시 돌아오기까지 최대 0.7초가 걸립니다. 그 사이에 찍은 것은 아무 데도 안 들어갑니다.
+            readOnly 는 커서를 그대로 둔 채 글자만 안 받습니다.
+          */
+          readOnly={busy}
+          className={`scan-input w-full rounded-2xl border-2 border-dashed px-4 py-4 text-center text-lg outline-none focus:border-gia-gold focus:bg-white ${
+            busy
+              ? "animate-pulse border-amber-400 bg-amber-50 text-amber-700"
+              : "border-slate-300 bg-slate-50"
+          }`}
           autoComplete="off"
           spellCheck={false}
         />

@@ -25,14 +25,16 @@ type CheckRow = { id: string; book_id: string; location_id: string; copies: numb
 
 export async function POST(request: Request) {
   const supabase = await createClient();
-  const { data: auth } = await supabase.auth.getUser();
-  const email = auth.user?.email;
-  if (!email) {
-    return NextResponse.json<ShelfCheckResult>(
-      { kind: "error", message: "로그인이 필요합니다." },
-      { status: 401 }
-    );
-  }
+  /*
+    ── 한 번 찍을 때 Supabase 를 몇 번 다녀오느냐가 전부입니다 ───────────────
+    한 번 다녀오는 데 25~30ms 쯤 걸립니다. SQL 자체는 1ms도 안 걸리는 질의들이라, 느린 것은
+    계산이 아니라 **줄 세워 다녀오는 횟수**입니다. 그래서 서로를 안 기다려도 되는 것은 전부
+    나란히 보내고, 한 번에 가져올 수 있는 것은 한 번에 가져옵니다.
+
+    로그인 확인이 그 첫 번째입니다 - 어느 칸인지 읽는 일과 아무 상관이 없는데 앞에서 혼자
+    기다리고 있었습니다.
+  */
+  const authPromise = supabase.auth.getUser();
 
   let body: {
     code?: string;
@@ -73,11 +75,17 @@ export async function POST(request: Request) {
     });
   }
 
-  const { data: locData } = await supabase
-    .from("lib_locations")
-    .select("*")
-    .eq("id", locationId)
-    .maybeSingle();
+  const [{ data: auth }, { data: locData }] = await Promise.all([
+    authPromise,
+    supabase.from("lib_locations").select("*").eq("id", locationId).maybeSingle(),
+  ]);
+  const email = auth.user?.email;
+  if (!email) {
+    return NextResponse.json<ShelfCheckResult>(
+      { kind: "error", message: "로그인이 필요합니다." },
+      { status: 401 }
+    );
+  }
   const here = locData as LibLocation | null;
   if (!here) {
     return NextResponse.json<ShelfCheckResult>({
@@ -89,6 +97,8 @@ export async function POST(request: Request) {
 
   // ── 어느 줄의 책인지 정합니다 ────────────────────────────────────────────
   let book: LibBookWithShelf | null = null;
+  /** 같은 ISBN 으로 들어 있는 줄들(등급별로 갈라져 있을 수 있습니다). */
+  let sameIsbn: LibBookWithShelf[] = [];
   const code = normalizeScan(body.code ?? "");
 
   if (body.bookId) {
@@ -107,7 +117,21 @@ export async function POST(request: Request) {
       return NextResponse.json<ShelfCheckResult>({ kind: "error", message: "읽힌 값이 없습니다." });
     }
     try {
-      book = await findBook(supabase, code);
+      /*
+        ISBN 이면 같은 ISBN 줄을 **한 번에 다 가져옵니다.** 예전에는 findBook 으로 한 줄을
+        찾고, 바로 아래에서 findBooksByIsbn 으로 똑같은 조건을 한 번 더 물었습니다 - 같은
+        질의를 두 번 다녀온 셈입니다. 한 번에 받아 두면 '한 줄이냐 여러 줄이냐'도 여기서
+        바로 가려집니다.
+
+        못 찾으면 findBook 으로 한 번 더 봅니다. ISBN 모양인데 자체 번호(item_code)로 적혀
+        있거나, 합치면서 사라진 번호가 책에 아직 붙어 있는 경우가 있어서입니다.
+      */
+      if (isIsbn(code)) {
+        sameIsbn = await findBooksByIsbn(supabase, code);
+        book = sameIsbn[0] ?? (await findBook(supabase, code));
+      } else {
+        book = await findBook(supabase, code);
+      }
     } catch (e) {
       return NextResponse.json<ShelfCheckResult>({
         kind: "error",
@@ -138,47 +162,47 @@ export async function POST(request: Request) {
       으로는 어느 등급 칸에서 꺼낸 책인지 알 수 없습니다. 자리를 엉뚱한 줄에 적으면 다음 사람이
       그 칸에서 책을 못 찾습니다.
     */
-    if (isIsbn(code)) {
-      const sameIsbn = await findBooksByIsbn(supabase, code);
-      if (sameIsbn.length > 1) {
-        return NextResponse.json<ShelfCheckResult>({
-          kind: "choices",
-          books: sameIsbn,
-          query: code,
-          message: `같은 책이 등급별로 ${sameIsbn.length}줄 있습니다 — 어느 쪽인지 골라주세요`,
-        });
-      }
+    if (sameIsbn.length > 1) {
+      return NextResponse.json<ShelfCheckResult>({
+        kind: "choices",
+        books: sameIsbn,
+        query: code,
+        message: `같은 책이 등급별로 ${sameIsbn.length}줄 있습니다 — 어느 쪽인지 골라주세요`,
+      });
     }
   }
 
-  // ── 이 칸에서 이미 찍은 책인가 ───────────────────────────────────────────
-  const { data: existingRow } = await supabase
-    .from("lib_shelf_check")
-    .select("*")
-    .eq("book_id", book.id)
-    .eq("location_id", here.id)
-    .maybeSingle();
-  const existing = (existingRow as CheckRow | null) ?? null;
-
   /*
-    ── 이 책이 적혀 있는 다른 칸들 ─────────────────────────────────────────
-    또 찍혔을 때 묻느냐 세느냐를 가리려면 이 칸만 봐서는 안 됩니다. 3권짜리 책을 1-2에서
+    ── 이 책의 자리 기록을 한 번에 가져옵니다 ───────────────────────────────
+    예전에는 같은 표를 세 번 다녀왔습니다: 이 칸에 찍은 적 있나(1), 다른 칸엔 몇 권 있나(2),
+    원래 칸이 어디인가(3). 셋 다 "이 책의 lib_shelf_check 줄"이라 한 번이면 됩니다.
+
+    또 찍혔을 때 묻느냐 세느냐를 가리려면 이 칸만 봐서도 안 됩니다. 3권짜리 책을 1-2에서
     두 권 세어 둔 뒤 2-1에서 세 권을 찍으면 합계 다섯 권인데, 이 칸만 보는 규칙은 세
-    번째까지 조용히 받아 버립니다. 그래서 다른 칸을 먼저 세어 둡니다.
+    번째까지 조용히 받아 버립니다.
   */
-  const { data: otherRows } = await supabase
+  const { data: checkRows } = await supabase
     .from("lib_shelf_check")
-    .select("copies, location:lib_locations!location_id(code, sort_order)")
-    .eq("book_id", book.id)
-    .neq("location_id", here.id);
-  const otherShelves = ((otherRows ?? []) as unknown as {
-    copies: number;
+    .select("id, book_id, location_id, copies, location:lib_locations!location_id(code, sort_order)")
+    .eq("book_id", book.id);
+  const allChecks = ((checkRows ?? []) as unknown as (CheckRow & {
     location: { code: string; sort_order: number } | null;
-  }[])
-    .filter((r) => r.location)
+  })[]);
+
+  const existing = allChecks.find((r) => r.location_id === here.id) ?? null;
+  const otherRows = allChecks.filter((r) => r.location_id !== here.id && r.location);
+  const otherShelves = otherRows
+    .slice()
     .sort((a, b) => (a.location!.sort_order ?? 0) - (b.location!.sort_order ?? 0))
     .map((r) => ({ code: r.location!.code, copies: r.copies }));
   const otherTotal = otherShelves.reduce((n, s) => n + s.copies, 0);
+
+  /** 이 책이 세어져 있는 다른 칸 중 가장 많은 쪽. '원래 칸'으로 씁니다. 이제 질의가 없습니다. */
+  function findHome(): { id: string; code: string; copies: number } | null {
+    if (otherRows.length === 0) return null;
+    const best = otherRows.reduce((a, b) => (b.copies > a.copies ? b : a));
+    return { id: best.location_id, code: best.location!.code, copies: best.copies };
+  }
 
   /*
     ── 또 찍혔습니다. 먼저 장서에 적힌 권수를 봅니다 ────────────────────────
@@ -206,26 +230,9 @@ export async function POST(request: Request) {
       recordedCopies: book.total_copies,
       foundTotal: repeat.foundSoFar,
       locationCode: here.code,
-      homeCode: (await findHome())?.code ?? null,
+      homeCode: findHome()?.code ?? null,
       message: `기록상 ${book.total_copies}권인데 ${repeat.foundAfter}권째입니다`,
     });
-  }
-
-  /** 이 책이 세어져 있는 다른 칸 중 가장 많은 쪽. '원래 칸'으로 씁니다. */
-  async function findHome(): Promise<{ id: string; code: string; copies: number } | null> {
-    const { data } = await supabase
-      .from("lib_shelf_check")
-      .select("copies, location_id, location:lib_locations!location_id(code)")
-      .eq("book_id", book!.id)
-      .neq("location_id", here!.id);
-    const rows = ((data ?? []) as unknown as {
-      copies: number;
-      location_id: string;
-      location: { code: string } | null;
-    }[]).filter((r) => r.location);
-    if (rows.length === 0) return null;
-    const best = rows.reduce((a, b) => (b.copies > a.copies ? b : a));
-    return { id: best.location_id, code: best.location!.code, copies: best.copies };
   }
 
   /*
@@ -236,7 +243,7 @@ export async function POST(request: Request) {
     (이 칸 몫은 그대로고 원래 칸이 한 권 늘어남).
   */
   if (body.confirm === "home") {
-    const home = await findHome();
+    const home = findHome();
     if (!home) {
       return NextResponse.json<ShelfCheckResult>({
         kind: "error",
@@ -259,12 +266,11 @@ export async function POST(request: Request) {
       .update({ copies: home.copies + 1, checked_at: new Date().toISOString(), checked_by: email })
       .eq("book_id", book.id)
       .eq("location_id", home.id);
-    await supabase.from("lib_books").update({ location_id: home.id }).eq("id", book.id);
-
     const { data: moved } = await supabase
       .from("lib_books")
-      .select("*, shelf:lib_locations!location_id(*)")
+      .update({ location_id: home.id })
       .eq("id", book.id)
+      .select("*, shelf:lib_locations!location_id(*)")
       .maybeSingle();
 
     return NextResponse.json<ShelfCheckResult>({
@@ -302,10 +308,12 @@ export async function POST(request: Request) {
   if (body.confirm === "recount") {
     const found = (existing?.copies ?? 0) + otherTotal;
     const want = Math.max(1, found);
-    const { error } = await supabase
+    const { data: fixed, error } = await supabase
       .from("lib_books")
       .update({ total_copies: want })
-      .eq("id", book.id);
+      .eq("id", book.id)
+      .select("*, shelf:lib_locations!location_id(*)")
+      .maybeSingle();
     if (error) {
       return NextResponse.json<ShelfCheckResult>({
         kind: "error",
@@ -313,11 +321,6 @@ export async function POST(request: Request) {
         detail: error.message,
       });
     }
-    const { data: fixed } = await supabase
-      .from("lib_books")
-      .select("*, shelf:lib_locations!location_id(*)")
-      .eq("id", book.id)
-      .maybeSingle();
 
     return NextResponse.json<ShelfCheckResult>({
       kind: "placed",
@@ -340,6 +343,13 @@ export async function POST(request: Request) {
       message: `${here.code} · ${want}권`,
     });
   }
+
+  /*
+    같은 책·시리즈가 어디 있는지 찾는 일은 **저장과 아무 상관이 없습니다.** 결과는 맨 뒤에서
+    안내 문구를 만들 때만 씁니다. 그래서 여기서 띄워 두고 저장을 진행합니다 - 저장이 끝날
+    즈음이면 이것도 끝나 있어서, 두 번 다녀올 시간이 한 번으로 줄어듭니다.
+  */
+  const relativesPromise = findRelatives();
 
   // ── 저장 ────────────────────────────────────────────────────────────────
   const from = book.shelf ?? null;
@@ -459,8 +469,18 @@ export async function POST(request: Request) {
     }
   }
 
+  /*
+    고친 결과를 다시 읽어 오던 질의를 없앴습니다 - 고치는 길에 .select() 를 붙이면 같은
+    걸음에 돌아옵니다. 고칠 게 없으면(자리도 권수도 그대로) 아예 다녀오지 않습니다.
+  */
+  let saved: LibBookWithShelf = book;
   if (Object.keys(patch).length > 0) {
-    const { error } = await supabase.from("lib_books").update(patch).eq("id", book.id);
+    const { data: updated, error } = await supabase
+      .from("lib_books")
+      .update(patch)
+      .eq("id", book.id)
+      .select("*, shelf:lib_locations!location_id(*)")
+      .maybeSingle();
     if (error) {
       return NextResponse.json<ShelfCheckResult>({
         kind: "error",
@@ -468,6 +488,7 @@ export async function POST(request: Request) {
         detail: error.message,
       });
     }
+    saved = (updated as unknown as LibBookWithShelf | null) ?? book;
   }
 
   /*
@@ -583,7 +604,7 @@ export async function POST(request: Request) {
     같은 제목·같은 시리즈가 다른 칸에 있으면 알려줍니다. 손에 들고 있는 지금이 그 책을
     제자리로 보낼 수 있는 유일한 순간입니다.
   */
-  const relatives = await findRelatives();
+  const relatives = await relativesPromise;
   if (relatives.title.length > 0) {
     notices.push({
       tone: "warn",
@@ -600,15 +621,9 @@ export async function POST(request: Request) {
     });
   }
 
-  const { data: updated } = await supabase
-    .from("lib_books")
-    .select("*, shelf:lib_locations!location_id(*)")
-    .eq("id", book.id)
-    .maybeSingle();
-
   return NextResponse.json<ShelfCheckResult>({
     kind: "placed",
-    book: (updated as unknown as LibBookWithShelf | null) ?? book,
+    book: saved,
     from,
     copiesHere,
     foundTotal,
