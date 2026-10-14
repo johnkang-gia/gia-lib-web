@@ -25,6 +25,7 @@ export const EN: Record<string, string> = {
   "인쇄하기": "Print",
   "되돌리기": "Undo",
   "권": " books",
+  "{n}권": "{n} books",
   "종": " titles",
   "로그아웃": "Sign out",
   "불러오는 중…": "Loading…",
@@ -127,4 +128,23 @@ export const EN: Record<string, string> = {
   "{n}번째": "{n} times",
   "자리 등록에서 칸을 정해주세요": "Set a shelf in «Record locations»",
   "다음까지 {n}권": "{n} to next level",
+
+  // ── 독서 단계·응원말 ──────────────────────────────────────────────────
+  // 아이가 읽는 말이라 더 짧고 쉬운 쪽을 골랐습니다.
+  "새싹 독서가": "Sprout Reader",
+  "초록 독서가": "Green Reader",
+  "나무 독서가": "Tree Reader",
+  "숲 독서가": "Forest Reader",
+  "별 독서가": "Star Reader",
+  "도서관의 전설": "Library Legend",
+  "반납이 늦은 책이 있어요. 먼저 가져다주면 바로 빌릴 수 있어요!":
+    "Some books are late. Bring those back and you can borrow again!",
+  "{name} 학생의 첫 책을 골라볼까요? 무엇이든 좋아요.":
+    "Shall we pick {name}'s very first book? Anything you like.",
+  "이번 달 목표를 채웠어요! 대단해요 {name} 학생 🎉":
+    "You hit this month's goal! Well done, {name} 🎉",
+  "이번 달 목표까지 딱 한 권 남았어요!": "Just one more book to hit this month's goal!",
+  "지금 빌린 책이 없네요. 오늘은 어떤 책을 만나볼까요?":
+    "Nothing borrowed right now. What shall we read today?",
+  "이번 달 목표까지 {n}권 남았어요.": "{n} more books to hit this month's goal.",
 };

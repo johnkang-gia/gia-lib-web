@@ -60,6 +60,14 @@ export function monthlyProgress(count: number, goal: number = MONTHLY_GOAL) {
 }
 
 /** 카드를 찍었을 때 한 줄씩 띄워주는 응원 문구. 이름과 숫자에 맞춰 골라집니다. */
+/**
+ * 응원말.
+ *
+ * 글자를 이어 붙이지 않고 **{자리}가 들어 있는 글귀와 값**을 돌려줍니다. 영어는 어순이 달라서
+ * 이름이 들어갈 자리가 한국어와 같지 않습니다 - 이어 붙이면 "Student Kim's..." 같은 말이 됩니다.
+ */
+export type Cheer = { ko: string; vars: Record<string, string | number> };
+
 export function cheerFor({
   name,
   monthCount,
@@ -72,12 +80,14 @@ export function cheerFor({
   totalCount: number;
   activeCount: number;
   overdueCount: number;
-}) {
-  if (overdueCount > 0) return "반납이 늦은 책이 있어요. 먼저 가져다주면 바로 빌릴 수 있어요!";
-  if (totalCount === 0) return `${name} 학생의 첫 책을 골라볼까요? 무엇이든 좋아요.`;
+}): Cheer {
+  if (overdueCount > 0)
+    return { ko: "반납이 늦은 책이 있어요. 먼저 가져다주면 바로 빌릴 수 있어요!", vars: {} };
+  if (totalCount === 0) return { ko: "{name} 학생의 첫 책을 골라볼까요? 무엇이든 좋아요.", vars: { name } };
   const goal = monthlyProgress(monthCount);
-  if (goal.achieved) return `이번 달 목표를 채웠어요! 대단해요 ${name} 학생 🎉`;
-  if (goal.remain === 1) return "이번 달 목표까지 딱 한 권 남았어요!";
-  if (activeCount === 0) return "지금 빌린 책이 없네요. 오늘은 어떤 책을 만나볼까요?";
-  return `이번 달 목표까지 ${goal.remain}권 남았어요.`;
+  if (goal.achieved) return { ko: "이번 달 목표를 채웠어요! 대단해요 {name} 학생 🎉", vars: { name } };
+  if (goal.remain === 1) return { ko: "이번 달 목표까지 딱 한 권 남았어요!", vars: {} };
+  if (activeCount === 0)
+    return { ko: "지금 빌린 책이 없네요. 오늘은 어떤 책을 만나볼까요?", vars: {} };
+  return { ko: "이번 달 목표까지 {n}권 남았어요.", vars: { n: goal.remain } };
 }

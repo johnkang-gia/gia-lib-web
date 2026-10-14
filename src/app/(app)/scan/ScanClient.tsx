@@ -9,7 +9,7 @@ import { cheerFor, monthlyProgress, readingLevel } from "@/lib/reading";
 import { CATEGORIES } from "@/lib/categories";
 import { levelColor } from "@/lib/bookLevels";
 import { useScanFocus } from "@/lib/useScanFocus";
-import { useT } from "@/lib/i18n/client";
+import { useLang, useT } from "@/lib/i18n/client";
 import type {
   LibBookWithShelf,
   LibLoanWithBook,
@@ -67,6 +67,7 @@ export default function ScanClient({
   const router = useRouter();
   /* 화면 글귀는 전부 이 t() 를 지납니다 - 사전에 없는 글귀는 한국어가 그대로 나옵니다. */
   const t = useT();
+  const lang = useLang();
   const [value, setValue] = useState("");
   const [busy, setBusy] = useState(false);
   const [student, setStudent] = useState<StudentState | null>(null);
@@ -105,7 +106,7 @@ export default function ScanClient({
   useEffect(() => {
     const tick = () =>
       setClock(
-        new Intl.DateTimeFormat("ko-KR", {
+        new Intl.DateTimeFormat(lang === "en" ? "en-US" : "ko-KR", {
           timeZone: "Asia/Seoul",
           hour: "2-digit",
           minute: "2-digit",
@@ -440,7 +441,7 @@ export default function ScanClient({
             activeCount: student.activeLoans.length,
             overdueCount: student.overdueCount,
           })
-        : "",
+        : null,
     [student]
   );
   const remaining = student ? Math.max(0, settings.max_books - student.activeLoans.length) : 0;
@@ -655,7 +656,7 @@ export default function ScanClient({
                 <div className="flex items-baseline gap-2">
                   <span className="text-2xl">{level.current.icon}</span>
                   <span className="text-lg font-black" style={{ color: level.current.color }}>
-                    {level.current.name}
+                    {t(level.current.name)}
                   </span>
                   <span className="ml-auto text-xs text-slate-400">
                     {level.next ? t("다음까지 {n}권", { n: level.remain }) : t("최고 단계")}
@@ -676,7 +677,7 @@ export default function ScanClient({
                 <div className="flex items-baseline gap-2">
                   <span className="text-sm font-semibold text-slate-500">{t("이번 달 목표")}</span>
                   <span className="text-lg font-black text-gia-navy">
-                    {goal.done} / {goal.goal}권
+                    {goal.done} / {t("{n}권", { n: goal.goal })}
                   </span>
                   {goal.achieved && <span className="ml-auto text-xl">🎉</span>}
                 </div>
@@ -703,7 +704,7 @@ export default function ScanClient({
                     <p className="text-xs font-semibold text-slate-400">{tile.label}</p>
                     <p className="text-2xl font-black text-gia-navy">
                       {tile.value}
-                      <span className="ml-0.5 text-sm font-medium text-slate-400">권</span>
+                      <span className="ml-0.5 text-sm font-medium text-slate-400">{t("권", {}).trim()}</span>
                     </p>
                   </div>
                 ))}
@@ -772,7 +773,9 @@ export default function ScanClient({
                     );
                   })}
                 </div>
-                <p className="mt-2 text-center text-sm font-semibold text-gia-navy">{cheer}</p>
+                <p className="mt-2 text-center text-sm font-semibold text-gia-navy">
+                  {cheer ? t(cheer.ko, cheer.vars) : ""}
+                </p>
               </div>
             </>
           )}
@@ -782,7 +785,7 @@ export default function ScanClient({
         <section className="flex min-h-0 flex-col rounded-2xl bg-white p-4 shadow-sm ring-1 ring-slate-200">
           <div className="mb-2 flex shrink-0 items-baseline gap-2">
             <p className="text-base font-black text-slate-700">{t("대출 예정 목록")}</p>
-            <p className="text-sm text-slate-400">{cart.length}권</p>
+            <p className="text-sm text-slate-400">{t("{n}권", { n: cart.length })}</p>
             {cart.length > 0 && (
               <button
                 type="button"
