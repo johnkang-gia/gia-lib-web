@@ -39,6 +39,18 @@ export function translate(
   dict?: Record<string, string>
 ): string {
   let out = lang === "en" ? (dict?.[ko] ?? ko) : ko;
+
+  /*
+    ── 하나일 때와 여럿일 때 ──────────────────────────────────────────────
+    한국어는 '1권'과 '3권'이 같은 모양이지만 영어는 book / books 로 갈립니다. 사전 값에
+    `하나|여럿` 으로 적어 두면 n 값을 보고 고릅니다 - "1 books" 같은 말이 화면에 나오지
+    않게 하려는 것입니다. 막대를 안 쓴 글귀는 그대로 지나갑니다.
+  */
+  if (out.includes("|")) {
+    const [one, many] = out.split("|");
+    out = Number(vars?.n) === 1 ? one : many;
+  }
+
   if (vars) {
     for (const [key, value] of Object.entries(vars)) {
       out = out.split(`{${key}}`).join(String(value));

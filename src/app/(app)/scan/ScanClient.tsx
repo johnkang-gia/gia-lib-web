@@ -703,8 +703,7 @@ export default function ScanClient({
                   >
                     <p className="text-xs font-semibold text-slate-400">{tile.label}</p>
                     <p className="text-2xl font-black text-gia-navy">
-                      {tile.value}
-                      <span className="ml-0.5 text-sm font-medium text-slate-400">{t("권", {}).trim()}</span>
+                      {t("{n}권", { n: tile.value })}
                     </p>
                   </div>
                 ))}
@@ -715,7 +714,7 @@ export default function ScanClient({
                 <p className="mb-1.5 text-sm font-bold text-slate-500">
                   {t("지금 빌린 책 {n}권", { n: student.activeLoans.length })}
                   <span className="ml-1 text-xs font-medium text-slate-400">
-                    {remaining > 0 ? `· ${t("{n}권 더 가능", { n: remaining })}` : `· ${t("최대 권수를 채웠습니다")}`}
+                    {remaining > 0 ? ` · ${t("{n}권 더 가능", { n: remaining })}` : ` · ${t("최대 권수를 채웠습니다")}`}
                   </span>
                 </p>
                 <ul className="space-y-1.5">

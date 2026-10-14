@@ -24,8 +24,7 @@ export const EN: Record<string, string> = {
   "삭제": "Delete",
   "인쇄하기": "Print",
   "되돌리기": "Undo",
-  "권": " books",
-  "{n}권": "{n} books",
+  "{n}권": "{n} book|{n} books",
   "종": " titles",
   "로그아웃": "Sign out",
   "불러오는 중…": "Loading…",
@@ -96,6 +95,7 @@ export const EN: Record<string, string> = {
   "처음 빌리는 책": "First time",
   "자리 미정": "No shelf yet",
   "지금 빌린 책 {n}권": "Out now: {n}",
+  "{n}권 대출 완료 🎉": "{n} book checked out 🎉|{n} books checked out 🎉",
   "지금 빌린 책이 없습니다": "Nothing out right now",
   "이번 달 목표": "This month's goal",
   "이번 달": "This month",
@@ -113,7 +113,6 @@ export const EN: Record<string, string> = {
   "빌릴 수 있는 권수가 없습니다": "No copies available",
   "반납하지 못했습니다": "Could not return this",
   "처리하지 못했습니다": "Could not do that",
-  "{n}권 대출 완료 🎉": "{n} checked out 🎉",
   "연체 {n}권 — 먼저 반납해야 빌릴 수 있습니다":
     "{n} overdue — these must come back first",
   "지금은 {n}권까지 빌릴 수 있습니다 — {over}권을 빼주세요":
