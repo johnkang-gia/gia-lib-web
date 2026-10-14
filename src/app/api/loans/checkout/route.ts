@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { addDaysKst, overdueDays, todayKst } from "@/lib/dates";
+import { isExtraCard } from "@/lib/scan";
 import { findActiveLoans, findStudent, getSettings } from "@/lib/server/library";
 import type { LibBook, LibLoan } from "@/lib/types";
 
@@ -142,8 +143,10 @@ export async function POST(request: Request) {
       /*
         학생일 때만 명부 칸을 채웁니다. 점검용·교직원 카드의 id 는 학교 명부에 없는 값이라
         그대로 넣으면 저장이 거절됩니다. 번호와 이름은 아래에 그대로 남으므로 기록은 온전합니다.
+        가리는 기준은 **번호**입니다 - 명부 뷰의 kind 칸은 읽어오지 않는 길이 있어서 믿을 수
+        없었습니다(scan.ts 의 isExtraCard 설명 참고).
       */
-        student_id: student.kind && student.kind !== "학생" ? null : student.id,
+        student_id: isExtraCard(student.student_no) ? null : student.id,
         student_no: student.student_no,
         student_name: student.name,
         student_class: [student.grade, student.class_name].filter(Boolean).join(" ") || null,
