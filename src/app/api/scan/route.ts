@@ -345,13 +345,14 @@ export async function POST(request: Request) {
       .from("lib_loans")
       .insert({
         book_id: book.id,
-      /*
-        학생일 때만 명부 칸을 채웁니다. 점검용·교직원 카드의 id 는 학교 명부에 없는 값이라
-        그대로 넣으면 저장이 거절됩니다. 번호와 이름은 아래에 그대로 남으므로 기록은 온전합니다.
-        가리는 기준은 **번호**입니다 - 명부 뷰의 kind 칸은 읽어오지 않는 길이 있어서 믿을 수
-        없었습니다(scan.ts 의 isExtraCard 설명 참고).
-      */
+        /*
+          주인은 둘 중 하나입니다 - 학생이거나, 학생이 아닌 카드(점검용·교직원)이거나.
+          lib_loans 에 '둘 중 정확히 하나'를 요구하는 검사가 걸려 있습니다. 둘 다 비면 저장이
+          거절되는데, 그게 맞습니다 - 주인 없는 대출 기록은 있어서는 안 됩니다.
+          가리는 기준은 번호입니다(scan.ts 의 isExtraCard).
+        */
         student_id: isExtraCard(student.student_no) ? null : student.id,
+        extra_card_id: isExtraCard(student.student_no) ? student.id : null,
         student_no: student.student_no,
         student_name: student.name,
         student_class: [student.grade, student.class_name].filter(Boolean).join(" ") || null,
