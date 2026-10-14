@@ -115,7 +115,8 @@ export default function ScanClient({
     tick();
     const timer = setInterval(tick, 20000);
     return () => clearInterval(timer);
-  }, []);
+    // 말이 바뀌면 시계 모양도 따라가야 합니다(오후 12:14 ↔ 12:14 PM).
+  }, [lang]);
 
   // ── 소리 ─────────────────────────────────────────────────────────────────
   // 사서 선생님이 책을 정리하며 화면을 안 봐도 성공/실패를 알 수 있어야 합니다.
