@@ -67,7 +67,7 @@ export default function PlaceClient({
   }, []);
 
   const send = useCallback(
-    async (payload: { code?: string; bookId?: string; confirm?: "more" }) => {
+    async (payload: { code?: string; bookId?: string; confirm?: "move" | "add" | "home" }) => {
       if (!here || busy) return;
       setBusy(true);
       setNote(null);
@@ -302,7 +302,9 @@ export default function PlaceClient({
           here={here}
           busy={busy}
           onPick={(bookId) => void send({ bookId })}
-          onMore={(bookId) => void send({ bookId, confirm: "more" })}
+          onMove={(bookId) => void send({ bookId, confirm: "move" })}
+          onAdd={(bookId) => void send({ bookId, confirm: "add" })}
+          onHome={(bookId) => void send({ bookId, confirm: "home" })}
           onSkip={() => setResult(null)}
           onStash={(bookId) => void stash(bookId)}
           onSplit={(book) => void split(book)}
@@ -370,7 +372,9 @@ function ResultPanel({
   here,
   busy,
   onPick,
-  onMore,
+  onMove,
+  onAdd,
+  onHome,
   onSkip,
   onStash,
   onSplit,
@@ -379,7 +383,9 @@ function ResultPanel({
   here: LibLocation;
   busy: boolean;
   onPick: (bookId: string) => void;
-  onMore: (bookId: string) => void;
+  onMove: (bookId: string) => void;
+  onAdd: (bookId: string) => void;
+  onHome: (bookId: string) => void;
   onSkip: () => void;
   onStash: (bookId: string) => void;
   onSplit: (book: LibBookWithShelf) => void;
@@ -461,6 +467,15 @@ function ResultPanel({
                     📥 라벨 인쇄 대기에 넣기
                   </button>
                 )}
+                {n.action === "home" && n.homeCode && (
+                  <button
+                    type="button"
+                    onClick={() => onHome(result.book.id)}
+                    className="mt-2 rounded-lg border border-slate-400 bg-white px-3 py-1.5 text-xs font-bold text-slate-700"
+                  >
+                    🏠 이 한 권을 {n.homeCode} 칸으로 보내기
+                  </button>
+                )}
                 {n.action === "split" && (
                   <button
                     type="button"
@@ -487,24 +502,65 @@ function ResultPanel({
       <div className="gia-pop rounded-3xl bg-amber-50 p-6 ring-1 ring-amber-300">
         <p className="text-sm font-bold text-amber-700">{result.message}</p>
         <p className="mt-1 text-xl font-bold text-amber-950">{result.book.title}</p>
+        <p className="mt-1 text-xs text-amber-800">
+          이 칸에서 {result.copiesHere}권 셈 · 장서에는 {result.recordedCopies}권으로 적혀 있습니다
+        </p>
         <p className="mt-3 text-sm text-amber-900">
-          같은 책이 이 칸에 <b>또 있나요?</b> 아니면 <b>방금 찍은 책을 또 찍으셨나요?</b>
+          지금 손에 든 책이 <b>아까 그 책</b>인가요, <b>한 권이 더 있는</b> 건가요?
         </p>
         <div className="mt-3 flex flex-wrap gap-2">
+          {/*
+            ① 자리이동 — 같은 책 한 권입니다. 센 권수를 올리면 없는 책이 한 권 생깁니다.
+          */}
           <button
             type="button"
             disabled={busy}
-            onClick={() => onMore(result.book.id)}
-            className="rounded-xl bg-amber-600 px-4 py-2.5 text-sm font-bold text-white disabled:opacity-50"
+            onClick={() => onMove(result.book.id)}
+            className="rounded-xl border border-amber-400 bg-white px-4 py-2.5 text-left text-sm font-bold text-amber-900 disabled:opacity-50"
           >
-            또 있습니다 — {result.copiesHere + 1}권째로 세기
+            📍 자리이동
+            <span className="block text-[11px] font-medium opacity-75">
+              같은 책입니다 · 권수는 그대로
+            </span>
           </button>
+          {/*
+            ② 장서추가 — 장서에 적힌 권수가 실제보다 적었던 경우입니다. 손에 들고 확인한
+            사람이 올리는 것이므로 그 자리에서 반영합니다.
+          */}
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => onAdd(result.book.id)}
+            className="rounded-xl bg-amber-600 px-4 py-2.5 text-left text-sm font-bold text-white disabled:opacity-50"
+          >
+            ➕ 장서추가 — {result.copiesHere + 1}권째
+            <span className="block text-[11px] font-medium opacity-85">
+              장서도 {result.recordedCopies} → {result.recordedCopies + 1}권
+            </span>
+          </button>
+          {/*
+            ③ 원래 칸으로 — 같은 책이 이미 다른 칸에 있을 때만 나옵니다. 지금 들고 있을 때
+            가져다 놓는 것이 나중에 모으는 것보다 한 번에 끝납니다.
+          */}
+          {result.homeCode && (
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => onHome(result.book.id)}
+              className="rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-left text-sm font-bold text-slate-700 disabled:opacity-50"
+            >
+              🏠 {result.homeCode} 칸으로
+              <span className="block text-[11px] font-medium opacity-70">
+                같은 책이 거기 있습니다
+              </span>
+            </button>
+          )}
           <button
             type="button"
             onClick={onSkip}
-            className="rounded-xl border border-amber-300 bg-white px-4 py-2.5 text-sm font-bold text-amber-800"
+            className="rounded-xl px-4 py-2.5 text-sm font-semibold text-amber-800 underline"
           >
-            잘못 찍었습니다 — 그냥 넘기기
+            잘못 찍었습니다
           </button>
         </div>
       </div>

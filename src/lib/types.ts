@@ -348,7 +348,11 @@ export type ShelfCheckResult =
       kind: "again";
       book: LibBookWithShelf;
       copiesHere: number;
+      /** 장서에 적혀 있는 보유 권수. 고를 때 '한 권 더인지'를 판단하는 근거입니다. */
+      recordedCopies: number;
       locationCode: string;
+      /** 이 책이 이미 세어져 있는 **다른** 칸(가장 많은 쪽). 없으면 null 입니다. */
+      homeCode: string | null;
       message: string;
     }
   | {
@@ -379,8 +383,11 @@ export type ShelfNotice = {
    * 화면이 버튼을 붙일 거리.
    *  · split  - 상품코드 한 줄에 여러 권이 묶여 있음 → 따로 떼기
    *  · labeled - 이 자리에서 도서관 라벨을 새로 발급했음 → 인쇄 대기에 쌓기
+   *  · home    - 같은 책이 다른 칸에도 있음 → 이 한 권을 원래 칸으로 보내기
    */
-  action?: "split" | "labeled";
+  action?: "split" | "labeled" | "home";
+  /** home 일 때 보낼 칸 이름. 버튼에 적습니다. */
+  homeCode?: string;
 };
 
 /** 스캔 한 번의 처리 결과. 화면은 이 값만 보고 큰 글씨/색/소리를 정합니다. */
