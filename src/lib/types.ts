@@ -395,10 +395,13 @@ export type ShelfNotice = {
    *  · split  - 상품코드 한 줄에 여러 권이 묶여 있음 → 따로 떼기
    *  · labeled - 이 자리에서 도서관 라벨을 새로 발급했음 → 인쇄 대기에 쌓기
    *  · home    - 같은 책이 다른 칸에도 있음 → 이 한 권을 원래 칸으로 보내기
+   *  · recount - 장서에 적힌 권수가 실제보다 적음 → 그 자리에서 맞추기
    */
-  action?: "split" | "labeled" | "home";
+  action?: "split" | "labeled" | "home" | "recount";
   /** home 일 때 보낼 칸 이름. 버튼에 적습니다. */
   homeCode?: string;
+  /** recount 일 때 맞출 권수. 버튼에 적습니다("장서를 3권으로 맞추기"). */
+  fixTo?: number;
 };
 
 /** 스캔 한 번의 처리 결과. 화면은 이 값만 보고 큰 글씨/색/소리를 정합니다. */

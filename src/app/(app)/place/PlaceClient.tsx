@@ -3,10 +3,11 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import BarcodeScanner from "@/components/BarcodeScanner";
+import BookRegisterDialog from "@/components/BookRegisterDialog";
 import { formatIsbn, isBookBarcode, normalizeScan } from "@/lib/scan";
 import { levelColor } from "@/lib/bookLevels";
 import { addToPile, fetchPile, type Pile } from "@/lib/pileClient";
-import type { LibBookWithShelf, LibLocation, ShelfCheckResult } from "@/lib/types";
+import type { LibBook, LibBookWithShelf, LibLocation, ShelfCheckResult } from "@/lib/types";
 
 /** 방금 찍어서 이 칸에 적어 둔 한 권. 되돌리려면 찍기 전 자리를 알아야 합니다. */
 type Done = {
@@ -46,6 +47,15 @@ export default function PlaceClient({
   const [busy, setBusy] = useState(false);
   const [pile, setPile] = useState<Pile>(null);
   const [note, setNote] = useState<string | null>(null);
+  /*
+    ── 여기서 바로 등록 ──────────────────────────────────────────────────
+    요청: "등록 안 된 책도 여기서 바로 등록할 수 있게 해줘."
+
+    예전에는 '여러 권 등록'을 새 창으로 열라고 했습니다. 칸을 비우며 서른 권을 찍는 중에
+    창을 옮겨 다니면 들고 있던 책을 내려놓게 되고, 어디까지 찍었는지도 흐려집니다. 등록하면
+    **그 자리에서 이 칸에 바로 꽂습니다**(등록 → 자리 등록까지 한 번에).
+  */
+  const [register, setRegister] = useState<{ isbn?: string; code?: string } | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
   /*
@@ -67,7 +77,11 @@ export default function PlaceClient({
   }, []);
 
   const send = useCallback(
-    async (payload: { code?: string; bookId?: string; confirm?: "move" | "add" | "home" }) => {
+    async (payload: {
+      code?: string;
+      bookId?: string;
+      confirm?: "move" | "add" | "home" | "recount";
+    }) => {
       if (!here || busy) return;
       setBusy(true);
       setNote(null);
@@ -305,11 +319,32 @@ export default function PlaceClient({
           onMove={(bookId) => void send({ bookId, confirm: "move" })}
           onAdd={(bookId) => void send({ bookId, confirm: "add" })}
           onHome={(bookId) => void send({ bookId, confirm: "home" })}
+          onFixCount={(bookId) => void send({ bookId, confirm: "recount" })}
+          onRegister={(code, isIsbn) => setRegister(isIsbn ? { isbn: code } : { code })}
           onSkip={() => setResult(null)}
           onStash={(bookId) => void stash(bookId)}
           onSplit={(book) => void split(book)}
         />
       )}
+
+      {/*
+        등록이 끝나면 **그 자리에서 이 칸에 꽂습니다.** 등록만 해 두고 자리를 안 적으면 다음
+        사람이 또 못 찾습니다 - 지금 손에 들고 있을 때 끝내는 게 맞습니다.
+      */}
+      <BookRegisterDialog
+        open={register !== null}
+        initialIsbn={register?.isbn}
+        initialScanCode={register?.code}
+        onClose={() => {
+          setRegister(null);
+          inputRef.current?.focus();
+        }}
+        onCreated={(book: LibBook) => {
+          setRegister(null);
+          void send({ bookId: book.id });
+          inputRef.current?.focus();
+        }}
+      />
 
       {done.length > 0 && (
         <section className="overflow-hidden rounded-2xl bg-white shadow-sm ring-1 ring-slate-200">
@@ -375,6 +410,8 @@ function ResultPanel({
   onMove,
   onAdd,
   onHome,
+  onFixCount,
+  onRegister,
   onSkip,
   onStash,
   onSplit,
@@ -386,6 +423,10 @@ function ResultPanel({
   onMove: (bookId: string) => void;
   onAdd: (bookId: string) => void;
   onHome: (bookId: string) => void;
+  /** 장서에 적힌 권수를 찍어서 센 만큼으로 그 자리에서 맞춥니다. */
+  onFixCount: (bookId: string) => void;
+  /** 등록 안 된 책을 이 화면에서 바로 등록합니다. */
+  onRegister: (code: string, isIsbn: boolean) => void;
   onSkip: () => void;
   onStash: (bookId: string) => void;
   onSplit: (book: LibBookWithShelf) => void;
@@ -490,6 +531,16 @@ function ResultPanel({
                     className="mt-2 rounded-lg border border-slate-400 bg-white px-3 py-1.5 text-xs font-bold text-slate-700"
                   >
                     🏠 이 한 권을 {n.homeCode} 칸으로 보내기
+                  </button>
+                )}
+                {n.action === "recount" && n.fixTo != null && (
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={() => onFixCount(result.book.id)}
+                    className="mt-2 rounded-lg bg-amber-600 px-3 py-1.5 text-xs font-bold text-white disabled:opacity-50"
+                  >
+                    🧮 장서를 {n.fixTo}권으로 맞추기
                   </button>
                 )}
                 {n.action === "split" && (
@@ -637,14 +688,35 @@ function ResultPanel({
           {result.isIsbn ? formatIsbn(result.code) : result.code}
         </p>
         <p className="mt-3 text-sm leading-relaxed text-rose-900">{result.detail}</p>
-        <a
-          href="/batch"
-          target="_blank"
-          rel="noreferrer"
-          className="mt-3 inline-block rounded-xl bg-rose-600 px-4 py-2.5 text-sm font-bold text-white"
-        >
-          여러 권 등록 열기 →
-        </a>
+        {/*
+          여기서 등록하고, 등록이 끝나면 이 칸에 바로 꽂습니다. 창을 옮겨 다니면 들고 있던
+          책을 내려놓게 되고 어디까지 찍었는지도 흐려집니다.
+
+          ISBN이 아닌 바코드는 등록 창이 도서관 라벨을 새로 발급해 줍니다 - 찍힌 번호는
+          '상품코드'로만 남겨 두므로, 같은 번호를 쓰는 다른 책과 한 줄로 합쳐지지 않습니다.
+        */}
+        <div className="mt-3 flex flex-wrap gap-2">
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => onRegister(result.code, result.isIsbn)}
+            className="rounded-xl bg-rose-600 px-4 py-2.5 text-left text-sm font-bold text-white disabled:opacity-50"
+          >
+            📘 여기서 등록하기
+            <span className="block text-[11px] font-medium opacity-85">
+              {result.isIsbn
+                ? "제목을 자동으로 채운 뒤 이 칸에 바로 꽂습니다"
+                : "도서관 라벨을 새로 발급하고 이 칸에 바로 꽂습니다"}
+            </span>
+          </button>
+          <button
+            type="button"
+            onClick={onSkip}
+            className="rounded-xl px-4 py-2.5 text-sm font-semibold text-rose-800 underline"
+          >
+            건너뛰기
+          </button>
+        </div>
       </div>
     );
   }

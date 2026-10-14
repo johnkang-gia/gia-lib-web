@@ -51,11 +51,13 @@ export async function POST(request: Request) {
      *            한 권을 그 칸 몫으로 옮깁니다. 요청: "어차피 나중에 정렬하는 수고를 덜게."
      *            지금 흩어 놓고 나중에 모으는 것보다, 손에 들고 있을 때 그 칸으로 가져다 놓는
      *            쪽이 한 번에 끝납니다.
+     *   · recount — **센 만큼으로 장서 권수만 맞춥니다.** 이미 찍어서 기록된 뒤에 누르는
+     *            버튼이라 센 권수는 건드리지 않습니다.
      *
-     * 둘을 가르는 것은 "지금 손에 든 책이 아까 그 책이냐, 다른 책이냐"뿐이고, 그건 사람만
-     * 압니다. 그래서 묻습니다.
+     * 앞의 셋을 가르는 것은 "지금 손에 든 책이 아까 그 책이냐, 다른 책이냐"뿐이고, 그건
+     * 사람만 압니다. 그래서 묻습니다.
      */
-    confirm?: "move" | "add" | "home";
+    confirm?: "move" | "add" | "home" | "recount";
   };
   try {
     body = await request.json();
@@ -126,8 +128,8 @@ export async function POST(request: Request) {
         isIsbn: isbnLike,
         message: "아직 등록되지 않은 책입니다",
         detail: isbnLike
-          ? "'여러 권 등록'에서 이 ISBN을 넣으면 제목이 자동으로 채워집니다. 등록한 뒤 다시 찍어주세요."
-          : "ISBN이 아닌 바코드입니다. 이 번호로 등록하면 같은 번호를 쓰는 다른 책과 한 줄로 합쳐집니다 — '여러 권 등록'에서 도서관 라벨을 새로 발급해 붙인 뒤, 그 라벨을 찍어주세요.",
+          ? "여기서 바로 등록할 수 있습니다 — 이 ISBN으로 제목·저자·표지를 자동으로 채운 뒤, 등록이 끝나면 이 칸에 바로 꽂습니다."
+          : "ISBN이 아닌 바코드입니다. 이 번호로 등록하면 같은 번호를 쓰는 다른 책과 한 줄로 합쳐집니다 — 여기서 등록하면 도서관 라벨을 새로 발급해 드립니다. 인쇄해 붙인 뒤 그 라벨을 쓰시면 됩니다.",
       });
     }
 
@@ -283,6 +285,59 @@ export async function POST(request: Request) {
         },
       ],
       message: home.code,
+    });
+  }
+
+  /*
+    ── 여기서 바로 보유 권수 맞추기 ────────────────────────────────────────
+    요청: "기록상 1권인데 2권째입니다 하고 나중에 고치라고 하는데, 이 페이지에서 바로 고칠 수
+    있게 해줘."
+
+    맞는 말입니다. 어긋난 것을 **발견한 사람이 그 자리에서** 고칠 수 없으면 적어 뒀다가
+    나중에 다른 화면에서 그 책을 다시 찾아야 하고, 그 '나중'은 대개 오지 않습니다.
+
+    이 길은 센 권수를 건드리지 않습니다 - 이미 찍어서 기록된 뒤에 누르는 버튼이고, 여기서
+    할 일은 장서에 적힌 숫자를 **찾은 만큼으로** 맞추는 것뿐입니다.
+  */
+  if (body.confirm === "recount") {
+    const found = (existing?.copies ?? 0) + otherTotal;
+    const want = Math.max(1, found);
+    const { error } = await supabase
+      .from("lib_books")
+      .update({ total_copies: want })
+      .eq("id", book.id);
+    if (error) {
+      return NextResponse.json<ShelfCheckResult>({
+        kind: "error",
+        message: "보유 권수를 맞추지 못했습니다.",
+        detail: error.message,
+      });
+    }
+    const { data: fixed } = await supabase
+      .from("lib_books")
+      .select("*, shelf:lib_locations!location_id(*)")
+      .eq("id", book.id)
+      .maybeSingle();
+
+    return NextResponse.json<ShelfCheckResult>({
+      kind: "placed",
+      book: (fixed as unknown as LibBookWithShelf | null) ?? book,
+      from: book.shelf ?? null,
+      copiesHere: existing?.copies ?? 0,
+      foundTotal: found,
+      recordedCopies: want,
+      otherShelves,
+      notices: [
+        {
+          tone: "info",
+          title: `장서 ${book.total_copies}권 → ${want}권`,
+          detail:
+            otherTotal > 0
+              ? `찍어서 센 만큼으로 맞췄습니다(${here.code}에 ${existing?.copies ?? 0}권 · 다른 칸에 ${otherTotal}권).`
+              : "찍어서 센 만큼으로 맞췄습니다.",
+        },
+      ],
+      message: `${here.code} · ${want}권`,
     });
   }
 
@@ -517,7 +572,10 @@ export async function POST(request: Request) {
     notices.push({
       tone: "warn",
       title: `기록상 ${recordedTotal}권인데 ${foundTotal}권째입니다`,
-      detail: "다 돌고 나서 장서 관리에서 보유 권수를 고쳐주세요.",
+      detail:
+        "장서에 적힌 권수가 실제보다 적었습니다. 여기서 바로 맞출 수 있습니다 — 아직 안 돈 칸에 더 있으면 그 칸을 찍을 때 또 물어봅니다.",
+      action: "recount",
+      fixTo: foundTotal,
     });
   }
 
