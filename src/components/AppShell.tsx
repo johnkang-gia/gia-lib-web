@@ -4,6 +4,8 @@ import { useEffect, useState, useTransition } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { APP_VERSION } from "@/lib/version";
+import { LangProvider, setLang, useLang, useT } from "@/lib/i18n/client";
+import type { Lang } from "@/lib/i18n";
 
 /**
  * 관리 메뉴.
@@ -102,12 +104,38 @@ const ALL_ITEMS = MENU_GROUPS.flatMap((g) => g.items);
 export default function AppShell({
   libraryName,
   email,
+  lang,
+  children,
+}: {
+  libraryName: string;
+  email: string;
+  lang: Lang;
+  children: React.ReactNode;
+}) {
+  /*
+    말은 여기서 한 번만 정하고 아래 화면 전체가 같은 값을 봅니다. 서버가 쿠키를 읽어 내려주므로
+    새로고침해도 한국어로 한 번 깜빡였다가 영어로 바뀌는 일이 없습니다.
+  */
+  return (
+    <LangProvider lang={lang}>
+      <Shell libraryName={libraryName} email={email}>
+        {children}
+      </Shell>
+    </LangProvider>
+  );
+}
+
+function Shell({
+  libraryName,
+  email,
   children,
 }: {
   libraryName: string;
   email: string;
   children: React.ReactNode;
 }) {
+  const t = useT();
+  const lang = useLang();
   const pathname = usePathname();
   const router = useRouter();
   const [open, setOpen] = useState(false);
@@ -158,7 +186,7 @@ export default function AppShell({
           type="button"
           onClick={() => go("/scan")}
           className="flex items-center gap-3"
-          title="대출·반납 화면으로"
+          title={t("대출·반납 화면")}
         >
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src="/logo-main.png" alt="GIA Micro Lab" className="h-7 w-auto brightness-0 invert" />
@@ -174,7 +202,7 @@ export default function AppShell({
             onClick={() => go("/scan")}
             className="ml-2 rounded-lg bg-white/10 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-white/20"
           >
-            ← 대출·반납 화면
+            ← {t("대출·반납 화면")}
           </button>
         )}
 
@@ -192,12 +220,36 @@ export default function AppShell({
           >
             v{APP_VERSION}
           </button>
+          {/*
+            ── 말 바꾸기 ────────────────────────────────────────────────
+            요청: "한글/영어 언어 전환할 수 있게 만들어줘."
+
+            고른 말은 이 노트북에 1년 남습니다. 사람마다가 아니라 **그 기계의 설정**입니다 -
+            도서관 노트북은 한 계정으로 하루 종일 켜 둔 채 여럿이 번갈아 씁니다.
+          */}
+          <div className="flex overflow-hidden rounded-lg border border-white/20 text-[11px] font-bold">
+            {(["ko", "en"] as const).map((code) => (
+              <button
+                key={code}
+                type="button"
+                onClick={() => {
+                  setLang(code);
+                  router.refresh();
+                }}
+                className={`px-2 py-1 transition ${
+                  lang === code ? "bg-gia-gold text-gia-navy" : "text-white/55 hover:bg-white/10"
+                }`}
+              >
+                {code === "ko" ? "한국어" : "EN"}
+              </button>
+            ))}
+          </div>
           <button
             type="button"
             onClick={() => setOpen(true)}
             className="rounded-lg border border-gia-gold/50 px-3 py-1.5 text-xs font-semibold text-gia-gold-soft transition hover:bg-white/10"
           >
-            ☰ 관리
+            ☰ {t("관리")}
           </button>
         </div>
       </header>
@@ -248,8 +300,8 @@ export default function AppShell({
               {MENU_GROUPS.map((group) => (
                 <div key={group.title} className="mb-4">
                   <div className="px-3 pb-1.5">
-                    <p className="text-xs font-bold text-slate-500">{group.title}</p>
-                    <p className="text-[11px] text-slate-400">{group.hint}</p>
+                    <p className="text-xs font-bold text-slate-500">{t(group.title)}</p>
+                    <p className="text-[11px] text-slate-400">{t(group.hint)}</p>
                   </div>
                   {group.items.map((item) => {
                     const active = pathname.startsWith(item.href);
@@ -265,13 +317,13 @@ export default function AppShell({
                       >
                         <span className="text-lg">{loading ? "⏳" : item.icon}</span>
                         <span className="min-w-0">
-                          <span className="block text-sm font-semibold">{item.label}</span>
+                          <span className="block text-sm font-semibold">{t(item.label)}</span>
                           <span
                             className={`block truncate text-xs ${
                               active ? "text-white/60" : "text-slate-400"
                             }`}
                           >
-                            {item.desc}
+                            {t(item.desc)}
                           </span>
                         </span>
                       </button>

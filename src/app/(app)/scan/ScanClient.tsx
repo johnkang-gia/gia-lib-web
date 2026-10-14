@@ -9,6 +9,7 @@ import { cheerFor, monthlyProgress, readingLevel } from "@/lib/reading";
 import { CATEGORIES } from "@/lib/categories";
 import { levelColor } from "@/lib/bookLevels";
 import { useScanFocus } from "@/lib/useScanFocus";
+import { useT } from "@/lib/i18n/client";
 import type {
   LibBookWithShelf,
   LibLoanWithBook,
@@ -64,6 +65,8 @@ export default function ScanClient({
   returnedToday: number;
 }) {
   const router = useRouter();
+  /* 화면 글귀는 전부 이 t() 를 지납니다 - 사전에 없는 글귀는 한국어가 그대로 나옵니다. */
+  const t = useT();
   const [value, setValue] = useState("");
   const [busy, setBusy] = useState(false);
   const [student, setStudent] = useState<StudentState | null>(null);
@@ -467,18 +470,18 @@ export default function ScanClient({
               void handleScan(value);
             }
           }}
-          placeholder="학생카드 · 책 바코드 · 제목으로 찾기 — 순서는 상관없습니다"
+          placeholder={t("학생카드 · 책 바코드 · 제목으로 찾기 — 순서는 상관없습니다")}
           className="scan-input min-w-0 flex-1 rounded-2xl border-2 border-dashed border-slate-300 bg-slate-50 px-4 py-3.5 text-center text-lg outline-none focus:border-gia-gold focus:bg-white"
           autoComplete="off"
           spellCheck={false}
         />
         <div className="flex items-center gap-4 text-center">
           <div>
-            <p className="text-[11px] text-slate-400">오늘 대출</p>
+            <p className="text-[11px] text-slate-400">{t("오늘 대출")}</p>
             <p className="text-xl font-black text-emerald-600">{counts.borrowed}</p>
           </div>
           <div>
-            <p className="text-[11px] text-slate-400">오늘 반납</p>
+            <p className="text-[11px] text-slate-400">{t("오늘 반납")}</p>
             <p className="text-xl font-black text-blue-600">{counts.returned}</p>
           </div>
           <span className="font-mono text-sm text-slate-400">{clock}</span>
@@ -487,7 +490,7 @@ export default function ScanClient({
             onClick={nextStudent}
             className="rounded-xl border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-50"
           >
-            다음 학생
+            {t("다음 학생")}
           </button>
         </div>
       </div>
@@ -515,7 +518,7 @@ export default function ScanClient({
       {/* ── 동명이인 고르기 ───────────────────────────────────────────── */}
       {choices && (
         <div className="rounded-2xl bg-white p-4 shadow-sm ring-1 ring-slate-200">
-          <p className="mb-2 text-sm font-bold text-slate-500">학생을 골라주세요</p>
+          <p className="mb-2 text-sm font-bold text-slate-500">{t("학생을 골라주세요")}</p>
           <ul className="flex flex-wrap gap-2">
             {choices.map((s) => (
               <li key={s.id}>
@@ -597,9 +600,9 @@ export default function ScanClient({
           {!student ? (
             <div className="flex flex-1 flex-col items-center justify-center text-center">
               <p className="text-5xl">🪪</p>
-              <p className="mt-3 text-xl font-bold text-slate-400">학생카드를 찍어주세요</p>
+              <p className="mt-3 text-xl font-bold text-slate-400">{t("학생카드를 찍어주세요")}</p>
               <p className="mt-1 text-sm text-slate-300">
-                책을 먼저 찍어도 됩니다 — 오른쪽에 쌓아 두고 기다립니다
+                {t("책을 먼저 찍어도 됩니다 — 오른쪽에 쌓아 두고 기다립니다")}
               </p>
             </div>
           ) : (
@@ -637,14 +640,14 @@ export default function ScanClient({
                     rel="noreferrer"
                     className="mt-2 inline-block text-sm font-semibold text-gia-gold hover:underline"
                   >
-                    📖 도서기록 보기 · 인쇄
+                    {t("📖 도서기록 보기 · 인쇄")}
                   </a>
                 </div>
               </div>
 
               {student.overdueCount > 0 && (
                 <p className="rounded-xl bg-red-50 px-4 py-3 text-base font-black text-red-700 ring-1 ring-red-200">
-                  ⚠ 연체 {student.overdueCount}권 — 먼저 반납해야 빌릴 수 있습니다
+                  ⚠ {t("연체 {n}권 — 먼저 반납해야 빌릴 수 있습니다", { n: student.overdueCount })}
                 </p>
               )}
 
@@ -655,7 +658,7 @@ export default function ScanClient({
                     {level.current.name}
                   </span>
                   <span className="ml-auto text-xs text-slate-400">
-                    {level.next ? `다음까지 ${level.remain}권` : "최고 단계"}
+                    {level.next ? t("다음까지 {n}권", { n: level.remain }) : t("최고 단계")}
                   </span>
                 </div>
                 <div className="mt-2 h-2.5 overflow-hidden rounded-full bg-white">
@@ -671,7 +674,7 @@ export default function ScanClient({
 
               <div className="rounded-2xl bg-slate-50 px-4 py-3">
                 <div className="flex items-baseline gap-2">
-                  <span className="text-sm font-semibold text-slate-500">이번 달 목표</span>
+                  <span className="text-sm font-semibold text-slate-500">{t("이번 달 목표")}</span>
                   <span className="text-lg font-black text-gia-navy">
                     {goal.done} / {goal.goal}권
                   </span>
@@ -689,9 +692,9 @@ export default function ScanClient({
 
               <div className="grid grid-cols-3 gap-2">
                 {[
-                  { label: "이번 달", value: student.stats.month },
-                  { label: "올해", value: student.stats.year },
-                  { label: "지금까지", value: student.stats.total },
+                  { label: t("이번 달"), value: student.stats.month },
+                  { label: t("올해"), value: student.stats.year },
+                  { label: t("지금까지"), value: student.stats.total },
                 ].map((tile) => (
                   <div
                     key={tile.label}
@@ -709,15 +712,15 @@ export default function ScanClient({
               {/* 지금 빌린 책 - 반납할 책을 고르는 데 쓰므로 왼쪽(학생 쪽)에 둡니다. */}
               <div>
                 <p className="mb-1.5 text-sm font-bold text-slate-500">
-                  지금 빌린 책 {student.activeLoans.length}권
+                  {t("지금 빌린 책 {n}권", { n: student.activeLoans.length })}
                   <span className="ml-1 text-xs font-medium text-slate-400">
-                    {remaining > 0 ? `· ${remaining}권 더 가능` : "· 최대 권수를 채웠습니다"}
+                    {remaining > 0 ? `· ${t("{n}권 더 가능", { n: remaining })}` : `· ${t("최대 권수를 채웠습니다")}`}
                   </span>
                 </p>
                 <ul className="space-y-1.5">
                   {student.activeLoans.length === 0 && (
                     <li className="rounded-xl bg-slate-50 px-4 py-4 text-center text-sm text-slate-300">
-                      지금 빌린 책이 없습니다
+                      {t("지금 빌린 책이 없습니다")}
                     </li>
                   )}
                   {student.activeLoans.map((loan) => {
@@ -737,7 +740,7 @@ export default function ScanClient({
                             late > 0 ? "text-red-600" : "text-slate-500"
                           }`}
                         >
-                          {late > 0 ? `${late}일 연체` : `${formatDay(loan.due_date)}까지`}
+                          {late > 0 ? t("{n}일 연체", { n: late }) : t("{day}까지", { day: formatDay(loan.due_date) })}
                         </span>
                       </li>
                     );
@@ -747,7 +750,7 @@ export default function ScanClient({
 
               <div className="mt-auto">
                 <p className="mb-1.5 text-xs font-bold text-slate-400">
-                  독서 도감 {filledCategories}/{CATEGORIES.length}칸
+                  {t("독서 도감")} {filledCategories}/{CATEGORIES.length}
                 </p>
                 <div className="flex flex-wrap gap-1">
                   {CATEGORIES.map((cat) => {
@@ -778,7 +781,7 @@ export default function ScanClient({
         {/* ── 오른쪽: 대출 관리 ─────────────────────────────────────── */}
         <section className="flex min-h-0 flex-col rounded-2xl bg-white p-4 shadow-sm ring-1 ring-slate-200">
           <div className="mb-2 flex shrink-0 items-baseline gap-2">
-            <p className="text-base font-black text-slate-700">대출 예정 목록</p>
+            <p className="text-base font-black text-slate-700">{t("대출 예정 목록")}</p>
             <p className="text-sm text-slate-400">{cart.length}권</p>
             {cart.length > 0 && (
               <button
@@ -786,7 +789,7 @@ export default function ScanClient({
                 onClick={() => setCart([])}
                 className="ml-auto text-xs text-slate-400 hover:text-red-500"
               >
-                목록 비우기
+                {t("목록 비우기")}
               </button>
             )}
           </div>
@@ -794,7 +797,7 @@ export default function ScanClient({
           <ul className="min-h-0 flex-1 space-y-2 overflow-y-auto pr-1">
             {cart.length === 0 && (
               <li className="rounded-2xl bg-slate-50 px-5 py-10 text-center text-base text-slate-300">
-                책 바코드를 찍으면 여기에 쌓입니다
+                {t("책 바코드를 찍으면 여기에 쌓입니다")}
               </li>
             )}
             {cart.map((item) => {
@@ -829,7 +832,7 @@ export default function ScanClient({
                             color: levelColor(item.book.label_level),
                           }}
                         >
-                          {item.book.label_level}등급
+                          {t("{n}등급", { n: item.book.label_level })}
                           {item.book.label_no ? ` ${item.book.label_no}` : ""}
                         </span>
                       )}
@@ -850,7 +853,7 @@ export default function ScanClient({
                         </span>
                       ) : (
                         <span className="rounded bg-slate-200 px-1.5 py-0.5 text-[11px] font-semibold text-slate-500">
-                          📍 자리 미정
+                          📍 {t("자리 미정")}
                         </span>
                       )}
                       {/*
@@ -866,7 +869,7 @@ export default function ScanClient({
                       ) : (
                         student && (
                           <span className="rounded bg-emerald-50 px-1.5 py-0.5 text-[11px] font-semibold text-emerald-700">
-                            처음 빌리는 책
+                            {t("처음 빌리는 책")}
                           </span>
                         )
                       )}
@@ -877,7 +880,7 @@ export default function ScanClient({
                     onClick={() => removeFromCart(item.key)}
                     className="shrink-0 rounded-lg px-2 py-1 text-xs text-slate-400 hover:bg-white hover:text-red-500"
                   >
-                    빼기
+                    {t("빼기")}
                   </button>
                 </li>
               );
@@ -893,16 +896,16 @@ export default function ScanClient({
               className="w-full rounded-2xl bg-emerald-600 px-4 py-4 text-xl font-black text-white transition disabled:bg-slate-200 disabled:text-slate-400"
             >
               {checking
-                ? "대출 중…"
+                ? t("대출 중…")
                 : cart.length === 0
-                  ? "책을 찍어주세요"
+                  ? t("책을 찍어주세요")
                   : !student
-                    ? "학생카드를 찍어주세요"
-                    : `${cart.length}권 대출하기`}
+                    ? t("학생카드를 찍어주세요")
+                    : t("{n}권 대출하기", { n: cart.length })}
             </button>
             {student && cart.length > remaining && (
               <p className="mt-1.5 text-center text-xs font-semibold text-amber-700">
-                지금은 {remaining}권까지 빌릴 수 있습니다 — {cart.length - remaining}권을 빼주세요
+                {t("지금은 {n}권까지 빌릴 수 있습니다 — {over}권을 빼주세요", { n: remaining, over: cart.length - remaining })}
               </p>
             )}
           </div>
@@ -919,7 +922,7 @@ export default function ScanClient({
           {returned.length > 0 && (
             <div className="mt-3 shrink-0 border-t border-slate-100 pt-3">
               <p className="mb-1.5 text-sm font-bold text-blue-600">
-                방금 반납 {returned.length}권 — 아래 칸에 꽂아주세요
+                {t("방금 반납 {n}권 — 아래 칸에 꽂아주세요", { n: returned.length })}
               </p>
               <ul className="max-h-44 space-y-1.5 overflow-y-auto">
                 {returned.map((r) => (
@@ -930,7 +933,7 @@ export default function ScanClient({
                     <span className="min-w-0 flex-1">
                       <span className="block truncate text-sm font-bold">{r.title}</span>
                       {r.late > 0 && (
-                        <span className="text-xs font-bold text-red-600">{r.late}일 연체</span>
+                        <span className="text-xs font-bold text-red-600">{t("{n}일 연체", { n: r.late })}</span>
                       )}
                     </span>
                     {r.shelf ? (
@@ -947,9 +950,9 @@ export default function ScanClient({
                       </span>
                     ) : (
                       <span className="shrink-0 rounded-xl bg-amber-100 px-3 py-2 text-xs font-bold text-amber-800">
-                        자리 미정
+                        {t("자리 미정")}
                         <span className="block text-[10px] font-medium">
-                          자리 등록에서 칸을 정해주세요
+                          {t("자리 등록에서 칸을 정해주세요")}
                         </span>
                       </span>
                     )}
