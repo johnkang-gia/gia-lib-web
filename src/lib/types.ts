@@ -396,16 +396,35 @@ export type ShelfNotice = {
    *  · labeled - 이 자리에서 도서관 라벨을 새로 발급했음 → 인쇄 대기에 쌓기
    *  · home    - 같은 책이 다른 칸에도 있음 → 이 한 권을 원래 칸으로 보내기
    *  · recount - 장서에 적힌 권수가 실제보다 적음 → 그 자리에서 맞추기
-   *  · merge   - 같은 제목이 다른 칸에도 있음 → 합치기 화면에서 보기
+   *  · relocate - 같은 제목이 다른 칸에도 있음 → **그 자리에서** 그 칸으로 보낼지 정하기.
+   *             다른 화면으로 보내지 않습니다. 책을 손에 들고 있는 지금이 정할 수 있는
+   *             유일한 순간이고, 화면을 옮기면 들고 있던 책을 내려놓게 됩니다.
    *
    * 안내마다 **끝낼 길**이 하나씩 붙어 있어야 합니다. 상태만 알리고 끝나면, 사람은 그것을
    * 외워 뒀다가 나중에 다시 찾아야 하고 그 '나중'은 대개 오지 않습니다.
    */
-  action?: "split" | "labeled" | "home" | "recount" | "merge";
+  action?: "split" | "labeled" | "home" | "recount" | "relocate";
   /** home 일 때 보낼 칸 이름. 버튼에 적습니다. */
   homeCode?: string;
   /** recount 일 때 맞출 권수. 버튼에 적습니다("장서를 3권으로 맞추기"). */
   fixTo?: number;
+  /**
+   * relocate 일 때 보낼 수 있는 곳들.
+   *
+   * **줄(책)과 칸이 함께** 있어야 합니다. 같은 제목이라도 판본이 달라 따로 등록된 줄이고,
+   * 어느 줄의 권수를 올릴지는 칸만 알아서는 정해지지 않습니다.
+   */
+  spots?: {
+    bookId: string;
+    locationId: string;
+    code: string;
+    /** 그 줄이 그 칸에서 세어진 권수. */
+    copies: number;
+    /** 그 줄의 보유 권수(보내면 한 권 늘어납니다). */
+    totalCopies: number;
+    level: number | null;
+    title: string;
+  }[];
 };
 
 /** 스캔 한 번의 처리 결과. 화면은 이 값만 보고 큰 글씨/색/소리를 정합니다. */

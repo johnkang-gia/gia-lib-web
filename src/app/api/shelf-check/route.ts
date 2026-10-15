@@ -53,13 +53,21 @@ export async function POST(request: Request) {
      *            한 권을 그 칸 몫으로 옮깁니다. 요청: "어차피 나중에 정렬하는 수고를 덜게."
      *            지금 흩어 놓고 나중에 모으는 것보다, 손에 들고 있을 때 그 칸으로 가져다 놓는
      *            쪽이 한 번에 끝납니다.
+     *   · relocate — **같은 제목의 다른 줄로 이 한 권을 넘깁니다.** 그 줄의 보유 권수가
+     *            한 권 늘고 이 줄에서는 한 권 빠집니다. 요청: "그쪽으로 보내서 그 위치
+     *            장서를 1권 더 추가할지, 아니면 이곳에 그냥 둘지 그 페이지에서 결정할 수
+     *            있도록." 다른 화면으로 보내지 않습니다 - 책을 손에 들고 있는 지금이 정할
+     *            수 있는 유일한 순간입니다.
      *   · recount — **센 만큼으로 장서 권수만 맞춥니다.** 이미 찍어서 기록된 뒤에 누르는
      *            버튼이라 센 권수는 건드리지 않습니다.
      *
      * 앞의 셋을 가르는 것은 "지금 손에 든 책이 아까 그 책이냐, 다른 책이냐"뿐이고, 그건
      * 사람만 압니다. 그래서 묻습니다.
      */
-    confirm?: "move" | "add" | "home" | "recount";
+    confirm?: "move" | "add" | "home" | "recount" | "relocate";
+    /** relocate 일 때, 이 한 권을 받아 갈 줄과 칸. 화면의 '보낼 수 있는 곳' 버튼이 보냅니다. */
+    targetBookId?: string;
+    targetLocationId?: string;
   };
   try {
     body = await request.json();
@@ -295,6 +303,119 @@ export async function POST(request: Request) {
   }
 
   /*
+    ── 같은 제목의 다른 줄로 이 한 권을 넘기기 ─────────────────────────────
+    "판본이 달라 따로 등록됐을 뿐, 사실 같은 책"인 경우입니다. 이 한 권은 그 줄의 것이고
+    그 칸에 꽂혀야 합니다.
+
+    옮기는 것은 **딱 한 권**입니다: 이 칸에서 센 몫에서 하나 빼고, 그 줄·그 칸에 하나 더하고,
+    두 줄의 보유 권수도 같이 맞춥니다. 숫자 네 개가 한꺼번에 움직여야 어느 쪽도 늘거나 줄지
+    않습니다.
+  */
+  if (body.confirm === "relocate") {
+    const targetBookId = body.targetBookId ?? "";
+    const targetLocationId = body.targetLocationId ?? "";
+    if (!targetBookId || !targetLocationId) {
+      return NextResponse.json<ShelfCheckResult>({
+        kind: "error",
+        message: "어느 줄로 보낼지 알 수 없습니다.",
+      });
+    }
+
+    const [{ data: targetBookRow }, { data: targetCheckRow }, { data: targetLocRow }] =
+      await Promise.all([
+        supabase.from("lib_books").select("id,title,total_copies").eq("id", targetBookId).maybeSingle(),
+        supabase
+          .from("lib_shelf_check")
+          .select("id, copies")
+          .eq("book_id", targetBookId)
+          .eq("location_id", targetLocationId)
+          .maybeSingle(),
+        supabase.from("lib_locations").select("code").eq("id", targetLocationId).maybeSingle(),
+      ]);
+    const target = targetBookRow as { id: string; title: string; total_copies: number } | null;
+    const targetCheck = targetCheckRow as { id: string; copies: number } | null;
+    const targetCode = (targetLocRow as { code: string } | null)?.code ?? "";
+    if (!target) {
+      return NextResponse.json<ShelfCheckResult>({ kind: "error", message: "보낼 줄을 찾지 못했습니다." });
+    }
+
+    // ① 이 칸에서 한 권 뺍니다.
+    if (existing) {
+      if (existing.copies <= 1) {
+        await supabase.from("lib_shelf_check").delete().eq("id", existing.id);
+      } else {
+        await supabase
+          .from("lib_shelf_check")
+          .update({ copies: existing.copies - 1 })
+          .eq("id", existing.id);
+      }
+    }
+    // ② 이 줄의 보유 권수도 한 권 줄입니다(0 밑으로는 안 내려갑니다).
+    const leftHere = Math.max(0, book.total_copies - 1);
+    const stillSomewhere = otherTotal > 0 || (existing?.copies ?? 0) > 1;
+    await supabase
+      .from("lib_books")
+      .update({
+        total_copies: leftHere,
+        ...(stillSomewhere ? {} : { location_id: null }),
+      })
+      .eq("id", book.id);
+
+    // ③ 받는 줄에 한 권 더합니다.
+    if (targetCheck) {
+      await supabase
+        .from("lib_shelf_check")
+        .update({
+          copies: targetCheck.copies + 1,
+          checked_at: new Date().toISOString(),
+          checked_by: email,
+        })
+        .eq("id", targetCheck.id);
+    } else {
+      await supabase.from("lib_shelf_check").insert({
+        book_id: target.id,
+        location_id: targetLocationId,
+        copies: 1,
+        checked_by: email,
+      });
+    }
+    const { data: grown } = await supabase
+      .from("lib_books")
+      .update({ total_copies: target.total_copies + 1, location_id: targetLocationId })
+      .eq("id", target.id)
+      .select("*, shelf:lib_locations!location_id(*)")
+      .maybeSingle();
+
+    const notices: ShelfNotice[] = [
+      {
+        tone: "warn",
+        title: `${targetCode} 칸으로 가져가 주세요`,
+        detail: `'${target.title}' 줄이 ${target.total_copies}권 → ${target.total_copies + 1}권이 되었습니다. 지금 손에 들고 있을 때 가져다 놓으면 나중에 찾는 수고가 없습니다.`,
+      },
+      {
+        tone: "info",
+        title: `이 줄은 ${book.total_copies}권 → ${leftHere}권`,
+        detail:
+          leftHere === 0
+            ? "이 줄은 이제 0권입니다. 같은 책이 한 줄로 합쳐진 셈이니, 장서 관리에서 빈 줄을 정리하면 됩니다."
+            : "이 칸에서 센 몫에서도 한 권 뺐습니다.",
+      },
+    ];
+
+    return NextResponse.json<ShelfCheckResult>({
+      kind: "placed",
+      book: (grown as unknown as LibBookWithShelf | null) ?? book,
+      from: here,
+      copiesHere: (targetCheck?.copies ?? 0) + 1,
+      foundTotal: (targetCheck?.copies ?? 0) + 1,
+      recordedCopies: target.total_copies + 1,
+      otherShelves: [],
+      notices,
+      message: targetCode,
+    });
+  }
+
+  /*
     ── 여기서 바로 보유 권수 맞추기 ────────────────────────────────────────
     요청: "기록상 1권인데 2권째입니다 하고 나중에 고치라고 하는데, 이 페이지에서 바로 고칠 수
     있게 해줘."
@@ -506,36 +627,41 @@ export async function POST(request: Request) {
   async function findRelatives() {
     const sameTitle = supabase
       .from("lib_books")
-      .select("id,title,series")
+      .select("id,title,series,label_level,total_copies")
       .eq("title", book!.title)
       .neq("id", book!.id)
       .limit(40);
     const sameSeries = book!.series
       ? supabase
           .from("lib_books")
-          .select("id,title,series")
+          .select("id,title,series,label_level,total_copies")
           .eq("series", book!.series)
           .neq("id", book!.id)
           .limit(40)
       : null;
 
     const [titleRes, seriesRes] = await Promise.all([sameTitle, sameSeries ?? Promise.resolve({ data: [] })]);
-    const titleIds = ((titleRes.data ?? []) as { id: string }[]).map((r) => r.id);
-    const seriesIds = ((seriesRes.data ?? []) as { id: string }[]).map((r) => r.id);
+    type Row = { id: string; title: string; label_level: number | null; total_copies: number };
+    const titleBooks = (titleRes.data ?? []) as Row[];
+    const seriesBooks = (seriesRes.data ?? []) as Row[];
+    const titleIds = titleBooks.map((r) => r.id);
+    const seriesIds = seriesBooks.map((r) => r.id);
+    const byId = new Map([...titleBooks, ...seriesBooks].map((r) => [r.id, r]));
     const allIds = Array.from(new Set([...titleIds, ...seriesIds]));
-    if (allIds.length === 0) return { title: [], series: [] };
+    if (allIds.length === 0) return { title: [], series: [], spots: [] };
 
     const { data: rows } = await supabase
       .from("lib_shelf_check")
-      .select("book_id, copies, location:lib_locations!location_id(code, sort_order)")
+      .select("book_id, copies, location_id, location:lib_locations!location_id(code, sort_order)")
       .in("book_id", allIds);
     const checks = ((rows ?? []) as unknown as {
       book_id: string;
       copies: number;
+      location_id: string;
       location: { code: string; sort_order: number } | null;
     }[]).filter((r) => r.location);
 
-    /** 고른 책들이 어느 칸에 몇 권 있는지 한 줄로. */
+    /** 고른 책들이 어느 칸에 몇 권 있는지 한 줄로(사람이 읽는 문구용). */
     const spotsOf = (ids: string[]) => {
       const map = new Map<string, { code: string; copies: number; sort: number }>();
       for (const row of checks) {
@@ -550,7 +676,27 @@ export async function POST(request: Request) {
       }
       return [...map.values()].sort((a, b) => a.sort - b.sort);
     };
-    return { title: spotsOf(titleIds), series: spotsOf(seriesIds) };
+
+    /*
+      ── 보낼 수 있는 곳 ─────────────────────────────────────────────────
+      문구와 달리 **줄마다 · 칸마다** 따로 둡니다. 같은 제목이라도 판본이 달라 따로 등록된
+      줄이고, 어느 줄의 권수를 올릴지는 칸만 알아서는 정해지지 않습니다. 이 한 권을 보낼
+      곳을 사람이 그 자리에서 누를 수 있어야 하므로 id 까지 함께 보냅니다.
+    */
+    const spots = checks
+      .filter((r) => titleIds.includes(r.book_id))
+      .sort((a, b) => (a.location!.sort_order ?? 0) - (b.location!.sort_order ?? 0))
+      .map((r) => ({
+        bookId: r.book_id,
+        locationId: r.location_id,
+        code: r.location!.code,
+        copies: r.copies,
+        totalCopies: byId.get(r.book_id)?.total_copies ?? 0,
+        level: byId.get(r.book_id)?.label_level ?? null,
+        title: byId.get(r.book_id)?.title ?? book!.title,
+      }));
+
+    return { title: spotsOf(titleIds), series: spotsOf(seriesIds), spots };
   }
 
   const foundTotal = copiesHere + otherTotal;
@@ -610,8 +756,9 @@ export async function POST(request: Request) {
       tone: "warn",
       title: `같은 제목이 ${relatives.title.map((r) => `${r.code} ${r.copies}권`).join(" · ")}에 있습니다`,
       detail:
-        "판본이 달라 따로 등록된 책일 수 있습니다. 합칠 책인지 여기서 바로 보고 정하세요 — 합치면 각 칸에 있던 책이 한곳으로 모입니다.",
-      action: "merge",
+        "판본이 달라 따로 등록된 책일 수 있습니다. 같은 책이면 지금 들고 있는 이 한 권을 그 칸으로 보내세요 — 그 줄의 보유 권수가 한 권 늘고 이 줄에서는 한 권 빠집니다. 다른 책이면 그냥 두면 됩니다.",
+      action: "relocate",
+      spots: relatives.spots,
     });
   }
   if (relatives.series.length > 0) {

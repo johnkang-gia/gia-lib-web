@@ -304,7 +304,9 @@ export default function PlaceClient({
     async (payload: {
       code?: string;
       bookId?: string;
-      confirm?: "move" | "add" | "home" | "recount";
+      confirm?: "move" | "add" | "home" | "recount" | "relocate";
+      targetBookId?: string;
+      targetLocationId?: string;
     }) => {
       if (!here || busy) return;
       setBusy(true);
@@ -977,6 +979,9 @@ export default function PlaceClient({
           onAdd={(bookId) => void send({ bookId, confirm: "add" })}
           onHome={(bookId) => void send({ bookId, confirm: "home" })}
           onFixCount={(bookId) => void send({ bookId, confirm: "recount" })}
+          onRelocate={(bookId, targetBookId, targetLocationId) =>
+            void send({ bookId, confirm: "relocate", targetBookId, targetLocationId })
+          }
           onRegister={(code, isbnLike) =>
             setRegister(isbnLike ? { isbn: code, mode: "place" } : { code, mode: "place" })
           }
@@ -1073,7 +1078,14 @@ export default function PlaceClient({
 }
 
 /* ── 찍은 결과 한 장 ─────────────────────────────────────────────────────── */
-function ResultPanel({
+function ResultPanel(props: ResultPanelProps) {
+  // 결과가 바뀌면 접어 둔 것도 초기화됩니다(key 로 새 컴포넌트가 됩니다).
+  return <ResultBody key={props.result.kind + (("book" in props.result && props.result.book.id) || "")} {...props} />;
+}
+
+type ResultPanelProps = Parameters<typeof ResultBody>[0];
+
+function ResultBody({
   result,
   here,
   busy,
@@ -1082,6 +1094,7 @@ function ResultPanel({
   onAdd,
   onHome,
   onFixCount,
+  onRelocate,
   onRegister,
   onSkip,
   onStash,
@@ -1096,12 +1109,21 @@ function ResultPanel({
   onHome: (bookId: string) => void;
   /** 장서에 적힌 권수를 찍어서 센 만큼으로 그 자리에서 맞춥니다. */
   onFixCount: (bookId: string) => void;
+  /** 이 한 권을 같은 제목의 다른 줄·칸으로 넘깁니다. */
+  onRelocate: (bookId: string, targetBookId: string, targetLocationId: string) => void;
   /** 등록 안 된 책을 이 화면에서 바로 등록합니다. */
   onRegister: (code: string, isIsbn: boolean) => void;
   onSkip: () => void;
   onStash: (bookId: string) => void;
   onSplit: (book: LibBookWithShelf) => void;
 }) {
+  /*
+    '여기 그냥 두기'가 실제로 끝나는 동작이 되려면 그 안내가 사라져야 합니다. 누르고도
+    그대로 남아 있으면 끝낸 것인지 아닌지 알 수 없고, 다음 책을 찍을 때까지 눈에 걸립니다.
+  */
+  const [hidden, setHidden] = useState<Set<number>>(new Set());
+  const hide = (i: number) => setHidden((prev) => new Set(prev).add(i));
+
   if (result.kind === "placed") {
     const moved = (result.from?.code ?? null) !== here.code;
     return (
@@ -1172,7 +1194,7 @@ function ResultPanel({
         {/* 예전과 다른 점 · 봐야 할 것들. 없으면 아무것도 안 뜹니다(조용한 게 정상입니다). */}
         {result.notices.length > 0 && (
           <ul className="mt-4 space-y-2">
-            {result.notices.map((n, i) => (
+            {result.notices.map((n, i) => (hidden.has(i) ? null : (
               <li
                 key={i}
                 className={`rounded-xl px-4 py-3 text-sm ring-1 ${
@@ -1214,15 +1236,36 @@ function ResultPanel({
                     🧮 장서를 {n.fixTo}권으로 맞추기
                   </button>
                 )}
-                {n.action === "merge" && (
-                  <a
-                    href="/duplicates"
-                    target="_blank"
-                    rel="noreferrer"
-                    className="mt-2 inline-block rounded-lg border border-amber-400 bg-white px-3 py-1.5 text-xs font-bold text-amber-800"
-                  >
-                    🔗 겹치는 책 합치기에서 보기
-                  </a>
+                {/*
+                  다른 화면으로 보내지 않습니다. 책을 손에 들고 있는 지금이 "이 한 권이
+                  어느 줄 것이냐"를 정할 수 있는 유일한 순간이고, 화면을 옮기면 들고 있던
+                  책을 내려놓게 됩니다. 그래서 보낼 곳을 여기 늘어놓습니다.
+                */}
+                {n.action === "relocate" && n.spots && n.spots.length > 0 && (
+                  <span className="mt-2 flex flex-wrap gap-1.5">
+                    {n.spots.map((sp) => (
+                      <button
+                        key={`${sp.bookId}-${sp.locationId}`}
+                        type="button"
+                        disabled={busy}
+                        onClick={() => onRelocate(result.book.id, sp.bookId, sp.locationId)}
+                        className="rounded-lg border border-amber-400 bg-white px-3 py-1.5 text-left text-xs font-bold text-amber-900 disabled:opacity-50"
+                      >
+                        📦 {sp.code} 칸으로 보내기
+                        <span className="block text-[10px] font-medium opacity-70">
+                          {sp.level != null ? `${sp.level}등급 · ` : ""}
+                          그 줄 {sp.totalCopies}권 → {sp.totalCopies + 1}권
+                        </span>
+                      </button>
+                    ))}
+                    <button
+                      type="button"
+                      onClick={() => hide(i)}
+                      className="rounded-lg px-3 py-1.5 text-xs font-semibold text-slate-600 underline"
+                    >
+                      다른 책입니다 — 여기 그냥 두기
+                    </button>
+                  </span>
                 )}
                 {n.action === "split" && (
                   <button
@@ -1234,7 +1277,7 @@ function ResultPanel({
                   </button>
                 )}
               </li>
-            ))}
+            )))}
           </ul>
         )}
       </div>
