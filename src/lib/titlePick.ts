@@ -78,6 +78,95 @@ export function looksLikeSet(title: string): boolean {
   );
 }
 
+/**
+ * 조회처가 준 제목을 **쓸 수 있는 모양으로 다듬습니다.**
+ *
+ * ── 왜 필요한가 (실제로 돌려 보고 알았습니다) ─────────────────────────────
+ * 1,112종을 조회해 보니 제안 157건 중 스물 몇 건이 **책 제목이 아니라 상품 설명**이었습니다.
+ * 국내 온라인서점 자료가 그대로 흘러나온 것입니다.
+ *
+ *   「Hello Reader 13: That Fat Hat (with StoryPlus QR)」
+ *   「JUNIE B. JONES IS CAPTAIN FIELD DAY(AudioCD1장포함)(Junie B. Jones 16)」
+ *   「Magic Tree House #12:Polar Bears Past Bedtime (Book+CD)」
+ *   「Where The Wild Things Are by Maurice Sendak (Special Edition, 1 Jan 1967) Hardcover」
+ *   「Across the Wide and Lonesome Prairie : The Oregon Trail Diary of Hattie...」
+ *
+ * 이것을 그대로 적으면 책장 앞에서 제목으로 책을 찾는 사람이 못 찾습니다. CD가 들어 있는지는
+ * 제목이 아니고, 줄바꿈과 「...」은 자료가 잘린 흔적입니다.
+ *
+ * 그래서 ① 쓸 수 없는 것은 **버리고** ② 포장 문구는 **떼어내고** ③ 남은 것만 후보로 둡니다.
+ * 떼어낼 때 시리즈 정보는 지킵니다 - 「(Junie B. Jones 16)」 은 우리가 바로 원하던 것입니다.
+ */
+
+/** 제목이 아니라 상품 포장 설명인 괄호 묶음. */
+const PACKAGING = /(CD|QR|MP3|DVD|음원|세이펜|오디오|워크북|단어장|해설|번역|스티커|포함|Book\s*\+\s*CD|StoryPlus|Audio\s*CD)/i;
+
+/** 공백·줄바꿈을 하나로. 조회처 자료에 \r\n 과 탭이 그대로 들어 있습니다. */
+const squeeze = (s: string) => s.replace(/[\s\u00a0]+/g, " ").trim();
+
+export function cleanTitle(raw: string): string {
+  let t = squeeze(raw ?? "");
+
+  /*
+    괄호 묶음을 하나씩 보고 포장 문구만 떼어냅니다. 통째로 괄호를 다 지우면
+    「(Wings of Fire #2)」 처럼 우리가 원하는 시리즈 정보까지 날아갑니다.
+  */
+  t = t.replace(/\s*[(\[]([^()\[\]]*)[)\]]/g, (whole, inner: string) =>
+    PACKAGING.test(inner) ? "" : whole
+  );
+
+  // 시리즈 번호가 이미 제목에 있으면 뒤에 붙은 ", Volume 3" 은 같은 말을 두 번 하는 것입니다.
+  if (/#\s*(\d+)/.test(t)) {
+    const n = t.match(/#\s*(\d+)/)?.[1];
+    if (n) t = t.replace(new RegExp(`,?\\s*(Volume|Vol\\.?|Book)\\s*${n}\\s*$`, "i"), "");
+  }
+
+  /*
+    떼어내고 남은 자리 정리. 포장 괄호를 빼면 「DAY(Junie B. Jones 16)」 처럼 글자와 괄호가
+    붙어 버립니다(원래 자료에 띄어쓰기가 없던 자리입니다). 괄호 앞에 한 칸을 넣어 줍니다.
+  */
+  t = squeeze(t).replace(/([^\s(\[])([(\[])/g, "$1 $2");
+  t = squeeze(t).replace(/\s*([:;,])\s*$/, "").replace(/\s+([:;,.])/g, "$1");
+  return t;
+}
+
+/**
+ * 제목으로 쓸 수 없는 것.
+ *
+ * 다듬어도 못 쓰는 것들입니다. 이런 줄은 **제안하지 않습니다** - 사람이 보고 지우는 것보다
+ * 애초에 안 보여주는 쪽이 낫습니다(157건을 한 번에 적용하는 버튼이 있으니까요).
+ */
+export function unusableTitle(title: string): boolean {
+  const t = squeeze(title);
+  if (t.length === 0) return true;
+  // 자료가 잘린 흔적. 「...」 이 제목에 들어가면 그게 제목이 됩니다.
+  if (/(\.\.\.|…)\s*$/.test(t)) return true;
+  // 판형·판본 설명이 붙은 판매 목록.
+  if (/\b(hardcover|paperback|library binding|mass market|board book|special edition|reprint|anniversary edition|box(ed)? set)\b/i.test(t)) return true;
+  // 「… by 저자 (…, 1 Jan 1967)」 처럼 저자와 발행일이 제목에 들어온 판매 목록.
+  if (/\sby\s/i.test(t) && /\b(19|20)\d{2}\b/.test(t)) return true;
+  if (t.length > 120) return true;
+  return false;
+}
+
+/**
+ * 지금 제목의 **대소문자를 지키면서** 조회 제목의 새 정보만 받습니다.
+ *
+ * 국내 자료는 영어 제목을 전부 대문자로 적어 둔 것이 많습니다. 「JUNIE B. JONES IS CAPTAIN
+ * FIELD DAY (Junie B. Jones 16)」 에서 우리가 원하는 것은 뒤의 「(Junie B. Jones 16)」 하나이고,
+ * 앞부분은 이미 사람이 제대로 적어 둔 「Junie B. Jones Is Captain Field Day」 가 더 낫습니다.
+ *
+ * 그래서 조회 제목 안에서 지금 제목과 겹치는 자리를 찾아 **지금 제목의 글자로 되돌립니다.**
+ * 겹치는 자리를 못 찾으면 조회 제목을 그대로 씁니다.
+ */
+export function keepCasing(found: string, current: string): string {
+  const cur = squeeze(current);
+  if (!cur) return found;
+  const i = found.toLowerCase().indexOf(cur.toLowerCase());
+  if (i < 0) return found;
+  return squeeze(found.slice(0, i) + cur + found.slice(i + cur.length));
+}
+
 /** 영어책이면 구글·오픈라이브러리 먼저, 한국책이면 국내 조회처 먼저. */
 function sourceRank(source: string, korean: boolean): number {
   const en = ["Google Books", "구글 북스", "OpenLibrary", "오픈라이브러리", "카카오 책", "국립중앙도서관"];
@@ -89,7 +178,13 @@ function sourceRank(source: string, korean: boolean): number {
 
 export function pickTitle(current: string, candidates: TitleCandidate[]): TitlePick {
   const cur = foldTitle(current);
-  const usable = candidates.filter((c) => (c.title ?? "").trim().length > 0 && !looksLikeSet(c.title));
+  /*
+    후보를 먼저 **다듬고** 나서 봅니다. 다듬기 전에 비교하면 「… (with StoryPlus QR)」 이
+    '지금 제목보다 더 자세한 제목'으로 보여서 묶음 적용에 끼어듭니다.
+  */
+  const usable = candidates
+    .map((c) => ({ ...c, title: cleanTitle(c.title ?? "") }))
+    .filter((c) => c.title.length > 0 && !looksLikeSet(c.title) && !unusableTitle(c.title));
   if (usable.length === 0) {
     return {
       best: null,
@@ -128,7 +223,8 @@ export function pickTitle(current: string, candidates: TitleCandidate[]): TitleP
   if (more.length > 0) {
     const best = more[0];
     return {
-      best: best.title.trim(),
+      // 지금 제목의 대소문자를 지키고 새로 붙은 부분만 받습니다.
+      best: keepCasing(best.title.trim(), current),
       source: best.source,
       kind: "more",
       why: cur && foldTitle(best.title).startsWith(cur) ? "지금 제목 뒤에 권 제목이 더 있습니다" : "지금 제목이 더 긴 제목의 일부입니다",

@@ -41,7 +41,7 @@ export async function POST(request: Request) {
     if (!email) return NextResponse.json({ error: "로그인이 필요합니다." }, { status: 401 });
 
     const body = (await request.json().catch(() => null)) as {
-      action?: "scan" | "apply" | "revert";
+      action?: "scan" | "apply" | "revert" | "rejudge";
       /** scan: 다시 보고 싶은 책을 직접 지정할 때(비우면 아직 안 본 것부터). */
       ids?: string[];
       /** scan: true 면 이미 본 것도 다시 조회합니다. */
@@ -49,6 +49,7 @@ export async function POST(request: Request) {
       items?: { bookId: string; title: string }[];
     } | null;
 
+    if (body?.action === "rejudge") return await rejudge(supabase);
     if (body?.action === "apply") return await apply(supabase, email, body.items ?? []);
     if (body?.action === "revert") return await revert(supabase, email, body.ids ?? []);
     return await scan(supabase, email, body?.ids, body?.again === true);
@@ -146,6 +147,76 @@ async function scan(
     checked: done.size + rows.filter((r) => !done.has(r.book_id as string)).length,
     remaining: Math.max(0, queue.length - rows.length),
   });
+}
+
+/**
+ * **다시 판정** — 조회는 하지 않고, 적어 둔 후보로만 다시 고릅니다.
+ *
+ * 고르는 규칙을 고쳤을 때 1,112종을 다시 조회하지 않기 위한 길입니다. 바깥 조회처에 같은 것을
+ * 두 번 묻는 것은 그쪽에도 실례이고 7분이 또 듭니다. 후보를 그대로 남겨 둔 이유가 이것입니다.
+ *
+ * 실제로 필요했습니다: 처음 돌린 뒤 제안 157건 중 스물 몇 건이 「(with StoryPlus QR)」
+ * 「(CD1장포함)」 「… Hardcover」 처럼 **책 제목이 아니라 상품 설명**이었습니다. 다듬는 규칙을
+ * 고치고 이 길로 다시 골랐습니다.
+ *
+ * 이미 적용한 줄은 건드리지 않습니다 - 사람이 정한 것이 규칙보다 우선입니다.
+ */
+async function rejudge(supabase: Awaited<ReturnType<typeof createClient>>) {
+  type Row = {
+    book_id: string;
+    isbn: string | null;
+    old_title: string | null;
+    candidates: TitleCandidate[] | null;
+    checked_at: string;
+    checked_by: string | null;
+    applied_at: string | null;
+    applied_title: string | null;
+  };
+  const rows = await fetchAll<Row>((from, to) =>
+    supabase
+      .from("lib_title_checks")
+      .select("book_id,isbn,old_title,candidates,checked_at,checked_by,applied_at,applied_title")
+      .order("book_id", { ascending: true })
+      .range(from, to)
+  );
+
+  const next = rows
+    .filter((r) => !r.applied_at)
+    .map((r) => {
+      const pick = pickTitle(r.old_title ?? "", (r.candidates ?? []) as TitleCandidate[]);
+      return {
+        book_id: r.book_id,
+        isbn: r.isbn,
+        old_title: r.old_title,
+        candidates: r.candidates ?? [],
+        checked_at: r.checked_at,
+        checked_by: r.checked_by,
+        applied_at: null,
+        applied_title: null,
+        found_title: pick.best,
+        found_source: pick.source,
+        kind: pick.kind,
+        why: pick.why,
+      };
+    });
+
+  /*
+    한 줄씩 고치면 1,112번을 다녀와야 합니다(한 번에 55~90ms 이니 그것만 2분입니다).
+    200줄씩 묶어 보냅니다. 읽어 온 칸을 모두 그대로 되돌려 쓰므로 빠진 칸이 기본값으로
+    덮이는 일은 없습니다.
+  */
+  const counts = { same: 0, more: 0, diff: 0, none: 0 };
+  for (const r of next) {
+    const k = r.kind as keyof typeof counts;
+    if (k in counts) counts[k] += 1;
+  }
+  for (let i = 0; i < next.length; i += 200) {
+    const { error } = await supabase
+      .from("lib_title_checks")
+      .upsert(next.slice(i, i + 200), { onConflict: "book_id" });
+    if (error) return NextResponse.json({ error: error.message }, { status: 400 });
+  }
+  return NextResponse.json({ rejudged: next.length, skippedApplied: rows.length - next.length, counts });
 }
 
 /** 고른 제목을 장서에 씁니다. */
