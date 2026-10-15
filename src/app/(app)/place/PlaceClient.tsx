@@ -53,12 +53,28 @@ type Done = {
  */
 export default function PlaceClient({
   locations,
-  checked,
+  checked: checkedFromServer,
 }: {
   locations: LibLocation[];
   checked: Record<string, { titles: number; copies: number }>;
 }) {
   const router = useRouter();
+  /*
+    ── 칸 누적 숫자는 여기서 고쳐 씁니다 ─────────────────────────────────────
+    예전에는 찍을 때마다(쉬면 1.5초 뒤에) 화면 전체를 서버에서 다시 그려서 이 숫자를
+    맞췄습니다. 재어 보니 그 한 번이 **140~190ms** 입니다 - 찍는 일과 상관없는 일이고,
+    그리는 동안 커서가 입력칸에서 떨어져 다음 바코드를 흘릴 위험까지 있었습니다.
+
+    이제 서버가 찍은 결과에 이 칸의 종수·권수를 적어 보냅니다(shelfNow). 그 둘만 갈아
+    끼우면 되므로 다시 그릴 일이 없습니다. 서버에서 새로 받아 올 때는(칸을 바꾸거나 목록을
+    고친 뒤) 그 값이 이깁니다.
+  */
+  const [patched, setPatched] = useState<Record<string, { titles: number; copies: number }>>({});
+  const checked = { ...checkedFromServer, ...patched };
+  // 서버가 새 숫자를 들고 오면 손으로 고쳐 둔 것은 버립니다 - 그쪽이 사실입니다.
+  useEffect(() => {
+    setPatched({});
+  }, [checkedFromServer]);
   const [here, setHere] = useState<LibLocation | null>(null);
   const [result, setResult] = useState<ShelfCheckResult | null>(null);
   const [done, setDone] = useState<Done[]>([]);
@@ -374,15 +390,24 @@ export default function PlaceClient({
             ...prev,
           ]);
           /*
-            칸 누적 숫자를 맞추려고 찍을 때마다 화면 전체를 서버에서 다시 그려 왔습니다.
-            그 한 번이 150~200ms 이고, 그 사이 화면이 통째로 갈리면서 커서가 입력칸에서
-            떨어집니다. 바코드는 키보드처럼 들어오니 그 틈에 찍은 것이 흘러내립니다.
+            칸 누적 숫자를 맞추려고 **화면 전체를 서버에서 다시 그리던** 자리입니다. 한 번이
+            140~190ms 이고, 그 사이 화면이 갈리면서 커서가 입력칸에서 떨어집니다 - 바코드는
+            키보드처럼 들어오니 그 틈에 찍은 것이 흘러내립니다.
 
-            그래서 **손을 멈출 때까지 미룹니다.** 쭉 찍는 동안에는 한 번도 안 그리고,
-            1.5초 쉬면 그때 숫자를 맞춥니다.
+            이제 서버가 그 숫자를 함께 보내 주므로(shelfNow) 그 자리에서 고쳐 씁니다. 다시
+            그리지 않습니다.
           */
-          if (refreshTimer.current) clearTimeout(refreshTimer.current);
-          refreshTimer.current = setTimeout(() => router.refresh(), 1500);
+          const now = json.shelfNow;
+          if (now && here) {
+            setPatched((prev) => ({ ...prev, [here.id]: now }));
+          } else {
+            /*
+              옛 길(버튼을 눌러 들어온 갈래 등)은 숫자를 안 보냅니다. 그때만 예전처럼 다시
+              그립니다 - 손을 멈춘 뒤에 한 번만.
+            */
+            if (refreshTimer.current) clearTimeout(refreshTimer.current);
+            refreshTimer.current = setTimeout(() => router.refresh(), 1500);
+          }
         }
       } catch {
         setResult({ kind: "error", message: "처리 중 오류가 생겼습니다." });

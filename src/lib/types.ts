@@ -362,6 +362,14 @@ export type ShelfCheckResult =
       otherShelves: { code: string; copies: number }[];
       /** 예전과 다른 점 · 사람이 봐야 할 것들. 없으면 빈 배열입니다. */
       notices: ShelfNotice[];
+      /**
+       * 이 칸에 지금까지 세어진 종수 · 권수(이번 한 권까지 포함).
+       *
+       * 이것 하나 때문에 예전에는 찍은 뒤 화면 전체를 서버에서 다시 그렸습니다(140~190ms).
+       * 적어 보내면 화면이 그 자리에서 숫자만 고쳐 씁니다. 없으면(옛 길) 화면은 예전처럼
+       * 다시 그립니다.
+       */
+      shelfNow?: { titles: number; copies: number };
       message: string;
     }
   | {

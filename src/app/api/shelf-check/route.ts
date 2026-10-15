@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { hasProductCodeAsId, isbnVariants, isIsbn, normalizeScan } from "@/lib/scan";
-import { findBook, findBooksByIsbn } from "@/lib/server/library";
+import { placeLookup } from "@/lib/server/placeLookup";
 import { progressTitle, repeatScan } from "@/lib/shelfCount";
 import { APP_VERSION } from "@/lib/version";
 import type { LibBookWithShelf, LibLocation, ShelfCheckResult, ShelfNotice } from "@/lib/types";
@@ -109,10 +109,31 @@ async function handlePost(request: Request) {
     });
   }
 
-  const [{ data: auth }, { data: locData }] = await Promise.all([
-    authPromise,
-    supabase.from("lib_locations").select("*").eq("id", locationId).maybeSingle(),
-  ]);
+  /*
+    ── 읽기는 한 번에 끝냅니다 ──────────────────────────────────────────────
+    예전에는 칸 읽기 → 책 찾기 → 자리 기록 → 같은 제목·시리즈 → 그 책들의 자리로 네다섯 번을
+    줄 세워 다녀왔습니다. 한 번이 55~90ms 라 그것만으로 300~500ms 였습니다. 지금은 Postgres
+    함수 하나가 그걸 전부 모아 한 번에 돌려줍니다(src/lib/server/placeLookup.ts 에 잰 값과
+    이유를 적어 두었습니다).
+
+    로그인 확인은 Supabase 인증 쪽이라 같이 묶을 수 없습니다 - 대신 나란히 보냅니다.
+  */
+  let auth: Awaited<typeof authPromise>["data"];
+  let lookup: Awaited<ReturnType<typeof placeLookup>>;
+  try {
+    const [authRes, looked] = await Promise.all([
+      authPromise,
+      placeLookup(supabase, { locationId, code: normalizeScan(body.code ?? ""), bookId: body.bookId }),
+    ]);
+    auth = authRes.data;
+    lookup = looked;
+  } catch (e) {
+    return NextResponse.json<ShelfCheckResult>({
+      kind: "error",
+      message: "책을 찾는 중 오류가 났습니다.",
+      detail: e instanceof Error ? e.message : undefined,
+    });
+  }
   const email = auth.user?.email;
   if (!email) {
     return NextResponse.json<ShelfCheckResult>(
@@ -120,7 +141,7 @@ async function handlePost(request: Request) {
       { status: 401 }
     );
   }
-  const here = locData as LibLocation | null;
+  const here = lookup.location as LibLocation | null;
   if (!here) {
     return NextResponse.json<ShelfCheckResult>({
       kind: "error",
@@ -135,14 +156,14 @@ async function handlePost(request: Request) {
   let sameIsbn: LibBookWithShelf[] = [];
   const code = normalizeScan(body.code ?? "");
 
+  /*
+    찾기는 위의 한 번에 이미 끝나 있습니다. 고르는 순서(같은 ISBN 줄들 → 그중 첫 줄 →
+    item_code → 옛 번호)는 lib_place_lookup 안에 예전과 **똑같은 차례로** 들어 있고,
+    검사도 붙여 두었습니다(31가지).
+  */
   if (body.bookId) {
     // 사람이 이미 골랐습니다(등급 고르기 / '또 있습니다').
-    const { data } = await supabase
-      .from("lib_books")
-      .select("*, shelf:lib_locations!location_id(*)")
-      .eq("id", body.bookId)
-      .maybeSingle();
-    book = (data as unknown as LibBookWithShelf | null) ?? null;
+    book = lookup.book;
     if (!book) {
       return NextResponse.json<ShelfCheckResult>({ kind: "error", message: "그 책을 찾지 못했습니다." });
     }
@@ -150,29 +171,8 @@ async function handlePost(request: Request) {
     if (!code) {
       return NextResponse.json<ShelfCheckResult>({ kind: "error", message: "읽힌 값이 없습니다." });
     }
-    try {
-      /*
-        ISBN 이면 같은 ISBN 줄을 **한 번에 다 가져옵니다.** 예전에는 findBook 으로 한 줄을
-        찾고, 바로 아래에서 findBooksByIsbn 으로 똑같은 조건을 한 번 더 물었습니다 - 같은
-        질의를 두 번 다녀온 셈입니다. 한 번에 받아 두면 '한 줄이냐 여러 줄이냐'도 여기서
-        바로 가려집니다.
-
-        못 찾으면 findBook 으로 한 번 더 봅니다. ISBN 모양인데 자체 번호(item_code)로 적혀
-        있거나, 합치면서 사라진 번호가 책에 아직 붙어 있는 경우가 있어서입니다.
-      */
-      if (isIsbn(code)) {
-        sameIsbn = await findBooksByIsbn(supabase, code);
-        book = sameIsbn[0] ?? (await findBook(supabase, code));
-      } else {
-        book = await findBook(supabase, code);
-      }
-    } catch (e) {
-      return NextResponse.json<ShelfCheckResult>({
-        kind: "error",
-        message: "책을 찾는 중 오류가 났습니다.",
-        detail: e instanceof Error ? e.message : undefined,
-      });
-    }
+    book = lookup.book;
+    sameIsbn = isIsbn(code) ? lookup.sameIsbn : [];
 
     if (!book) {
       /*
@@ -214,14 +214,12 @@ async function handlePost(request: Request) {
     또 찍혔을 때 묻느냐 세느냐를 가리려면 이 칸만 봐서도 안 됩니다. 3권짜리 책을 1-2에서
     두 권 세어 둔 뒤 2-1에서 세 권을 찍으면 합계 다섯 권인데, 이 칸만 보는 규칙은 세
     번째까지 조용히 받아 버립니다.
+
+    이제는 그 한 번조차 따로 다녀오지 않습니다 - 위의 lookup 에 이미 담겨 왔습니다.
   */
-  const { data: checkRows } = await supabase
-    .from("lib_shelf_check")
-    .select("id, book_id, location_id, copies, location:lib_locations!location_id(code, sort_order)")
-    .eq("book_id", book.id);
-  const allChecks = ((checkRows ?? []) as unknown as (CheckRow & {
+  const allChecks = lookup.checks as unknown as (CheckRow & {
     location: { code: string; sort_order: number } | null;
-  })[]);
+  })[];
 
   const existing = allChecks.find((r) => r.location_id === here.id) ?? null;
   const otherRows = allChecks.filter((r) => r.location_id !== here.id && r.location);
@@ -928,42 +926,66 @@ async function handlePost(request: Request) {
     '같은 책'은 제목이 같은 줄들(판본이 달라 ISBN이 다를 수 있습니다), '같은 시리즈'는 series
     칸이 같은 줄들입니다. 찾은 줄들이 어느 칸에 세어져 있는지를 모아 한 줄로 알려줍니다.
   */
-  async function findRelatives() {
-    const sameTitle = supabase
-      .from("lib_books")
-      .select("id,title,series,label_level,total_copies")
-      .eq("title", book!.title)
-      .neq("id", book!.id)
-      .limit(40);
-    const sameSeries = book!.series
-      ? supabase
-          .from("lib_books")
-          .select("id,title,series,label_level,total_copies")
-          .eq("series", book!.series)
-          .neq("id", book!.id)
-          .limit(40)
-      : null;
+  type RelRow = { id: string; title: string; series?: string | null; label_level: number | null; total_copies: number };
+  type RelCheck = {
+    book_id: string;
+    copies: number;
+    location_id: string;
+    location: { code: string; sort_order: number } | null;
+  };
 
-    const [titleRes, seriesRes] = await Promise.all([sameTitle, sameSeries ?? Promise.resolve({ data: [] })]);
-    type Row = { id: string; title: string; label_level: number | null; total_copies: number };
-    const titleBooks = (titleRes.data ?? []) as Row[];
-    const seriesBooks = (seriesRes.data ?? []) as Row[];
+  async function findRelatives() {
+    let titleBooks: RelRow[];
+    let seriesBooks: RelRow[];
+    let checks: RelCheck[];
+
+    /*
+      찍은 줄이 위에서 찾아 온 그 줄이면, 이웃들도 그 한 번에 이미 담겨 왔습니다 - 여기서는
+      제목 몫과 시리즈 몫으로 가르기만 합니다(왕복 두 번이 사라집니다).
+
+      '장서추가'로 새 줄을 만들거나 등급을 떼어 낸 뒤에는 **찍은 줄이 바뀌어 있습니다.**
+      그때는 담겨 온 이웃이 옛 줄의 것이라 못 씁니다 - 예전처럼 물어봅니다. 그 길은 사람이
+      버튼을 누른 뒤라서 한두 번 더 다녀와도 느껴지지 않습니다.
+    */
+    if (book!.id === lookup.book?.id) {
+      const rel = lookup.relBooks as RelRow[];
+      titleBooks = rel.filter((r) => r.title === book!.title);
+      seriesBooks = book!.series ? rel.filter((r) => (r.series ?? null) === book!.series) : [];
+      checks = (lookup.relChecks as RelCheck[]).filter((r) => r.location);
+    } else {
+      const sameTitle = supabase
+        .from("lib_books")
+        .select("id,title,series,label_level,total_copies")
+        .eq("title", book!.title)
+        .neq("id", book!.id)
+        .limit(40);
+      const sameSeries = book!.series
+        ? supabase
+            .from("lib_books")
+            .select("id,title,series,label_level,total_copies")
+            .eq("series", book!.series)
+            .neq("id", book!.id)
+            .limit(40)
+        : null;
+
+      const [titleRes, seriesRes] = await Promise.all([sameTitle, sameSeries ?? Promise.resolve({ data: [] })]);
+      titleBooks = (titleRes.data ?? []) as RelRow[];
+      seriesBooks = (seriesRes.data ?? []) as RelRow[];
+      const ids = Array.from(new Set([...titleBooks, ...seriesBooks].map((r) => r.id)));
+      if (ids.length === 0) return { title: [], series: [], spots: [] };
+      const { data: rows } = await supabase
+        .from("lib_shelf_check")
+        .select("book_id, copies, location_id, location:lib_locations!location_id(code, sort_order)")
+        .in("book_id", ids);
+      checks = ((rows ?? []) as unknown as RelCheck[]).filter((r) => r.location);
+    }
+
+    type Row = RelRow;
     const titleIds = titleBooks.map((r) => r.id);
     const seriesIds = seriesBooks.map((r) => r.id);
     const byId = new Map([...titleBooks, ...seriesBooks].map((r) => [r.id, r]));
     const allIds = Array.from(new Set([...titleIds, ...seriesIds]));
     if (allIds.length === 0) return { title: [], series: [], spots: [] };
-
-    const { data: rows } = await supabase
-      .from("lib_shelf_check")
-      .select("book_id, copies, location_id, location:lib_locations!location_id(code, sort_order)")
-      .in("book_id", allIds);
-    const checks = ((rows ?? []) as unknown as {
-      book_id: string;
-      copies: number;
-      location_id: string;
-      location: { code: string; sort_order: number } | null;
-    }[]).filter((r) => r.location);
 
     /** 고른 책들이 어느 칸에 몇 권 있는지 한 줄로(사람이 읽는 문구용). */
     const spotsOf = (ids: string[]) => {
@@ -1135,6 +1157,21 @@ async function handlePost(request: Request) {
     recordedCopies: recordedTotal,
     otherShelves: liveOthers,
     notices,
+    /*
+      ── 이 칸의 누적 숫자를 함께 보냅니다 ──────────────────────────────────
+      예전에는 이 숫자 하나를 맞추려고 찍은 뒤 화면 전체를 서버에서 다시 그렸습니다. 재어
+      보니 그 한 번이 **140~190ms** 였습니다 - 찍는 일과 아무 상관 없는 일에 그만큼을 쓰고,
+      그리는 동안 커서가 입력칸에서 떨어져 다음 바코드가 흘러내릴 위험도 있었습니다.
+
+      찍어서 달라지는 것은 이 칸의 종수·권수뿐입니다. 그 둘을 적어 보내면 화면이 그 자리에서
+      고쳐 쓸 수 있습니다. 다시 그릴 일이 없습니다.
+    */
+    shelfNow: {
+      // 찍기 전 숫자(lookup)에 이번에 달라진 만큼만 더합니다. '자리이동'은 센 권수를 올리지
+      // 않으므로 0 이 되고, 그래서 아래 두 줄이 세 경우를 모두 맞게 처리합니다.
+      titles: lookup.shelfTitles + (existing ? 0 : 1),
+      copies: lookup.shelfCopies + (copiesHere - (existing?.copies ?? 0)),
+    },
     message: copiesHere > 1 ? `${here.code} · ${copiesHere}권째` : here.code,
   });
 }
