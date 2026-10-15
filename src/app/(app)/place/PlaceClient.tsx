@@ -1194,7 +1194,15 @@ function ResultBody({
   const [levelOpen, setLevelOpen] = useState(false);
 
   if (result.kind === "placed") {
-    const moved = (result.from?.code ?? null) !== here.code;
+    /*
+      ── '옮김' 이라고 쓸 수 있는 때 ────────────────────────────────────
+      책에 적어 두는 자리(대표 자리)가 바뀐 것과, 책이 실제로 옮겨 간 것은 다른 일입니다.
+      이 줄이 다른 칸에도 여전히 세어져 있으면 **옮긴 것이 아니라 나뉘어 있는 것**이고,
+      바뀐 것은 대표 자리 한 칸뿐입니다. 그걸 '이 칸으로 옮김'이라고 적어 두면 "3-3 있던
+      걸 3-4로 옮겨버렸다"로 읽힙니다 - 3-3 의 한 권은 그대로 있는데도요.
+    */
+    const splitAcross = result.otherShelves.length > 0;
+    const moved = !splitAcross && (result.from?.code ?? null) !== here.code;
     return (
       <div className="gia-pop rounded-3xl bg-white p-6 shadow-sm ring-1 ring-slate-200">
         <div className="flex items-start gap-4">
@@ -1232,7 +1240,9 @@ function ResultBody({
             </p>
           </div>
           <div className="shrink-0 text-right">
-            <p className="text-xs text-slate-400">{moved ? "이 칸으로 옮김" : "이 칸"}</p>
+            <p className="text-xs text-slate-400">
+              {splitAcross ? "이 칸에도" : moved ? "이 칸으로 옮김" : "이 칸"}
+            </p>
             <p className="text-5xl leading-none font-black" style={{ color: here.color }}>
               {here.code}
             </p>
