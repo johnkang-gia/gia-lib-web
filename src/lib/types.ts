@@ -396,8 +396,12 @@ export type ShelfNotice = {
    *  · labeled - 이 자리에서 도서관 라벨을 새로 발급했음 → 인쇄 대기에 쌓기
    *  · home    - 같은 책이 다른 칸에도 있음 → 이 한 권을 원래 칸으로 보내기
    *  · recount - 장서에 적힌 권수가 실제보다 적음 → 그 자리에서 맞추기
+   *  · merge   - 같은 제목이 다른 칸에도 있음 → 합치기 화면에서 보기
+   *
+   * 안내마다 **끝낼 길**이 하나씩 붙어 있어야 합니다. 상태만 알리고 끝나면, 사람은 그것을
+   * 외워 뒀다가 나중에 다시 찾아야 하고 그 '나중'은 대개 오지 않습니다.
    */
-  action?: "split" | "labeled" | "home" | "recount";
+  action?: "split" | "labeled" | "home" | "recount" | "merge";
   /** home 일 때 보낼 칸 이름. 버튼에 적습니다. */
   homeCode?: string;
   /** recount 일 때 맞출 권수. 버튼에 적습니다("장서를 3권으로 맞추기"). */

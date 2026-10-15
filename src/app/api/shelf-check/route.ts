@@ -610,7 +610,8 @@ export async function POST(request: Request) {
       tone: "warn",
       title: `같은 제목이 ${relatives.title.map((r) => `${r.code} ${r.copies}권`).join(" · ")}에 있습니다`,
       detail:
-        "판본이 달라 따로 등록된 책일 수 있습니다. 한곳에 모으려면 그 칸으로 가져가 주세요 — 합칠 책인지는 '겹치는 책 합치기'에서 봅니다.",
+        "판본이 달라 따로 등록된 책일 수 있습니다. 합칠 책인지 여기서 바로 보고 정하세요 — 합치면 각 칸에 있던 책이 한곳으로 모입니다.",
+      action: "merge",
     });
   }
   if (relatives.series.length > 0) {

@@ -4,11 +4,16 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import BarcodeScanner from "@/components/BarcodeScanner";
 import BookRegisterDialog from "@/components/BookRegisterDialog";
-import { formatIsbn, isBookBarcode, normalizeScan } from "@/lib/scan";
+import { formatIsbn, isBookBarcode, isIsbn, normalizeScan } from "@/lib/scan";
 import { levelColor } from "@/lib/bookLevels";
 import { addToPile, fetchPile, type Pile } from "@/lib/pileClient";
 import type { LibBook, LibBookWithShelf, LibLocation, ShelfCheckResult } from "@/lib/types";
 import type { ShelfListRow } from "@/app/api/shelf-check/list/route";
+
+/** 검사 중에 걸려서 **아직 끝내지 못한** 한 가지. 알림이 아니라 할 일입니다. */
+type AuditTodo =
+  | { kind: "unknown"; code: string; isIsbn: boolean }
+  | { kind: "choices"; code: string; books: LibBookWithShelf[] };
 
 /** 한 칸의 기록 전체. */
 type ShelfList = {
@@ -67,7 +72,12 @@ export default function PlaceClient({
     창을 옮겨 다니면 들고 있던 책을 내려놓게 되고, 어디까지 찍었는지도 흐려집니다. 등록하면
     **그 자리에서 이 칸에 바로 꽂습니다**(등록 → 자리 등록까지 한 번에).
   */
-  const [register, setRegister] = useState<{ isbn?: string; code?: string } | null>(null);
+  const [register, setRegister] = useState<{
+    isbn?: string;
+    code?: string;
+    /** place: 등록하고 이 칸에 바로 꽂습니다. audit: 검사 중이라 세기만 합니다. */
+    mode: "place" | "audit";
+  } | null>(null);
   /*
     ── 목록보기 ──────────────────────────────────────────────────────────
     요청: "목록보기를 누르면 등록된 권수와 어떤 책이 그 책장에 들어갔는지 나왔으면 좋겠어 ...
@@ -88,6 +98,16 @@ export default function PlaceClient({
   */
   const [audit, setAudit] = useState<Map<string, number> | null>(null);
   const [auditNote, setAuditNote] = useState<string | null>(null);
+  /*
+    ── 알리기만 하지 않습니다 ────────────────────────────────────────────
+    요청: "뭔가를 체크하거나 등록하거나 할 때 그냥 이런 상태라고 고지나 알리지만 말고 그걸
+    해결할 수 있게끔 구조적으로 만들어줘."
+
+    검사 중에 "등록 안 된 책입니다"라고 알리고 넘어가면, 그 책은 손에 들려 있는데 할 수 있는
+    게 없습니다. 메모해 뒀다가 나중에 다시 찾아야 하고, 그 '나중'은 오지 않습니다. 그래서
+    걸린 것은 **지울 수 없는 할 일로 쌓아 두고**, 저마다 그 자리에서 끝낼 버튼을 답니다.
+  */
+  const [auditTodo, setAuditTodo] = useState<AuditTodo[]>([]);
   const [auditBooks, setAuditBooks] = useState<Record<string, { title: string; level: number | null }>>(
     {}
   );
@@ -143,14 +163,24 @@ export default function PlaceClient({
           error?: string;
         };
         if (json.choices && json.choices.length > 1) {
-          setAuditNote(
-            `${json.choices[0].title} — 같은 ISBN이 등급별로 ${json.choices.length}줄입니다. 이 책은 '등록' 화면에서 등급을 골라 찍어주세요.`
+          // 같은 ISBN이 등급별로 여러 줄입니다 - 어느 쪽인지는 사람만 압니다. 고를 수 있게 둡니다.
+          setAuditTodo((prev) =>
+            prev.some((t) => t.code === code)
+              ? prev
+              : [...prev, { kind: "choices", code, books: json.choices! }]
           );
+          setAuditNote(null);
           return;
         }
         const book = json.book;
         if (!book) {
-          setAuditNote(`${code} — 등록되지 않은 책입니다. '등록' 화면에서 먼저 등록해주세요.`);
+          // 등록 안 된 책입니다 - 여기서 바로 등록할 수 있게 할 일로 쌓습니다.
+          setAuditTodo((prev) =>
+            prev.some((t) => t.code === code)
+              ? prev
+              : [...prev, { kind: "unknown", code, isIsbn: isIsbn(code) }]
+          );
+          setAuditNote(null);
           return;
         }
         setAuditBooks((prev) => ({
@@ -169,6 +199,27 @@ export default function PlaceClient({
     },
     [audit]
   );
+
+  /**
+   * 한 권을 센 것으로 칩니다 — 찍어서든, 바코드가 상해서 손으로 체크해서든.
+   *
+   * 「기록에 있는데 안 나왔습니다」에 뜬 책을 찾아서 책장에 꽂았는데 라벨이 뜯겨 못 찍는
+   * 일이 있습니다. 그때 손으로 체크할 길이 없으면 그 한 권 때문에 검사를 끝내지 못합니다.
+   */
+  const countOne = useCallback((bookId: string, title: string, level: number | null) => {
+    setAuditBooks((prev) => ({ ...prev, [bookId]: { title, level } }));
+    setAudit((prev) => {
+      const next = new Map(prev);
+      next.set(bookId, (next.get(bookId) ?? 0) + 1);
+      return next;
+    });
+    setAuditNote(`✔ ${title}`);
+  }, []);
+
+  /** 할 일 하나를 지웁니다(끝냈거나, 이 칸 책이 아니었거나). */
+  const dropTodo = useCallback((code: string) => {
+    setAuditTodo((prev) => prev.filter((t) => t.code !== code));
+  }, []);
 
   /** 다 세고 나서, 찍은 대로 이 칸의 기록을 바꿉니다. */
   const applyAudit = useCallback(async () => {
@@ -465,6 +516,94 @@ export default function PlaceClient({
                 </div>
 
                 <div className="min-h-0 flex-1 overflow-y-auto">
+                  {/*
+                    찍었는데 장서에 없는 책. 알리고 넘어가면 그 책은 손에 들려 있는데 할 수
+                    있는 게 없습니다. 여기서 등록하면 바로 센 것으로 칩니다.
+                  */}
+                  {auditTodo.length > 0 && (
+                    <section>
+                      <p className="sticky top-0 bg-rose-600 px-5 py-1.5 text-xs font-bold text-white">
+                        먼저 손봐야 합니다 — {auditTodo.length}개
+                      </p>
+                      <ul className="divide-y divide-slate-100">
+                        {auditTodo.map((t) => (
+                          <li key={t.code} className="px-5 py-2.5">
+                            {t.kind === "unknown" ? (
+                              <div className="flex flex-wrap items-center gap-2">
+                                <span className="min-w-0 flex-1">
+                                  <span className="block font-mono text-sm font-bold">{t.code}</span>
+                                  <span className="block text-[11px] text-slate-500">
+                                    장서에 없는 책입니다 —{" "}
+                                    {t.isIsbn
+                                      ? "등록하면 제목이 자동으로 채워집니다"
+                                      : "등록하면 도서관 라벨을 새로 발급합니다"}
+                                  </span>
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    setRegister(
+                                      t.isIsbn
+                                        ? { isbn: t.code, mode: "audit" }
+                                        : { code: t.code, mode: "audit" }
+                                    )
+                                  }
+                                  className="rounded-lg bg-gia-navy px-3 py-1.5 text-xs font-bold text-white"
+                                >
+                                  📘 여기서 등록하기
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => dropTodo(t.code)}
+                                  className="rounded-lg px-2 py-1.5 text-xs font-semibold text-slate-500 underline"
+                                >
+                                  잘못 찍음
+                                </button>
+                              </div>
+                            ) : (
+                              <div>
+                                <p className="text-sm font-bold">
+                                  {t.books[0].title}
+                                  <span className="ml-2 text-[11px] font-medium text-slate-500">
+                                    같은 ISBN이 등급별로 {t.books.length}줄 — 어느 쪽인지 골라주세요
+                                  </span>
+                                </p>
+                                <p className="mt-1.5 flex flex-wrap gap-1.5">
+                                  {t.books.map((b) => (
+                                    <button
+                                      key={b.id}
+                                      type="button"
+                                      onClick={() => {
+                                        countOne(b.id, b.title, b.label_level);
+                                        dropTodo(t.code);
+                                        auditRef.current?.focus();
+                                      }}
+                                      className="rounded-lg px-2.5 py-1 text-xs font-bold ring-1"
+                                      style={{
+                                        color: levelColor(b.label_level),
+                                        borderColor: levelColor(b.label_level),
+                                        background: `${levelColor(b.label_level)}14`,
+                                      }}
+                                    >
+                                      {b.label_level != null ? `${b.label_level}등급` : "등급 없음"}
+                                      {b.label_no ? ` ${b.label_no}` : ""}
+                                    </button>
+                                  ))}
+                                  <button
+                                    type="button"
+                                    onClick={() => dropTodo(t.code)}
+                                    className="rounded-lg px-2 py-1 text-xs font-semibold text-slate-500 underline"
+                                  >
+                                    잘못 찍음
+                                  </button>
+                                </p>
+                              </div>
+                            )}
+                          </li>
+                        ))}
+                      </ul>
+                    </section>
+                  )}
                   {missing.length > 0 && (
                     <section>
                       <p className="sticky top-0 bg-amber-100 px-5 py-1.5 text-xs font-bold text-amber-900">
@@ -472,7 +611,7 @@ export default function PlaceClient({
                       </p>
                       <ul className="divide-y divide-slate-100">
                         {missing.map((r) => (
-                          <li key={r.bookId} className="flex items-center gap-3 px-5 py-2 text-sm">
+                          <li key={r.bookId} className="flex flex-wrap items-center gap-2 px-5 py-2 text-sm">
                             <span className="min-w-0 flex-1 truncate">{r.title}</span>
                             {r.onLoan > 0 && (
                               <span className="shrink-0 rounded bg-sky-50 px-1.5 py-0.5 text-[11px] font-bold text-sky-700">
@@ -481,6 +620,31 @@ export default function PlaceClient({
                             )}
                             <span className="shrink-0 text-xs text-slate-500">
                               기록 {r.copies}권 · 찍음 {audit.get(r.bookId) ?? 0}권
+                            </span>
+                            {/*
+                              알리고 끝내지 않습니다. 찾아서 꽂았으면 '찾았음', 이 칸 책이
+                              아니었으면 '이 칸에서 빼기' - 둘 중 하나로 그 자리에서 끝납니다.
+                              라벨이 뜯겨 못 찍는 책이 있어서 손으로 체크할 길이 필요합니다.
+                            */}
+                            <span className="flex shrink-0 gap-1">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  countOne(r.bookId, r.title, r.level);
+                                  auditRef.current?.focus();
+                                }}
+                                className="rounded-lg border border-emerald-300 px-2 py-1 text-xs font-bold text-emerald-700"
+                              >
+                                ✔ 찾았음
+                              </button>
+                              <button
+                                type="button"
+                                disabled={listBusy}
+                                onClick={() => void fixRow(r.bookId, "remove")}
+                                className="rounded-lg border border-rose-300 px-2 py-1 text-xs font-bold text-rose-700 disabled:opacity-40"
+                              >
+                                이 칸에서 빼기
+                              </button>
                             </span>
                           </li>
                         ))}
@@ -512,13 +676,20 @@ export default function PlaceClient({
                 </div>
 
                 <div className="flex flex-wrap items-center gap-2 border-t border-slate-100 bg-slate-50 px-5 py-3">
+                  {/*
+                    손봐야 할 게 남아 있으면 맞추지 못하게 막습니다. 등록 안 된 책을 남겨 둔
+                    채 맞추면 그 책은 아무 칸에도 없는 책이 되고, 다음에 책장을 통째로 다시
+                    뒤지기 전에는 아무도 모릅니다.
+                  */}
                   <button
                     type="button"
-                    disabled={listBusy || audit.size === 0}
+                    disabled={listBusy || audit.size === 0 || auditTodo.length > 0}
                     onClick={() => void applyAudit()}
                     className="rounded-xl bg-gia-navy px-4 py-2 text-sm font-bold text-white disabled:opacity-40"
                   >
-                    찍은 대로 맞추기 — {audit.size}종 {scannedCopies}권
+                    {auditTodo.length > 0
+                      ? `먼저 ${auditTodo.length}개를 손봐주세요`
+                      : `찍은 대로 맞추기 — ${audit.size}종 ${scannedCopies}권`}
                   </button>
                   <button
                     type="button"
@@ -806,7 +977,9 @@ export default function PlaceClient({
           onAdd={(bookId) => void send({ bookId, confirm: "add" })}
           onHome={(bookId) => void send({ bookId, confirm: "home" })}
           onFixCount={(bookId) => void send({ bookId, confirm: "recount" })}
-          onRegister={(code, isIsbn) => setRegister(isIsbn ? { isbn: code } : { code })}
+          onRegister={(code, isbnLike) =>
+            setRegister(isbnLike ? { isbn: code, mode: "place" } : { code, mode: "place" })
+          }
           onSkip={() => setResult(null)}
           onStash={(bookId) => void stash(bookId)}
           onSplit={(book) => void split(book)}
@@ -826,7 +999,19 @@ export default function PlaceClient({
           inputRef.current?.focus();
         }}
         onCreated={(book: LibBook) => {
+          const where = register?.mode ?? "place";
+          const code = register?.isbn ?? register?.code ?? "";
           setRegister(null);
+          if (where === "audit") {
+            /*
+              검사 중에는 쓰지 않습니다 - 센 것으로만 칩니다. 기록이 바뀌는 것은 다 세고
+              '찍은 대로 맞추기'를 누를 때 한 번뿐이라는 약속을 여기서도 지킵니다.
+            */
+            countOne(book.id, book.title, book.label_level);
+            if (code) dropTodo(code);
+            setTimeout(() => auditRef.current?.focus(), 50);
+            return;
+          }
           void send({ bookId: book.id });
           inputRef.current?.focus();
         }}
@@ -1028,6 +1213,16 @@ function ResultPanel({
                   >
                     🧮 장서를 {n.fixTo}권으로 맞추기
                   </button>
+                )}
+                {n.action === "merge" && (
+                  <a
+                    href="/duplicates"
+                    target="_blank"
+                    rel="noreferrer"
+                    className="mt-2 inline-block rounded-lg border border-amber-400 bg-white px-3 py-1.5 text-xs font-bold text-amber-800"
+                  >
+                    🔗 겹치는 책 합치기에서 보기
+                  </a>
                 )}
                 {n.action === "split" && (
                   <button
