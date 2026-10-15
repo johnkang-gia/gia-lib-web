@@ -140,12 +140,36 @@ export function pickTitle(current: string, candidates: TitleCandidate[]): TitleP
     return { best: null, source: same[0].source, kind: "same", why: "조회 결과와 같습니다", others: sorted.filter((c) => c !== same[0]) };
   }
 
-  const best = sorted[0];
+  /*
+    ── 조회처 제목이 **덜** 자세한 경우 ─────────────────────────────────────
+    실제로 걸린 것: 지금 제목이 "Big Nate: What Could Possibly Go Wrong?" 인데 오픈라이브러리는
+    "Big Nate" 만 주었습니다. 이것을 '다름'으로 내놓으면 화면에 **덜 자세한 제목이 제안으로
+    미리 적혀** 나오고, 사람이 무심코 누르면 멀쩡한 제목이 깎입니다.
+
+    지금 제목이 조회 제목을 품고 있으면 지금 제목이 더 자세한 것입니다. 바꿀 이유가 없습니다.
+  */
+  const less = sorted.filter((c) => {
+    const f = foldTitle(c.title);
+    return f.length > 0 && f !== cur && cur.includes(f);
+  });
+  if (less.length === sorted.length) {
+    return {
+      best: null,
+      source: less[0].source,
+      kind: "same",
+      why: "조회처 제목이 지금 제목보다 덜 자세합니다 — 그대로 둡니다",
+      others: sorted,
+    };
+  }
+  // 덜 자세한 것들은 제안 후보에서 뒤로 보냅니다(고를 수는 있게 남겨 둡니다).
+  const ranked = [...sorted.filter((c) => !less.includes(c)), ...less];
+
+  const best = ranked[0];
   return {
     best: best.title.trim(),
     source: best.source,
     kind: "diff",
     why: cur ? "지금 제목과 겹치지 않습니다 — 책을 보고 정해주세요" : "지금 제목이 비어 있습니다",
-    others: sorted.slice(1),
+    others: ranked.slice(1),
   };
 }
