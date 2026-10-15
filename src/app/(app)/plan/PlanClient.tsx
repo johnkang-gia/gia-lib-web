@@ -354,7 +354,14 @@ export default function PlanClient({
 
         {settings.plan_made_at && (
           <p className="mt-2 inline-block rounded-lg bg-slate-100 px-3 py-1.5 text-xs text-slate-500">
-            마지막 확정: {new Date(settings.plan_made_at).toLocaleString("ko-KR")} ·{" "}
+            {/*
+              시간대를 반드시 적습니다. 안 적으면 서버는 UTC 로, 브라우저는 한국 시간으로
+              같은 값을 **다르게** 그립니다. 그 한 글자 차이가 React 의 맞춰 끼우기(hydration)를
+              깨뜨리고, 깨지면 이 화면 전체가 「정리 계획을 여는 중…」에서 영영 멈춥니다.
+              실제로 그렇게 멈춰 있었습니다 - 화면에는 아무 설명도 없이요.
+            */}
+            마지막 확정:{" "}
+            {new Date(settings.plan_made_at).toLocaleString("ko-KR", { timeZone: "Asia/Seoul" })} ·{" "}
             {settings.plan_rule}
           </p>
         )}
