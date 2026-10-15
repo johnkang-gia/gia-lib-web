@@ -409,8 +409,18 @@ export default function PlaceClient({
             refreshTimer.current = setTimeout(() => router.refresh(), 1500);
           }
         }
-      } catch {
-        setResult({ kind: "error", message: "처리 중 오류가 생겼습니다." });
+      } catch (e) {
+        /*
+          예전에는 여기서 「처리 중 오류가 생겼습니다」만 띄웠습니다. 그 한 줄로는 아무것도
+          알 수 없습니다 - 인터넷이 끊긴 것인지, 서버가 터진 것인지, 응답이 JSON 이 아닌
+          것인지. 실제로 이 문구가 여러 번 떴을 때 원인을 찾을 단서가 하나도 없었습니다.
+          서버 쪽도 이제 터진 것을 오류 목록에 남깁니다.
+        */
+        setResult({
+          kind: "error",
+          message: "보내지 못했습니다 — 다시 찍어주세요.",
+          detail: `${e instanceof Error ? e.message : String(e)} (인터넷이 끊겼거나 서버가 응답하지 못한 경우입니다. 반복되면 「관리 > 오류 목록」에 남은 기록을 알려주세요.)`,
+        });
       } finally {
         setBusy(false);
       }
@@ -418,11 +428,51 @@ export default function PlaceClient({
     [here, busy, router]
   );
 
+  /*
+    ── 찍은 것을 버리지 않고 줄 세웁니다 ────────────────────────────────────
+    예전에는 처리 중이면 입력칸을 readOnly 로 막았습니다. 뜻은 "두 번 세어지는 것보다 한 번
+    놓치는 쪽이 낫다"였는데, 실제로 일어난 일은 이렇습니다.
+
+    스캐너는 키보드처럼 글자를 쏟고 마지막에 Enter 를 누릅니다. 사람은 책을 한 손에 들고
+    쉬지 않고 찍습니다. 한 번 다녀오는 데 150~250ms 가 걸리니, 그 사이에 찍은 바코드는
+    **통째로 사라집니다.** 쓰는 사람에게 이것은 "안 읽혔다 · 느리다"로 보이고, 그래서 또
+    찍습니다. 더 나쁜 경우는 글자 일부만 들어가 다음 바코드에 이어 붙는 것입니다 - 그러면
+    있지도 않은 번호가 되어 「등록되지 않은 책」이 뜹니다.
+
+    그래서 막지 않고 **담아 둡니다.** 지금 것이 끝나면 담아 둔 것을 차례로 보냅니다. 하나도
+    안 버리고, 두 번 세지도 않습니다(한 번에 하나만 보냅니다).
+  */
+  const queueRef = useRef<string[]>([]);
+  /** 담아 둔 개수(화면에 "N권 기다리는 중"으로 보여줍니다). */
+  const [waiting, setWaiting] = useState(0);
+  /** 큐에 들어올 때마다 오르는 숫자. 아래 driver 를 다시 돌리기 위한 신호입니다. */
+  const [queued, setQueued] = useState(0);
+
   function handleTyped(raw: string) {
     const code = normalizeScan(raw);
     if (!code) return;
-    void send({ code });
+    queueRef.current.push(code);
+    setWaiting(queueRef.current.length);
+    setQueued((n) => n + 1);
   }
+
+  /*
+    담아 둔 것을 하나씩 꺼내 보냅니다. busy 가 풀릴 때마다, 그리고 새로 담길 때마다 돌아
+    봅니다. 한 번에 하나만 꺼내므로 요청이 겹치지 않습니다.
+  */
+  useEffect(() => {
+    if (busy || !here) return;
+    if (queueRef.current.length === 0) return;
+    const next = queueRef.current.shift();
+    setWaiting(queueRef.current.length);
+    if (next) void send({ code: next });
+  }, [busy, here, queued, send]);
+
+  // 칸을 바꾸면 담아 둔 것은 버립니다 - 다른 칸의 책을 이 칸에 적으면 안 됩니다.
+  useEffect(() => {
+    queueRef.current = [];
+    setWaiting(0);
+  }, [here]);
 
   /** 잘못 찍었을 때. 이 칸의 권수를 하나 내리고 자리를 원래대로 돌립니다. */
   async function undo(item: Done) {
@@ -1067,18 +1117,18 @@ export default function PlaceClient({
             }
           }}
           placeholder={
-            busy ? "읽는 중… 다시 찍지 마세요" : `여기에 커서를 두고 ${here.code} 칸의 책을 찍으세요`
+            busy
+              ? waiting > 0
+                ? `읽는 중… ${waiting}권 받아 뒀습니다 — 계속 찍으세요`
+                : "읽는 중… 계속 찍으셔도 됩니다"
+              : `여기에 커서를 두고 ${here.code} 칸의 책을 찍으세요`
           }
           /*
-            처리 중에는 찍어도 받지 않습니다(두 번 세어지는 것보다 한 번 놓치는 쪽이 낫습니다).
-            그래서 처리 중이라는 것이 눈에 보여야 합니다 - 안 보이면 사람이 "안 먹었나" 하고
-            한 번 더 찍고, 그게 두 번 세어진 바로 그 경로입니다.
-
-            disabled 가 아니라 readOnly 인 이유: disabled 로 막으면 커서가 입력칸에서 떨어지고,
-            다시 돌아오기까지 최대 0.7초가 걸립니다. 그 사이에 찍은 것은 아무 데도 안 들어갑니다.
-            readOnly 는 커서를 그대로 둔 채 글자만 안 받습니다.
+            처리 중에도 **막지 않습니다.** 예전에는 readOnly 로 막았는데, 그러면 그 사이에 찍은
+            바코드가 통째로 사라집니다(한 번에 150~250ms). 쓰는 사람에게는 "안 읽혔다"로
+            보여서 또 찍게 되고, 글자 일부만 들어가 다음 바코드에 이어 붙으면 있지도 않은
+            번호가 됩니다. 지금은 담아 두고 차례로 보냅니다(위의 queueRef).
           */
-          readOnly={busy}
           className={`scan-input w-full rounded-2xl border-2 border-dashed px-4 py-4 text-center text-lg outline-none focus:border-gia-gold focus:bg-white ${
             busy
               ? "animate-pulse border-amber-400 bg-amber-50 text-amber-700"
