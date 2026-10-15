@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import ShelfMap from "@/components/ShelfMap";
 import LabelZoneSetup from "@/components/LabelZoneSetup";
 import { createClient } from "@/lib/supabase/client";
+import { levelColor } from "@/lib/bookLevels";
 import type { LibLocation, LibMap } from "@/lib/types";
 
 const COLORS = ["#1d4ed8", "#0f766e", "#b45309", "#9333ea", "#be123c", "#0369a1", "#4d7c0f", "#475569"];
@@ -545,6 +546,39 @@ export default function LocationsClient({
                   placeholder="설명"
                   className="w-52 rounded-lg border border-transparent px-2 py-1 text-sm text-slate-500 hover:border-slate-200 focus:border-slate-300"
                 />
+
+                {/*
+                  ── 이 칸의 라벨 등급 ─────────────────────────────────
+                  책장은 등급별로 꽂으므로, 한 칸을 비우며 찍는 동안 나오는 책은 거의 전부
+                  그 칸의 등급입니다. 적어 두면 자리 등록이 **다를 때만** 말합니다 - 맞는
+                  책에 대고 매번 "등급이 뭐냐"를 묻지 않습니다. 비워 두면 지금까지와 같습니다.
+                */}
+                <select
+                  value={loc.label_level ?? ""}
+                  onChange={(e) =>
+                    void save(loc.id, {
+                      label_level: e.target.value === "" ? null : Number(e.target.value),
+                    })
+                  }
+                  className="rounded-lg border px-1.5 py-1 text-xs font-bold"
+                  style={
+                    loc.label_level != null
+                      ? {
+                          color: levelColor(loc.label_level),
+                          borderColor: levelColor(loc.label_level),
+                          background: `${levelColor(loc.label_level)}14`,
+                        }
+                      : { color: "#94a3b8", borderColor: "#e2e8f0" }
+                  }
+                  title="이 칸에 꽂는 라벨 등급"
+                >
+                  <option value="">등급 —</option>
+                  {[2, 3, 4, 5, 6].map((lv) => (
+                    <option key={lv} value={lv}>
+                      {lv}등급
+                    </option>
+                  ))}
+                </select>
 
                 <select
                   value={loc.kind}

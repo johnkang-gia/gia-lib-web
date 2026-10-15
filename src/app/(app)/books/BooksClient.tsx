@@ -206,6 +206,34 @@ export default function BooksClient({
     }
   }
 
+  /*
+    ── 같은 책의 등급 나눔 ───────────────────────────────────────────────
+    요청: "여러 권인데 2등급 칸에도 하나 3등급 칸에도 하나 이렇게 등록되는 경우도 있거든.
+    그럴 경우에는 장서 목록에 3권이 있는데 2등급에 1개 3등급에 1개 이렇게 기록되게 해줘."
+
+    한 줄의 기준이 (ISBN, 등급)이라, 등급을 나눠 꽂은 책은 목록에 같은 제목이 두 줄로 뜹니다.
+    줄마다 "1권"이라고만 적혀 있으면 **이 책이 도서관에 모두 몇 권인지**는 어디에도 안 나옵니다.
+    그래서 같은 ISBN 줄들을 묶어 한 줄로 적어 둡니다.
+
+    ISBN 이 없는 책은 묶지 않습니다 - 제목만으로 묶으면 제목이 같은 다른 책까지 한 권으로
+    세어집니다.
+  */
+  const levelSplit = useMemo(() => {
+    const byIsbn = new Map<string, { total: number; parts: { level: number | null; copies: number }[] }>();
+    for (const b of books) {
+      if (!b.isbn) continue;
+      const slot = byIsbn.get(b.isbn) ?? { total: 0, parts: [] };
+      slot.total += b.total_copies;
+      slot.parts.push({ level: b.label_level, copies: b.total_copies });
+      byIsbn.set(b.isbn, slot);
+    }
+    for (const [k, v] of byIsbn) {
+      if (v.parts.length < 2) byIsbn.delete(k);
+      else v.parts.sort((a, b) => (a.level ?? 99) - (b.level ?? 99));
+    }
+    return byIsbn;
+  }, [books]);
+
   const filtered = useMemo(() => {
     const kw = keyword.trim().toLowerCase();
     return books.filter((book) => {
@@ -776,6 +804,22 @@ export default function BooksClient({
                         <div className="truncate text-xs text-slate-400">
                           {[book.author, book.publisher, book.pub_year].filter(Boolean).join(" · ")}
                         </div>
+                        {/* 같은 책이 등급별로 나뉘어 있으면, 다 합쳐 몇 권인지 한 줄로. */}
+                        {book.isbn && levelSplit.has(book.isbn) && (
+                          <div className="mt-0.5 text-[11px] font-semibold text-slate-500">
+                            같은 책 {levelSplit.get(book.isbn)!.total}권 —{" "}
+                            {levelSplit
+                              .get(book.isbn)!
+                              .parts.map((pt) => (
+                                <span key={`${pt.level}-${pt.copies}`} className="mr-1.5">
+                                  <span style={{ color: levelColor(pt.level) }}>
+                                    {pt.level != null ? `${pt.level}등급` : "등급 없음"}
+                                  </span>{" "}
+                                  {pt.copies}권
+                                </span>
+                              ))}
+                          </div>
+                        )}
                       </div>
                     </div>
                   </td>

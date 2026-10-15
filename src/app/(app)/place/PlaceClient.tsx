@@ -842,7 +842,18 @@ export default function PlaceClient({
                       이미 확인한 칸이라고 적어 둡니다. 여럿이 나눠 하거나 며칠에 걸쳐 할 때
                       어디까지 했는지 모르면 같은 칸을 두 번 돌게 됩니다.
                     */}
-                    <span className="mt-1 block text-[11px] font-semibold text-slate-400">
+                    <span className="mt-1 flex items-center gap-1.5 text-[11px] font-semibold text-slate-400">
+                      {loc.label_level != null && (
+                        <span
+                          className="rounded px-1 py-0.5 font-black"
+                          style={{
+                            color: levelColor(loc.label_level),
+                            background: `${levelColor(loc.label_level)}1f`,
+                          }}
+                        >
+                          {loc.label_level}등급
+                        </span>
+                      )}
                       {seen ? `✔ ${seen.titles}종 · ${seen.copies}권 확인함` : "아직 안 함"}
                     </span>
                     {/*
@@ -908,10 +919,22 @@ export default function PlaceClient({
       <div className="flex flex-wrap items-center gap-3 rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200">
         <div className="min-w-0">
           <p className="text-xs text-slate-400">지금 비우는 칸</p>
-          <p className="text-3xl font-black" style={{ color: here.color }}>
+          <p className="flex items-center gap-2 text-3xl font-black" style={{ color: here.color }}>
             {here.code}
+            {/* 이 칸의 등급. 적혀 있으면 자리 등록은 다른 등급이 나올 때만 말합니다. */}
+            {here.label_level != null && (
+              <span
+                className="rounded-lg px-2 py-0.5 text-sm font-black"
+                style={{
+                  color: levelColor(here.label_level),
+                  background: `${levelColor(here.label_level)}1f`,
+                }}
+              >
+                {here.label_level}등급
+              </span>
+            )}
             {here.name && (
-              <span className="ml-2 text-base font-semibold text-slate-500">{here.name}</span>
+              <span className="text-base font-semibold text-slate-500">{here.name}</span>
             )}
           </p>
         </div>
@@ -1161,6 +1184,8 @@ function ResultBody({
   const hide = (i: number) => setHidden((prev) => new Set(prev).add(i));
   /** 등급 단추를 눌러 고른 값. 무엇을 할지(한 권만 / 줄 전체)는 그 다음에 고릅니다. */
   const [levelPick, setLevelPick] = useState<number | null>(null);
+  /** 등급 고치기를 펼쳤는지. 평소에는 접혀 있습니다 - 매번 묻지 않기 위해서입니다. */
+  const [levelOpen, setLevelOpen] = useState(false);
 
   if (result.kind === "placed") {
     const moved = (result.from?.code ?? null) !== here.code;
@@ -1230,83 +1255,98 @@ function ResultBody({
         </div>
 
         {/*
-          ── 등급을 그 자리에서 ─────────────────────────────────────────
-          요청: "같은 책인데도 2등급에도 등록되어 있고 3등급에도 등록되어 있는 책이 있어 ...
-          지금은 책을 등록하면 무조건 처음 등록한 등급으로 정해지는 것 같아."
+          ── 등급 고치기 ────────────────────────────────────────────────
+          요청: "라벨 등급이 다른가요는 매번 묻지 말고, 부득이하게 한 칸에 다른 등급의 책을
+          넣어야 할 때 설정할 수 있도록 만들어줘."
 
-          ISBN 의 줄이 하나뿐이면 자리 등록은 묻지 않고 그 줄에 적습니다. 손에 든 책 라벨이
-          3등급인데 줄이 2등급이면 3등급 한 권이 조용히 2등급으로 세어집니다. 책을 들고 있는
-          지금 고치지 못하면, 나중에 그 책을 다시 찾아야 합니다.
+          칸에 등급이 적혀 있으면 서버가 **다를 때만** 안내를 보냅니다. 여기 있는 것은 그
+          밖의 드문 경우를 위한 접힌 길입니다 - 평소에는 작은 글씨 한 줄일 뿐이고, 눌러야
+          펼쳐집니다. 찍는 사람 눈앞에 늘 떠 있으면 그것도 묻는 것과 같습니다.
         */}
-        <div className="mt-4 flex flex-wrap items-center gap-1.5 rounded-xl bg-slate-50 px-3 py-2.5 ring-1 ring-slate-200">
-          <span className="text-xs font-bold text-slate-500">
-            라벨 등급이 다른가요?
-            <span className="ml-1 font-normal text-slate-400">
-              지금 {result.book.label_level != null ? `${result.book.label_level}등급` : "등급 없음"}
+        {levelOpen ? (
+          <div className="mt-4 flex flex-wrap items-center gap-1.5 rounded-xl bg-slate-50 px-3 py-2.5 ring-1 ring-slate-200">
+            <span className="text-xs font-bold text-slate-500">
+              이 책의 등급
+              <span className="ml-1 font-normal text-slate-400">
+                지금 {result.book.label_level != null ? `${result.book.label_level}등급` : "등급 없음"}
+              </span>
             </span>
-          </span>
-          {[2, 3, 4, 5, 6].map((lv) => (
+            {[2, 3, 4, 5, 6].map((lv) => (
+              <button
+                key={lv}
+                type="button"
+                disabled={busy || lv === result.book.label_level}
+                onClick={() => setLevelPick(lv === levelPick ? null : lv)}
+                className={`rounded-lg px-2.5 py-1 text-xs font-black ring-1 disabled:opacity-30 ${
+                  levelPick === lv ? "ring-2" : ""
+                }`}
+                style={{
+                  color: levelColor(lv),
+                  borderColor: levelColor(lv),
+                  background: levelPick === lv ? `${levelColor(lv)}2f` : `${levelColor(lv)}14`,
+                }}
+              >
+                {lv}
+              </button>
+            ))}
             <button
-              key={lv}
               type="button"
-              disabled={busy || lv === result.book.label_level}
-              onClick={() => setLevelPick(lv === levelPick ? null : lv)}
-              className={`rounded-lg px-2.5 py-1 text-xs font-black ring-1 disabled:opacity-30 ${
-                levelPick === lv ? "ring-2" : ""
-              }`}
-              style={{
-                color: levelColor(lv),
-                borderColor: levelColor(lv),
-                background: levelPick === lv ? `${levelColor(lv)}2f` : `${levelColor(lv)}14`,
+              onClick={() => {
+                setLevelOpen(false);
+                setLevelPick(null);
               }}
+              className="ml-auto text-xs font-semibold text-slate-400 underline"
             >
-              {lv}
+              접기
             </button>
-          ))}
-          {levelPick != null && (
-            <span className="flex w-full flex-wrap gap-1.5 pt-1.5">
-              {/*
-                둘을 가르는 것은 "이 책 전부가 그 등급이냐, 지금 든 한 권만 그 등급이냐"입니다.
-                같은 책이라도 등급이 나뉘면 자료도 두 줄이어야 합니다.
-              */}
-              <button
-                type="button"
-                disabled={busy}
-                onClick={() => {
-                  onLevel(result.book.id, levelPick, "copy");
-                  setLevelPick(null);
-                }}
-                className="rounded-lg bg-gia-navy px-3 py-1.5 text-left text-xs font-bold text-white disabled:opacity-50"
-              >
-                📗 이 권만 {levelPick}등급으로 떼기
-                <span className="block text-[10px] font-medium opacity-80">
-                  {levelPick}등급 줄로 한 권 옮깁니다 — 없으면 새로 만듭니다
-                </span>
-              </button>
-              <button
-                type="button"
-                disabled={busy}
-                onClick={() => {
-                  onLevel(result.book.id, levelPick, "row");
-                  setLevelPick(null);
-                }}
-                className="rounded-lg border border-slate-400 bg-white px-3 py-1.5 text-left text-xs font-bold text-slate-700 disabled:opacity-50"
-              >
-                ✏️ 이 줄 전체를 {levelPick}등급으로
-                <span className="block text-[10px] font-medium opacity-70">
-                  {result.book.total_copies}권 모두 — 등급이 잘못 적혀 있던 경우
-                </span>
-              </button>
-              <button
-                type="button"
-                onClick={() => setLevelPick(null)}
-                className="rounded-lg px-2 py-1.5 text-xs font-semibold text-slate-500 underline"
-              >
-                취소
-              </button>
-            </span>
-          )}
-        </div>
+            {levelPick != null && (
+              <span className="flex w-full flex-wrap gap-1.5 pt-1.5">
+                {/*
+                  둘을 가르는 것은 "이 책 전부가 그 등급이냐, 지금 든 한 권만 그 등급이냐"입니다.
+                  같은 책이라도 등급이 나뉘면 자료도 두 줄이어야 합니다.
+                */}
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => {
+                    onLevel(result.book.id, levelPick, "copy");
+                    setLevelPick(null);
+                    setLevelOpen(false);
+                  }}
+                  className="rounded-lg bg-gia-navy px-3 py-1.5 text-left text-xs font-bold text-white disabled:opacity-50"
+                >
+                  📗 이 권만 {levelPick}등급으로 떼기
+                  <span className="block text-[10px] font-medium opacity-80">
+                    {levelPick}등급 줄로 한 권 옮깁니다 — 없으면 새로 만듭니다
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => {
+                    onLevel(result.book.id, levelPick, "row");
+                    setLevelPick(null);
+                    setLevelOpen(false);
+                  }}
+                  className="rounded-lg border border-slate-400 bg-white px-3 py-1.5 text-left text-xs font-bold text-slate-700 disabled:opacity-50"
+                >
+                  ✏️ 이 줄 전체를 {levelPick}등급으로
+                  <span className="block text-[10px] font-medium opacity-70">
+                    {result.book.total_copies}권 모두 — 등급이 잘못 적혀 있던 경우
+                  </span>
+                </button>
+              </span>
+            )}
+          </div>
+        ) : (
+          <button
+            type="button"
+            onClick={() => setLevelOpen(true)}
+            className="mt-3 text-xs font-semibold text-slate-400 underline"
+          >
+            등급을 바꿔야 하나요?
+          </button>
+        )}
 
         {/* 예전과 다른 점 · 봐야 할 것들. 없으면 아무것도 안 뜹니다(조용한 게 정상입니다). */}
         {result.notices.length > 0 && (
@@ -1358,6 +1398,39 @@ function ResultBody({
                   어느 줄 것이냐"를 정할 수 있는 유일한 순간이고, 화면을 옮기면 들고 있던
                   책을 내려놓게 됩니다. 그래서 보낼 곳을 여기 늘어놓습니다.
                 */}
+                {n.action === "level" && n.levelTo != null && (
+                  <span className="mt-2 flex flex-wrap gap-1.5">
+                    <button
+                      type="button"
+                      disabled={busy}
+                      onClick={() => onLevel(result.book.id, n.levelTo!, "copy")}
+                      className="rounded-lg bg-gia-navy px-3 py-1.5 text-left text-xs font-bold text-white disabled:opacity-50"
+                    >
+                      📗 이 권만 {n.levelTo}등급으로
+                      <span className="block text-[10px] font-medium opacity-80">
+                        이 칸 등급으로 한 권만 뗍니다
+                      </span>
+                    </button>
+                    <button
+                      type="button"
+                      disabled={busy}
+                      onClick={() => onLevel(result.book.id, n.levelTo!, "row")}
+                      className="rounded-lg border border-slate-400 bg-white px-3 py-1.5 text-left text-xs font-bold text-slate-700 disabled:opacity-50"
+                    >
+                      ✏️ 이 줄 전체를 {n.levelTo}등급으로
+                      <span className="block text-[10px] font-medium opacity-70">
+                        {result.book.total_copies}권 모두
+                      </span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => hide(i)}
+                      className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-bold text-slate-600"
+                    >
+                      ✋ 일부러 섞어 둔 칸입니다 — 그대로
+                    </button>
+                  </span>
+                )}
                 {n.action === "relocate" && (
                   <span className="mt-2 flex flex-wrap gap-1.5">
                     {(n.spots ?? []).map((sp) => (
@@ -1424,11 +1497,26 @@ function ResultBody({
         <p className="text-sm font-bold text-amber-700">{result.message}</p>
         <p className="mt-1 text-xl font-bold text-amber-950">{result.book.title}</p>
         <p className="mt-1 text-xs text-amber-800">
-          장서에 {result.recordedCopies}권 · 지금까지 {result.foundTotal}권 찾음{result.copiesHere > 0 && ` (${result.locationCode}에 ${result.copiesHere}권)`}
+          장서에 {result.recordedCopies}권 · 지금까지 {result.foundTotal}권 찾음
+          {result.copiesHere > 0 && ` (${result.locationCode}에 ${result.copiesHere}권)`}
+          {result.copiesHere === 0 && result.homeCode && ` (${result.homeCode}에 있던 책)`}
         </p>
+        {/*
+          같은 칸에서 또 찍힌 것과, 다른 칸에 세어 둔 책이 여기서 나온 것은 묻는 말이 다릅니다.
+          뒤의 경우는 "그 칸 책이 옮겨 온 거냐, 거기 것과 별개의 한 권이냐"입니다.
+        */}
         <p className="mt-3 text-sm text-amber-900">
-          적힌 권수는 이미 다 찾았습니다. 지금 손에 든 책이 <b>아까 그 책</b>인가요,{" "}
-          <b>기록에 없던 한 권</b>인가요?
+          {result.copiesHere === 0 && result.homeCode ? (
+            <>
+              <b>{result.homeCode}</b> 칸에 세어 둔 책입니다. 지금 손에 든 이 책이{" "}
+              <b>거기 있던 그 책</b>인가요, <b>기록에 없던 또 한 권</b>인가요?
+            </>
+          ) : (
+            <>
+              적힌 권수는 이미 다 찾았습니다. 지금 손에 든 책이 <b>아까 그 책</b>인가요,{" "}
+              <b>기록에 없던 한 권</b>인가요?
+            </>
+          )}
         </p>
         <div className="mt-3 flex flex-wrap gap-2">
           {/*
@@ -1442,7 +1530,9 @@ function ResultBody({
           >
             📍 자리이동
             <span className="block text-[11px] font-medium opacity-75">
-              같은 책입니다 · 권수는 그대로
+              {result.copiesHere === 0 && result.homeCode
+                ? `${result.homeCode}에서 가져온 그 책 · 거기서 한 권 뺍니다`
+                : "같은 책입니다 · 권수는 그대로"}
             </span>
           </button>
           {/*

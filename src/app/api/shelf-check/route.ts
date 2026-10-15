@@ -250,7 +250,18 @@ async function handlePost(request: Request) {
     recorded: book.total_copies,
   });
 
-  if (existing && !body.confirm && repeat.ask) {
+  /*
+    'existing &&' 를 뺀 이유 — 실제로 있었던 일:
+
+      3-3 에 1권으로 세어 둔 책을 3-4 에서 찍었더니 **묻지도 않고 3-3 → 3-4 로 옮겨버렸습니다.**
+
+    옛 조건은 "이 칸에서 또 찍혔는가"만 봤습니다. 그런데 물어야 하는 진짜 이유는 칸이 같아서가
+    아니라 **적힌 권수를 넘기기 때문**입니다. 1권짜리 책이 3-3 과 3-4 양쪽에서 나왔다면 둘 중
+    하나입니다: 같은 책 한 권이 옮겨 간 것이거나(자리이동), 실은 두 권이거나(장서추가). 그건
+    책을 손에 든 사람만 압니다. 말없이 옮기면 3-3 에서 한 권이 사라지고, 말없이 더하면 없는
+    책이 한 권 생깁니다.
+  */
+  if (!body.confirm && repeat.ask) {
     /*
       여기까지 왔으면 적힌 권수보다 한 권이 더 나온 것입니다 - 기록이 틀렸다는 뜻이고,
       같은 책 한 권인지(자리이동) 기록에 없던 한 권인지(장서추가)는 책을 손에 들고 있는
@@ -260,12 +271,14 @@ async function handlePost(request: Request) {
     return NextResponse.json<ShelfCheckResult>({
       kind: "again",
       book,
-      copiesHere: existing.copies,
+      copiesHere: existing?.copies ?? 0,
       recordedCopies: book.total_copies,
       foundTotal: repeat.foundSoFar,
       locationCode: here.code,
       homeCode: findHome()?.code ?? null,
-      message: `기록상 ${book.total_copies}권인데 ${repeat.foundAfter}권째입니다`,
+      message: existing
+        ? `기록상 ${book.total_copies}권인데 ${repeat.foundAfter}권째입니다`
+        : `다른 칸에 이미 ${otherTotal}권 세어 둔 책입니다`,
     });
   }
 
@@ -706,6 +719,7 @@ async function handlePost(request: Request) {
   */
   const relativesPromise = findRelatives();
 
+
   // ── 저장 ────────────────────────────────────────────────────────────────
   const from = book.shelf ?? null;
   /*
@@ -714,6 +728,32 @@ async function handlePost(request: Request) {
   */
   const onlyMoving = body.confirm === "move";
   const copiesHere = existing ? (onlyMoving ? existing.copies : existing.copies + 1) : 1;
+
+  /*
+    '자리이동'은 **같은 책 한 권이 자리를 옮긴 것**입니다. 그 한 권이 다른 칸에 세어져 있었다면
+    거기서 빼야 합니다 - 안 빼면 한 권이 두 칸에서 동시에 세어져 없는 책이 한 권 생깁니다.
+    (이 칸에서 또 찍힌 경우는 출발지가 이 칸이라 뺄 것이 없습니다.)
+  */
+  let movedFrom: string | null = null;
+  if (onlyMoving && !existing) {
+    const home = findHome();
+    if (home) {
+      movedFrom = home.code;
+      if (home.copies <= 1) {
+        await supabase
+          .from("lib_shelf_check")
+          .delete()
+          .eq("book_id", book.id)
+          .eq("location_id", home.id);
+      } else {
+        await supabase
+          .from("lib_shelf_check")
+          .update({ copies: home.copies - 1 })
+          .eq("book_id", book.id)
+          .eq("location_id", home.id);
+      }
+    }
+  }
 
   if (existing && onlyMoving) {
     // 센 권수는 그대로 두고, 마지막으로 확인한 시각만 새로 적습니다.
@@ -770,8 +810,12 @@ async function handlePost(request: Request) {
   if (onlyMoving) {
     notices.push({
       tone: "info",
-      title: "같은 책 한 권 — 자리만 바꿨습니다",
-      detail: "센 권수는 그대로입니다. 한 권이 더 있는 것이었다면 '장서추가'를 눌러주세요.",
+      title: movedFrom
+        ? `같은 책 한 권 — ${movedFrom} → ${here.code}`
+        : "같은 책 한 권 — 자리만 바꿨습니다",
+      detail: movedFrom
+        ? `${movedFrom} 칸에서 한 권 빼고 이 칸에 적었습니다. 센 권수의 합은 그대로입니다.`
+        : "센 권수는 그대로입니다. 한 권이 더 있는 것이었다면 '장서추가'를 눌러주세요.",
     });
   }
 
@@ -933,7 +977,13 @@ async function handlePost(request: Request) {
     return { title: spotsOf(titleIds), series: spotsOf(seriesIds), spots };
   }
 
-  const foundTotal = copiesHere + otherTotal;
+  const liveOthers = movedFrom
+    ? otherShelves
+        .map((o) => (o.code === movedFrom ? { ...o, copies: o.copies - 1 } : o))
+        .filter((o) => o.copies > 0)
+    : otherShelves;
+  const liveOtherTotal = liveOthers.reduce((n, o) => n + o.copies, 0);
+  const foundTotal = copiesHere + liveOtherTotal;
   /** 장서에 적힌 권수. 이번에 '장서추가'를 눌렀으면 올린 뒤의 값입니다. */
   const recordedTotal = (patch.total_copies as number | undefined) ?? book.total_copies;
 
@@ -954,14 +1004,14 @@ async function handlePost(request: Request) {
             }`,
     });
   }
-  if (otherShelves.length > 0) {
+  if (liveOthers.length > 0) {
     notices.push({
       tone: "info",
-      title: `다른 칸에도 있습니다 — ${otherShelves.map((s) => `${s.code} ${s.copies}권`).join(" · ")}`,
+      title: `다른 칸에도 있습니다 — ${liveOthers.map((s) => `${s.code} ${s.copies}권`).join(" · ")}`,
       detail:
         "같은 책이 여러 칸에 흩어져 있습니다. 지금 손에 들고 있으니, 원래 칸으로 가져다 놓으면 나중에 모으는 수고가 없습니다.",
       action: "home",
-      homeCode: otherShelves.reduce((a, b) => (b.copies > a.copies ? b : a)).code,
+      homeCode: liveOthers.reduce((a, b) => (b.copies > a.copies ? b : a)).code,
     });
   }
   /*
@@ -984,6 +1034,29 @@ async function handlePost(request: Request) {
     같은 제목·같은 시리즈가 다른 칸에 있으면 알려줍니다. 손에 들고 있는 지금이 그 책을
     제자리로 보낼 수 있는 유일한 순간입니다.
   */
+  /*
+    ── 이 칸의 등급과 다른 책 ──────────────────────────────────────────────
+    요청: "한 칸에 다른 등급의 책들을 섞어서 놓지는 않을 거라서 그 칸에 등급을 정할 수 있게
+    해주고 ... 라벨 등급이 다른가요는 매번 묻지 말고, 부득이하게 한 칸에 다른 등급의 책을
+    넣어야 할 때 설정할 수 있도록."
+
+    그래서 맞으면 아무 말도 안 합니다. 다를 때만 말합니다 - 2등급으로 적힌 책이 3등급 칸에서
+    나왔다는 것은 둘 중 하나가 틀렸다는 뜻이고, 그건 사람이 책을 들고 있는 지금만 가릴 수
+    있습니다.
+  */
+  if (here.label_level != null && (book.label_level ?? null) !== here.label_level) {
+    notices.push({
+      tone: "warn",
+      title: `이 칸은 ${here.label_level}등급인데 이 책은 ${
+        book.label_level != null ? `${book.label_level}등급` : "등급 없음"
+      }입니다`,
+      detail:
+        "라벨이 이 칸 등급과 같으면 '이 권만'으로 떼어 주세요. 이 책 전부가 이 등급이면 '이 줄 전체'입니다. 일부러 다른 등급을 섞어 둔 칸이면 그대로 두셔도 됩니다.",
+      action: "level",
+      levelTo: here.label_level,
+    });
+  }
+
   const relatives = await relativesPromise;
   if (relatives.title.length > 0) {
     notices.push({
@@ -1010,7 +1083,7 @@ async function handlePost(request: Request) {
     copiesHere,
     foundTotal,
     recordedCopies: recordedTotal,
-    otherShelves,
+    otherShelves: liveOthers,
     notices,
     message: copiesHere > 1 ? `${here.code} · ${copiesHere}권째` : here.code,
   });
