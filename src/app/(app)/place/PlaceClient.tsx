@@ -1109,13 +1109,7 @@ export default function PlaceClient({
                   </span>
                 )}
                 <span className="shrink-0 text-xs text-slate-400">
-                  {item.split
-                    ? "나뉘어 있음"
-                    : item.fromCode && item.fromCode !== here.code
-                      ? `${item.fromCode} →`
-                      : item.fromCode
-                        ? "그대로"
-                        : "자리없음 →"}
+                  {item.split ? "나뉘어 있음" : ""}
                 </span>
                 <button
                   type="button"
@@ -1202,7 +1196,6 @@ function ResultBody({
       걸 3-4로 옮겨버렸다"로 읽힙니다 - 3-3 의 한 권은 그대로 있는데도요.
     */
     const splitAcross = result.otherShelves.length > 0;
-    const moved = !splitAcross && (result.from?.code ?? null) !== here.code;
     return (
       <div className="gia-pop rounded-3xl bg-white p-6 shadow-sm ring-1 ring-slate-200">
         <div className="flex items-start gap-4">
@@ -1241,7 +1234,7 @@ function ResultBody({
           </div>
           <div className="shrink-0 text-right">
             <p className="text-xs text-slate-400">
-              {splitAcross ? "이 칸에도" : moved ? "이 칸으로 옮김" : "이 칸"}
+              {splitAcross ? "이 칸에도" : "이 칸"}
             </p>
             <p className="text-5xl leading-none font-black" style={{ color: here.color }}>
               {here.code}
@@ -1305,6 +1298,20 @@ function ResultBody({
                 {lv}
               </button>
             ))}
+            {/*
+              찾은 권수가 장서에 적힌 것보다 **모자랄 때**도 고칠 수 있어야 합니다. 넘칠
+              때만 버튼을 내주면, "2권이라고 적혀 있는데 실은 1권"인 책은 끝내 못 고칩니다.
+            */}
+            {result.foundTotal !== result.recordedCopies && (
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => onFixCount(result.book.id)}
+                className="rounded-lg border border-amber-400 bg-white px-2.5 py-1 text-xs font-bold text-amber-800 disabled:opacity-50"
+              >
+                🧮 장서를 찾은 {result.foundTotal}권으로
+              </button>
+            )}
             <button
               type="button"
               onClick={() => {
@@ -1360,7 +1367,7 @@ function ResultBody({
             onClick={() => setLevelOpen(true)}
             className="mt-3 text-xs font-semibold text-slate-400 underline"
           >
-            등급을 바꿔야 하나요?
+            등급 · 권수를 고쳐야 하나요?
           </button>
         )}
 
