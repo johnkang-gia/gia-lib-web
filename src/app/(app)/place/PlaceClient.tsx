@@ -34,6 +34,8 @@ type Done = {
   title: string;
   level: number | null;
   fromCode: string | null;
+  /** 다른 칸에도 세어져 있는가(= 옮긴 것이 아니라 나뉘어 있는 것). */
+  split: boolean;
   fromId: string | null;
   copiesHere: number;
   warned: boolean;
@@ -339,6 +341,8 @@ export default function PlaceClient({
               title: json.book.title,
               level: json.book.label_level,
               fromCode: json.from?.code ?? null,
+              // 다른 칸에도 세어져 있으면 '옮긴' 것이 아닙니다 - 아래 목록도 그렇게 적습니다.
+              split: json.otherShelves.length > 0,
               fromId: json.from?.id ?? null,
               copiesHere: json.copiesHere,
               warned: json.notices.some((n) => n.tone === "warn"),
@@ -1105,11 +1109,13 @@ export default function PlaceClient({
                   </span>
                 )}
                 <span className="shrink-0 text-xs text-slate-400">
-                  {item.fromCode && item.fromCode !== here.code
-                    ? `${item.fromCode} →`
-                    : item.fromCode
-                      ? "그대로"
-                      : "자리없음 →"}
+                  {item.split
+                    ? "나뉘어 있음"
+                    : item.fromCode && item.fromCode !== here.code
+                      ? `${item.fromCode} →`
+                      : item.fromCode
+                        ? "그대로"
+                        : "자리없음 →"}
                 </span>
                 <button
                   type="button"
