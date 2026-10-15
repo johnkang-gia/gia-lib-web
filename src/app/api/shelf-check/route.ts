@@ -1,8 +1,9 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
-import { hasProductCodeAsId, isIsbn, normalizeScan } from "@/lib/scan";
+import { hasProductCodeAsId, isbnVariants, isIsbn, normalizeScan } from "@/lib/scan";
 import { findBook, findBooksByIsbn } from "@/lib/server/library";
 import { progressTitle, repeatScan } from "@/lib/shelfCount";
+import { APP_VERSION } from "@/lib/version";
 import type { LibBookWithShelf, LibLocation, ShelfCheckResult, ShelfNotice } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -23,7 +24,23 @@ export const dynamic = "force-dynamic";
 /** 이 칸에서 이 책을 몇 권 찾았는지 세어 둔 줄. */
 type CheckRow = { id: string; book_id: string; location_id: string; copies: number };
 
+/**
+ * 응답마다 **이 코드의 버전**을 적어 보냅니다.
+ *
+ * 왜 필요한가: 화면을 띄워 둔 채로 새 버전이 배포되면, 브라우저에는 옛 화면 코드가 그대로
+ * 남고 서버만 새것이 됩니다. 그러면 서버가 새로 보내는 안내를 옛 화면은 **그릴 줄 몰라서
+ * 버튼 없이 글자만** 띄웁니다. 쓰는 사람은 "고를 수가 없다"고 느끼는데, 화면에는 아무런
+ * 단서가 없습니다. 실제로 그 일이 있었습니다.
+ *
+ * 그래서 숫자를 함께 보내고, 화면이 자기 버전과 다르면 새로고침하라고 알립니다.
+ */
 export async function POST(request: Request) {
+  const res = await handlePost(request);
+  res.headers.set("x-app-version", APP_VERSION);
+  return res;
+}
+
+async function handlePost(request: Request) {
   const supabase = await createClient();
   /*
     ── 한 번 찍을 때 Supabase 를 몇 번 다녀오느냐가 전부입니다 ───────────────
@@ -64,7 +81,16 @@ export async function POST(request: Request) {
      * 앞의 셋을 가르는 것은 "지금 손에 든 책이 아까 그 책이냐, 다른 책이냐"뿐이고, 그건
      * 사람만 압니다. 그래서 묻습니다.
      */
-    confirm?: "move" | "add" | "home" | "recount" | "relocate";
+    confirm?: "move" | "add" | "home" | "recount" | "relocate" | "level";
+    /** level 일 때 매길 등급. */
+    level?: number | null;
+    /**
+     * level 일 때 그 등급을 **한 권에만** 매길지, **이 줄 전체**에 매길지.
+     *
+     *   · copy — 이 한 권만 그 등급 줄로 뗍니다(그 줄이 없으면 새로 만듭니다).
+     *   · row  — 이 줄의 등급을 고쳐 적습니다(처음부터 잘못 적혀 있던 경우).
+     */
+    levelScope?: "copy" | "row";
     /** relocate 일 때, 이 한 권을 받아 갈 줄과 칸. 화면의 '보낼 수 있는 곳' 버튼이 보냅니다. */
     targetBookId?: string;
     targetLocationId?: string;
@@ -299,6 +325,214 @@ export async function POST(request: Request) {
         },
       ],
       message: home.code,
+    });
+  }
+
+  /*
+    ── 등급을 그 자리에서 나누기 / 고치기 ──────────────────────────────────
+    요청: "같은 책인데도 2등급에도 등록되어 있고 3등급에도 등록되어 있는 책이 있어 ... 지금은
+    책을 등록하면 무조건 처음 등록한 등급으로 정해지는 것 같아 ... 같은 책이라도 등급이
+    나눠질 수 있어서 그 부분도 해결해줘."
+
+    등급은 그 책이 어느 칸에 꽂히는지를 정합니다. 같은 책 두 권이 2등급 칸과 3등급 칸에 각각
+    꽂혀 있다면 그건 사실상 따로 관리되는 두 묶음이고, 자료도 두 줄이어야 합니다(한 줄의
+    기준이 ISBN 이 아니라 **ISBN+등급** 인 이유입니다).
+
+    그런데 자리 등록에서 ISBN 을 찍으면 그 ISBN 의 줄이 하나뿐일 때는 **묻지 않고** 그 줄에
+    적었습니다. 손에 든 책 라벨이 3등급인데 줄이 2등급이면, 3등급 한 권이 조용히 2등급으로
+    세어집니다. 그래서 찍은 자리에서 바로 나눌 수 있어야 합니다.
+
+      · copy — 이 한 권만 그 등급으로. 그 등급 줄이 있으면 거기로, 없으면 새 줄을 만듭니다.
+      · row  — 이 줄 전체의 등급을 고칩니다(처음부터 잘못 적혀 있던 경우).
+  */
+  if (body.confirm === "level") {
+    const want = body.level ?? null;
+    const scope = body.levelScope ?? "copy";
+    if (want !== null && !Number.isFinite(want)) {
+      return NextResponse.json<ShelfCheckResult>({ kind: "error", message: "등급이 올바르지 않습니다." });
+    }
+
+    /** 같은 책(ISBN)의 그 등급 줄. 없으면 null. */
+    let sibling: { id: string; total_copies: number } | null = null;
+    if (book.isbn) {
+      const { data: sibs } = await supabase
+        .from("lib_books")
+        .select("id,label_level,total_copies")
+        .in("isbn", isbnVariants(book.isbn))
+        .neq("id", book.id);
+      sibling =
+        ((sibs ?? []) as { id: string; label_level: number | null; total_copies: number }[]).find(
+          (r) => (r.label_level ?? 0) === (want ?? 0)
+        ) ?? null;
+    }
+
+    if (scope === "row") {
+      if (sibling) {
+        return NextResponse.json<ShelfCheckResult>({
+          kind: "error",
+          message: `이미 ${want}등급 줄이 따로 있습니다.`,
+          detail: "이 줄 전체를 옮기면 두 줄이 겹칩니다 — '이 권만' 으로 한 권씩 옮겨주세요.",
+        });
+      }
+      const { data: fixed, error } = await supabase
+        .from("lib_books")
+        .update({ label_level: want })
+        .eq("id", book.id)
+        .select("*, shelf:lib_locations!location_id(*)")
+        .maybeSingle();
+      if (error) {
+        return NextResponse.json<ShelfCheckResult>({
+          kind: "error",
+          message: "등급을 고치지 못했습니다.",
+          detail: error.message,
+        });
+      }
+      return NextResponse.json<ShelfCheckResult>({
+        kind: "placed",
+        book: (fixed as unknown as LibBookWithShelf | null) ?? book,
+        from: here,
+        copiesHere: existing?.copies ?? 0,
+        foundTotal: (existing?.copies ?? 0) + otherTotal,
+        recordedCopies: book.total_copies,
+        otherShelves,
+        notices: [
+          {
+            tone: "info",
+            title: `이 줄 전체를 ${want ?? "등급 없음"}등급으로 고쳤습니다`,
+            detail: `${book.total_copies}권 모두 바뀝니다. 한 권만 등급이 다른 것이었다면 '이 권만'을 쓰세요.`,
+          },
+        ],
+        message: here.code,
+      });
+    }
+
+    // ── 이 한 권만 그 등급으로 ───────────────────────────────────────────
+    if ((book.label_level ?? 0) === (want ?? 0)) {
+      return NextResponse.json<ShelfCheckResult>({
+        kind: "error",
+        message: "이미 그 등급입니다.",
+      });
+    }
+
+    let targetId = sibling?.id ?? "";
+    let targetBefore = sibling?.total_copies ?? 0;
+    if (!targetId) {
+      /*
+        그 등급 줄이 아직 없습니다 - 만듭니다. 제목·저자 같은 책 정보는 그대로 베끼고,
+        등급과 권수만 이 한 권의 것으로 둡니다. ISBN 이 없는 책은 (ISBN,등급)으로 가를 수
+        없으므로 도서관 라벨 번호를 새로 발급해 그 번호가 이 줄을 가리키게 합니다.
+      */
+      const row: Record<string, unknown> = {
+        title: book.title,
+        author: book.author,
+        publisher: book.publisher,
+        pub_year: book.pub_year,
+        cover_url: book.cover_url,
+        category: book.category,
+        audience: book.audience,
+        series: book.series,
+        series_no: book.series_no,
+        language: book.language,
+        isbn: book.isbn,
+        label_level: want,
+        total_copies: 1,
+        location_id: here.id,
+      };
+      if (!book.isbn) {
+        const { data: nextCode } = await supabase.rpc("lib_next_item_code");
+        if (!nextCode) {
+          return NextResponse.json<ShelfCheckResult>({
+            kind: "error",
+            message: "새 줄에 붙일 번호를 받지 못했습니다.",
+          });
+        }
+        row.item_code = String(nextCode);
+      }
+      const { data: made, error } = await supabase.from("lib_books").insert(row).select("id").single();
+      if (error) {
+        return NextResponse.json<ShelfCheckResult>({
+          kind: "error",
+          message: "그 등급 줄을 만들지 못했습니다.",
+          detail: error.message,
+        });
+      }
+      targetId = (made as { id: string }).id;
+      targetBefore = 0;
+    } else {
+      await supabase
+        .from("lib_books")
+        .update({ total_copies: targetBefore + 1, location_id: here.id })
+        .eq("id", targetId);
+    }
+
+    // 이 칸에서 한 권 빼서, 같은 칸의 그 등급 줄로 옮깁니다.
+    if (existing) {
+      if (existing.copies <= 1) {
+        await supabase.from("lib_shelf_check").delete().eq("id", existing.id);
+      } else {
+        await supabase
+          .from("lib_shelf_check")
+          .update({ copies: existing.copies - 1 })
+          .eq("id", existing.id);
+      }
+    }
+    const { data: tCheckRow } = await supabase
+      .from("lib_shelf_check")
+      .select("id, copies")
+      .eq("book_id", targetId)
+      .eq("location_id", here.id)
+      .maybeSingle();
+    const tCheck = tCheckRow as { id: string; copies: number } | null;
+    if (tCheck) {
+      await supabase
+        .from("lib_shelf_check")
+        .update({ copies: tCheck.copies + 1, checked_at: new Date().toISOString(), checked_by: email })
+        .eq("id", tCheck.id);
+    } else {
+      await supabase
+        .from("lib_shelf_check")
+        .insert({ book_id: targetId, location_id: here.id, copies: 1, checked_by: email });
+    }
+
+    const leftHere = Math.max(0, book.total_copies - 1);
+    const stillSomewhere = otherTotal > 0 || (existing?.copies ?? 0) > 1;
+    await supabase
+      .from("lib_books")
+      .update({ total_copies: leftHere, ...(stillSomewhere ? {} : { location_id: null }) })
+      .eq("id", book.id);
+
+    const { data: split } = await supabase
+      .from("lib_books")
+      .select("*, shelf:lib_locations!location_id(*)")
+      .eq("id", targetId)
+      .maybeSingle();
+
+    return NextResponse.json<ShelfCheckResult>({
+      kind: "placed",
+      book: (split as unknown as LibBookWithShelf | null) ?? book,
+      from: here,
+      copiesHere: (tCheck?.copies ?? 0) + 1,
+      foundTotal: (tCheck?.copies ?? 0) + 1,
+      recordedCopies: targetBefore + 1,
+      otherShelves: [],
+      notices: [
+        {
+          tone: "info",
+          title: `이 한 권을 ${want ?? "등급 없음"}등급으로 뗐습니다`,
+          detail: sibling
+            ? `원래 있던 ${want}등급 줄로 옮겼습니다 — 그 줄 ${targetBefore}권 → ${targetBefore + 1}권.`
+            : `${want}등급 줄을 새로 만들었습니다. 같은 책이라도 등급이 다르면 따로 한 줄입니다.`,
+        },
+        {
+          tone: "info",
+          title: `${book.label_level ?? "등급 없음"}등급 줄은 ${book.total_copies}권 → ${leftHere}권`,
+          detail:
+            leftHere === 0
+              ? "그 등급으로는 이제 없습니다. 장서 관리에서 빈 줄을 정리하면 됩니다."
+              : "나머지 권수는 그대로 그 등급에 남아 있습니다.",
+        },
+      ],
+      message: here.code,
     });
   }
 

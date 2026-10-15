@@ -6,6 +6,7 @@ import BarcodeScanner from "@/components/BarcodeScanner";
 import BookRegisterDialog from "@/components/BookRegisterDialog";
 import { formatIsbn, isBookBarcode, isIsbn, normalizeScan } from "@/lib/scan";
 import { levelColor } from "@/lib/bookLevels";
+import { APP_VERSION } from "@/lib/version";
 import { addToPile, fetchPile, type Pile } from "@/lib/pileClient";
 import type { LibBook, LibBookWithShelf, LibLocation, ShelfCheckResult } from "@/lib/types";
 import type { ShelfListRow } from "@/app/api/shelf-check/list/route";
@@ -64,6 +65,8 @@ export default function PlaceClient({
   const [busy, setBusy] = useState(false);
   const [pile, setPile] = useState<Pile>(null);
   const [note, setNote] = useState<string | null>(null);
+  /** 서버가 더 새 버전이면 그 숫자. 띄워 두면 화면 맨 위에서 새로고침을 권합니다. */
+  const [stale, setStale] = useState<string | null>(null);
   /*
     ── 여기서 바로 등록 ──────────────────────────────────────────────────
     요청: "등록 안 된 책도 여기서 바로 등록할 수 있게 해줘."
@@ -304,9 +307,11 @@ export default function PlaceClient({
     async (payload: {
       code?: string;
       bookId?: string;
-      confirm?: "move" | "add" | "home" | "recount" | "relocate";
+      confirm?: "move" | "add" | "home" | "recount" | "relocate" | "level";
       targetBookId?: string;
       targetLocationId?: string;
+      level?: number;
+      levelScope?: "copy" | "row";
     }) => {
       if (!here || busy) return;
       setBusy(true);
@@ -317,6 +322,13 @@ export default function PlaceClient({
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ ...payload, locationId: here.id }),
         });
+        /*
+          서버가 적어 보낸 버전이 이 화면의 버전과 다르면, 띄워 둔 채로 새 버전이 배포된
+          것입니다. 그 상태로 계속 찍으면 서버가 보내는 새 안내를 옛 화면이 그릴 줄 몰라
+          **버튼 없이 글자만** 뜹니다. 쓰는 사람에게는 "고를 수가 없다"로만 보입니다.
+        */
+        const serverVersion = res.headers.get("x-app-version");
+        if (serverVersion && serverVersion !== APP_VERSION) setStale(serverVersion);
         const json = (await res.json()) as ShelfCheckResult;
         setResult(json);
         if (json.kind === "placed") {
@@ -874,6 +886,24 @@ export default function PlaceClient({
 
   return (
     <div className="space-y-4">
+      {stale && (
+        <div className="flex flex-wrap items-center gap-3 rounded-2xl bg-rose-600 px-5 py-3 text-white">
+          <span className="min-w-0 flex-1 text-sm font-bold">
+            새 버전 v{stale} 이 나왔습니다 — 이 화면은 v{APP_VERSION} 입니다.
+            <span className="block text-xs font-normal opacity-90">
+              새로고침하기 전에는 새로 생긴 버튼이 안 보입니다. 찍은 것은 이미 저장돼 있으니
+              지금 눌러도 잃는 것은 없습니다.
+            </span>
+          </span>
+          <button
+            type="button"
+            onClick={() => window.location.reload()}
+            className="rounded-xl bg-white px-4 py-2 text-sm font-black text-rose-700"
+          >
+            ↻ 새로고침
+          </button>
+        </div>
+      )}
       {listPanel}
       <div className="flex flex-wrap items-center gap-3 rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200">
         <div className="min-w-0">
@@ -981,6 +1011,9 @@ export default function PlaceClient({
           onFixCount={(bookId) => void send({ bookId, confirm: "recount" })}
           onRelocate={(bookId, targetBookId, targetLocationId) =>
             void send({ bookId, confirm: "relocate", targetBookId, targetLocationId })
+          }
+          onLevel={(bookId, level, levelScope) =>
+            void send({ bookId, confirm: "level", level, levelScope })
           }
           onRegister={(code, isbnLike) =>
             setRegister(isbnLike ? { isbn: code, mode: "place" } : { code, mode: "place" })
@@ -1095,6 +1128,7 @@ function ResultBody({
   onHome,
   onFixCount,
   onRelocate,
+  onLevel,
   onRegister,
   onSkip,
   onStash,
@@ -1111,6 +1145,8 @@ function ResultBody({
   onFixCount: (bookId: string) => void;
   /** 이 한 권을 같은 제목의 다른 줄·칸으로 넘깁니다. */
   onRelocate: (bookId: string, targetBookId: string, targetLocationId: string) => void;
+  /** 등급을 그 자리에서 나누거나(한 권만) 고칩니다(줄 전체). */
+  onLevel: (bookId: string, level: number, scope: "copy" | "row") => void;
   /** 등록 안 된 책을 이 화면에서 바로 등록합니다. */
   onRegister: (code: string, isIsbn: boolean) => void;
   onSkip: () => void;
@@ -1123,6 +1159,8 @@ function ResultBody({
   */
   const [hidden, setHidden] = useState<Set<number>>(new Set());
   const hide = (i: number) => setHidden((prev) => new Set(prev).add(i));
+  /** 등급 단추를 눌러 고른 값. 무엇을 할지(한 권만 / 줄 전체)는 그 다음에 고릅니다. */
+  const [levelPick, setLevelPick] = useState<number | null>(null);
 
   if (result.kind === "placed") {
     const moved = (result.from?.code ?? null) !== here.code;
@@ -1191,6 +1229,85 @@ function ResultBody({
           </div>
         </div>
 
+        {/*
+          ── 등급을 그 자리에서 ─────────────────────────────────────────
+          요청: "같은 책인데도 2등급에도 등록되어 있고 3등급에도 등록되어 있는 책이 있어 ...
+          지금은 책을 등록하면 무조건 처음 등록한 등급으로 정해지는 것 같아."
+
+          ISBN 의 줄이 하나뿐이면 자리 등록은 묻지 않고 그 줄에 적습니다. 손에 든 책 라벨이
+          3등급인데 줄이 2등급이면 3등급 한 권이 조용히 2등급으로 세어집니다. 책을 들고 있는
+          지금 고치지 못하면, 나중에 그 책을 다시 찾아야 합니다.
+        */}
+        <div className="mt-4 flex flex-wrap items-center gap-1.5 rounded-xl bg-slate-50 px-3 py-2.5 ring-1 ring-slate-200">
+          <span className="text-xs font-bold text-slate-500">
+            라벨 등급이 다른가요?
+            <span className="ml-1 font-normal text-slate-400">
+              지금 {result.book.label_level != null ? `${result.book.label_level}등급` : "등급 없음"}
+            </span>
+          </span>
+          {[2, 3, 4, 5, 6].map((lv) => (
+            <button
+              key={lv}
+              type="button"
+              disabled={busy || lv === result.book.label_level}
+              onClick={() => setLevelPick(lv === levelPick ? null : lv)}
+              className={`rounded-lg px-2.5 py-1 text-xs font-black ring-1 disabled:opacity-30 ${
+                levelPick === lv ? "ring-2" : ""
+              }`}
+              style={{
+                color: levelColor(lv),
+                borderColor: levelColor(lv),
+                background: levelPick === lv ? `${levelColor(lv)}2f` : `${levelColor(lv)}14`,
+              }}
+            >
+              {lv}
+            </button>
+          ))}
+          {levelPick != null && (
+            <span className="flex w-full flex-wrap gap-1.5 pt-1.5">
+              {/*
+                둘을 가르는 것은 "이 책 전부가 그 등급이냐, 지금 든 한 권만 그 등급이냐"입니다.
+                같은 책이라도 등급이 나뉘면 자료도 두 줄이어야 합니다.
+              */}
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => {
+                  onLevel(result.book.id, levelPick, "copy");
+                  setLevelPick(null);
+                }}
+                className="rounded-lg bg-gia-navy px-3 py-1.5 text-left text-xs font-bold text-white disabled:opacity-50"
+              >
+                📗 이 권만 {levelPick}등급으로 떼기
+                <span className="block text-[10px] font-medium opacity-80">
+                  {levelPick}등급 줄로 한 권 옮깁니다 — 없으면 새로 만듭니다
+                </span>
+              </button>
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => {
+                  onLevel(result.book.id, levelPick, "row");
+                  setLevelPick(null);
+                }}
+                className="rounded-lg border border-slate-400 bg-white px-3 py-1.5 text-left text-xs font-bold text-slate-700 disabled:opacity-50"
+              >
+                ✏️ 이 줄 전체를 {levelPick}등급으로
+                <span className="block text-[10px] font-medium opacity-70">
+                  {result.book.total_copies}권 모두 — 등급이 잘못 적혀 있던 경우
+                </span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setLevelPick(null)}
+                className="rounded-lg px-2 py-1.5 text-xs font-semibold text-slate-500 underline"
+              >
+                취소
+              </button>
+            </span>
+          )}
+        </div>
+
         {/* 예전과 다른 점 · 봐야 할 것들. 없으면 아무것도 안 뜹니다(조용한 게 정상입니다). */}
         {result.notices.length > 0 && (
           <ul className="mt-4 space-y-2">
@@ -1241,9 +1358,9 @@ function ResultBody({
                   어느 줄 것이냐"를 정할 수 있는 유일한 순간이고, 화면을 옮기면 들고 있던
                   책을 내려놓게 됩니다. 그래서 보낼 곳을 여기 늘어놓습니다.
                 */}
-                {n.action === "relocate" && n.spots && n.spots.length > 0 && (
+                {n.action === "relocate" && (
                   <span className="mt-2 flex flex-wrap gap-1.5">
-                    {n.spots.map((sp) => (
+                    {(n.spots ?? []).map((sp) => (
                       <button
                         key={`${sp.bookId}-${sp.locationId}`}
                         type="button"
@@ -1258,12 +1375,22 @@ function ResultBody({
                         </span>
                       </button>
                     ))}
+                    {/*
+                      "다른 책입니다"는 오해를 삽니다 - 제목이 같은 전혀 다른 책이라는 뜻으로
+                      읽힙니다. 실제 뜻은 "같은 책이지만 두 권을 각각 제자리에 둔다"입니다.
+                      고르는 사람이 무엇을 고르는지 문장으로 적어 둡니다.
+                    */}
                     <button
                       type="button"
                       onClick={() => hide(i)}
-                      className="rounded-lg px-3 py-1.5 text-xs font-semibold text-slate-600 underline"
+                      className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-left text-xs font-bold text-slate-700"
                     >
-                      다른 책입니다 — 여기 그냥 두기
+                      ✋ 따로 둡니다 — 이 권은 {here.code}에
+                      <span className="block text-[10px] font-medium opacity-70">
+                        {(n.spots ?? []).map((sp) => `${sp.code} ${sp.copies}권`).join(" · ") ||
+                          "그쪽 책"}
+                        은 그 칸에 그대로
+                      </span>
                     </button>
                   </span>
                 )}
