@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import ShelfMap from "@/components/ShelfMap";
 import { AUDIENCE_COLOR, type Audience } from "@/lib/audience";
 import { categoryOf } from "@/lib/categories";
+import { levelColor } from "@/lib/bookLevels";
 import { buildPlan, PLAN_RULES, type PlanBook, type PlanRule, type PlanZone } from "@/lib/plan";
 import type { LibLocation, LibMap, LibSettings } from "@/lib/types";
 
@@ -49,10 +50,43 @@ export default function PlanClient({
    */
   const [useTempZones, setUseTempZones] = useState(true);
 
+  /*
+    ── 등급 하나만 먼저 ───────────────────────────────────────────────────
+    요청: "애들이 계속 자리를 옮겨놔서 책장 정리하는 거 한꺼번에는 어려울 것 같고, 등급별로
+    책장 등록이 완료되면(2-1부터 2-5까지 2등급 책장 등록이 완료되면) 그 등급 정리를 시작할 수
+    있도록."
+
+    맞는 말입니다. 1,100권을 한 번에 다시 꽂는 일은 하루에 안 끝나고, 하는 동안 아이들이 또
+    옮겨 놓습니다. 끝난 등급부터 잠그듯이 정리해 나가면 되돌아갈 일이 없습니다.
+
+    그래서 등급을 고르면 **그 등급 책만, 그 등급 칸에만** 담습니다. 다른 등급은 건드리지
+    않으므로 이미 정리해 둔 칸이 흐트러지지 않습니다.
+  */
+  const [onlyLevel, setOnlyLevel] = useState<number | null>(null);
+
+  /** 이 등급에 쓰는 칸들과, 그 칸들이 '다 찍음'인지. */
+  const levelZones = useMemo(
+    () => locations.filter((l) => onlyLevel != null && l.label_level === onlyLevel),
+    [locations, onlyLevel]
+  );
+  const levelReady = levelZones.length > 0 && levelZones.every((l) => l.checked_done_at);
+  const levelPending = levelZones.filter((l) => !l.checked_done_at);
+
+  /** 칸에 등급이 적혀 있는지. 하나도 없으면 등급별 정리를 쓸 수 없습니다. */
+  const levelsOnZones = useMemo(
+    () =>
+      [...new Set(locations.map((l) => l.label_level).filter((v): v is number => v != null))].sort(
+        (a, b) => a - b
+      ),
+    [locations]
+  );
+
   const targetZones = useMemo<PlanZone[]>(
     () =>
       locations
         .filter((l) => (useTempZones ? true : l.kind !== "임시"))
+        // 등급 하나만 정리할 때는 그 등급 칸에만 담습니다.
+        .filter((l) => onlyLevel == null || l.label_level === onlyLevel)
         .map((l) => ({
           id: l.id,
           code: l.code,
@@ -61,7 +95,7 @@ export default function PlanClient({
           sort_order: l.sort_order,
           capacity: l.capacity,
         })),
-    [locations, useTempZones]
+    [locations, useTempZones, onlyLevel]
   );
 
   const tempZones = locations.filter((l) => l.kind === "임시");
@@ -74,9 +108,15 @@ export default function PlanClient({
    */
   const [fillTarget, setFillTarget] = useState(0.8);
 
+  /** 이번에 정리할 책. 등급을 골랐으면 그 등급 책만. */
+  const targetBooks = useMemo(
+    () => (onlyLevel == null ? books : books.filter((b) => b.label_level === onlyLevel)),
+    [books, onlyLevel]
+  );
+
   const plan = useMemo(
-    () => buildPlan(books, targetZones, rule, freshShelf, fillTarget),
-    [books, targetZones, rule, freshShelf, fillTarget]
+    () => buildPlan(targetBooks, targetZones, rule, freshShelf, fillTarget),
+    [targetBooks, targetZones, rule, freshShelf, fillTarget]
   );
 
   const noCapacity = targetZones.filter((z) => z.capacity === null).length;
@@ -160,6 +200,72 @@ export default function PlanClient({
           책을 다른 책장으로 옮기는 것이 아니라 **같은 책장 안에서 자리만 바로잡는** 경우가
           훨씬 흔합니다(2-1부터 2-5 안에서 시리즈끼리 모으기). 그래서 기본은 '그대로 쓰기'입니다.
         */}
+        {/*
+          ── 등급 하나만 먼저 ───────────────────────────────────────────
+          1,100권을 한 번에 다시 꽂는 일은 하루에 안 끝나고, 하는 동안 아이들이 또 옮겨
+          놓습니다. 끝난 등급부터 잠그듯이 정리해 나가면 되돌아갈 일이 없습니다.
+        */}
+        <div className="mt-4 rounded-xl bg-slate-50 p-3 ring-1 ring-slate-200">
+          <p className="text-sm font-bold text-slate-600">무엇을 정리할까요</p>
+          <div className="mt-2 flex flex-wrap items-center gap-1.5">
+            <button
+              type="button"
+              onClick={() => setOnlyLevel(null)}
+              className={`rounded-lg px-3 py-1.5 text-sm font-bold ring-1 ${
+                onlyLevel == null ? "bg-gia-navy text-white ring-gia-navy" : "bg-white ring-slate-300"
+              }`}
+            >
+              전체
+            </button>
+            {levelsOnZones.map((lv) => (
+              <button
+                key={lv}
+                type="button"
+                onClick={() => setOnlyLevel(lv)}
+                className="rounded-lg px-3 py-1.5 text-sm font-black ring-1"
+                style={
+                  onlyLevel === lv
+                    ? { background: levelColor(lv), color: "white", borderColor: levelColor(lv) }
+                    : { color: levelColor(lv), borderColor: levelColor(lv), background: "white" }
+                }
+              >
+                {lv}등급만
+              </button>
+            ))}
+            {levelsOnZones.length === 0 && (
+              <span className="text-xs text-slate-500">
+                칸에 등급이 아직 안 적혀 있습니다 — 「① 구역 관리」에서 칸마다 등급을 골라 두면
+                등급별로 나눠서 정리할 수 있습니다.
+              </span>
+            )}
+          </div>
+
+          {onlyLevel != null && (
+            <p
+              className={`mt-2 rounded-lg px-3 py-2 text-sm ${
+                levelReady ? "bg-emerald-50 text-emerald-900" : "bg-amber-50 text-amber-900"
+              }`}
+            >
+              {levelReady ? (
+                <>
+                  <b>{onlyLevel}등급 칸 {levelZones.length}개가 모두 「다 찍음」입니다.</b> 지금
+                  정리해도 됩니다 — 아직 안 꺼낸 책이 계획에서 빠질 걱정이 없습니다.
+                </>
+              ) : (
+                <>
+                  <b>
+                    {onlyLevel}등급 칸 {levelZones.length}개 중 {levelZones.length - levelPending.length}개
+                    끝났습니다.
+                  </b>{" "}
+                  남은 칸: {levelPending.map((l) => l.code).join(" · ") || "없음"} — 그 칸들을 다
+                  찍고 자리 등록 화면에서 <b>「이 칸 다 찍었습니다」</b>를 눌러주세요. 끝나지 않은
+                  칸으로 계획을 세우면 아직 안 꺼낸 책들이 통째로 빠진 채 책장을 다시 짜게 됩니다.
+                </>
+              )}
+            </p>
+          )}
+        </div>
+
         <div className="mt-4 flex flex-wrap items-center gap-4">
           <label className="flex items-center gap-2 text-sm text-slate-600">
             <input

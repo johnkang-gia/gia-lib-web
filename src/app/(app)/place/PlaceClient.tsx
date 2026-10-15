@@ -119,6 +119,30 @@ export default function PlaceClient({
   const auditRef = useRef<HTMLInputElement>(null);
   const [listBusy, setListBusy] = useState(false);
 
+  /**
+   * 「이 칸 다 찍었습니다」.
+   *
+   * '68권 세어졌다'와 '다 세었다'는 다른 말입니다. 중간에 멈춘 칸도 68권일 수 있고, 자료만
+   * 봐서는 구분할 수 없습니다 - 그 칸을 다 비워 봤는지는 **사람만** 압니다. 이 표시가 있어야
+   * "2등급 칸이 전부 끝났으니 이제 2등급을 정리해도 된다"고 말할 수 있습니다.
+   */
+  const markDone = useCallback(
+    async (loc: LibLocation, done: boolean) => {
+      await fetch("/api/locations/done", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ locationId: loc.id, done }),
+      });
+      router.refresh();
+      setNote(
+        done
+          ? `${loc.code} 칸을 '다 찍음'으로 표시했습니다. 그 등급 칸이 모두 끝나면 정리 계획에서 그 등급만 먼저 정리할 수 있습니다.`
+          : `${loc.code} 칸의 '다 찍음' 표시를 지웠습니다.`
+      );
+    },
+    [router]
+  );
+
   const loadList = useCallback(async (loc: LibLocation) => {
     setListOf(loc);
     setList(null);
@@ -858,7 +882,12 @@ export default function PlaceClient({
                           {loc.label_level}등급
                         </span>
                       )}
-                      {seen ? `✔ ${seen.titles}종 · ${seen.copies}권 확인함` : "아직 안 함"}
+                      {seen ? `${seen.titles}종 · ${seen.copies}권` : "아직 안 함"}
+                      {loc.checked_done_at && (
+                        <span className="rounded bg-emerald-50 px-1 py-0.5 font-bold text-emerald-700">
+                          ✅ 다 찍음
+                        </span>
+                      )}
                     </span>
                     {/*
                       찍으러 들어가는 길과 들여다보는 길을 갈라 둡니다. 숫자가 이상할 때
@@ -951,6 +980,21 @@ export default function PlaceClient({
             <p className="text-xs text-slate-400">이 칸 누적</p>
             <p className="text-2xl font-black text-slate-700">{seen?.copies ?? 0}권</p>
           </div>
+          {/*
+            이 칸을 다 비웠다는 표시. 숫자로는 알 수 없는 것이라 사람이 눌러야 합니다.
+            이게 켜져야 그 등급을 정리해도 되는지 계획 화면이 판단할 수 있습니다.
+          */}
+          <button
+            type="button"
+            onClick={() => void markDone(here, !here.checked_done_at)}
+            className={`rounded-lg px-3 py-2 text-sm font-bold ${
+              here.checked_done_at
+                ? "bg-emerald-600 text-white"
+                : "border border-emerald-400 text-emerald-700 hover:bg-emerald-50"
+            }`}
+          >
+            {here.checked_done_at ? "✅ 다 찍음" : "이 칸 다 찍었습니다"}
+          </button>
           <button
             type="button"
             onClick={() => void loadList(here)}
