@@ -1028,10 +1028,17 @@ async function handlePost(request: Request) {
     notices.push({
       tone: "info",
       title: `다른 칸에도 있습니다 — ${liveOthers.map((s) => `${s.code} ${s.copies}권`).join(" · ")}`,
-      detail:
-        "같은 책이 여러 칸에 흩어져 있습니다. 지금 손에 들고 있으니, 원래 칸으로 가져다 놓으면 나중에 모으는 수고가 없습니다.",
-      action: "home",
-      homeCode: liveOthers.reduce((a, b) => (b.copies > a.copies ? b : a)).code,
+      /*
+        예전에는 여기서 "그 칸으로 보낼까요?"를 물었습니다. 요청에 따라 뺐습니다 -
+        "어차피 나중에 정리를 할 거니까 일단 책장 등록에서는 바코드 찍는 대로 등록하고,
+        같은 책끼리 모을 거냐고 묻지는 말자. 두 번 하기보다 빨리 등록하고 정리 단계에서
+        정리하는 게 맞는 것 같아."
+
+        맞는 판단입니다. 지금 한 권씩 옮기면 그 책은 **두 번** 손을 타고, 정리 단계에서 어차피
+        전부 다시 집습니다. 지금 할 일은 "무엇이 어디에 있는가"를 사실대로 적는 것뿐입니다.
+        그래서 사실만 남기고 권유는 지웠습니다.
+      */
+      detail: "같은 책이 여러 칸에 흩어져 있습니다. 모으는 것은 정리 단계에서 한 번에 합니다.",
     });
   }
   /*
@@ -1108,9 +1115,7 @@ async function handlePost(request: Request) {
       tone: "warn",
       title: `같은 제목이 ${relatives.title.map((r) => `${r.code} ${r.copies}권`).join(" · ")}에 있습니다`,
       detail:
-        "판본이 달라 따로 등록된 책일 수 있습니다. 같은 책이면 지금 들고 있는 이 한 권을 그 칸으로 보내세요 — 그 줄의 보유 권수가 한 권 늘고 이 줄에서는 한 권 빠집니다. 다른 책이면 그냥 두면 됩니다.",
-      action: "relocate",
-      spots: relatives.spots,
+        "판본이 달라 따로 등록된 책일 수 있습니다. 합칠지 말지는 정리 단계에서 한 번에 정합니다 — 지금은 찍는 대로 적어 두면 됩니다.",
     });
   }
   if (relatives.series.length > 0) {

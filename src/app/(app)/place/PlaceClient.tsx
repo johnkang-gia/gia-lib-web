@@ -1441,30 +1441,7 @@ function ResultBody({
                     📥 라벨 인쇄 대기에 넣기
                   </button>
                 )}
-                {n.action === "home" && n.homeCode && (
-                  <button
-                    type="button"
-                    onClick={() => onHome(result.book.id)}
-                    className="mt-2 rounded-lg border border-slate-400 bg-white px-3 py-1.5 text-xs font-bold text-slate-700"
-                  >
-                    🏠 이 한 권을 {n.homeCode} 칸으로 보내기
-                  </button>
-                )}
-                {n.action === "recount" && n.fixTo != null && (
-                  <button
-                    type="button"
-                    disabled={busy}
-                    onClick={() => onFixCount(result.book.id)}
-                    className="mt-2 rounded-lg bg-amber-600 px-3 py-1.5 text-xs font-bold text-white disabled:opacity-50"
-                  >
-                    🧮 장서를 {n.fixTo}권으로 맞추기
-                  </button>
-                )}
-                {/*
-                  다른 화면으로 보내지 않습니다. 책을 손에 들고 있는 지금이 "이 한 권이
-                  어느 줄 것이냐"를 정할 수 있는 유일한 순간이고, 화면을 옮기면 들고 있던
-                  책을 내려놓게 됩니다. 그래서 보낼 곳을 여기 늘어놓습니다.
-                */}
+                {/* 예전의 '🏠 ○○ 칸으로 보내기'는 뺐습니다 — 모으는 일은 정리 단계에서 한 번에 합니다. */}
                 {n.action === "level" && n.levelTo != null && (
                   <span className="mt-2 flex flex-wrap gap-1.5">
                     <button
@@ -1498,42 +1475,7 @@ function ResultBody({
                     </button>
                   </span>
                 )}
-                {n.action === "relocate" && (
-                  <span className="mt-2 flex flex-wrap gap-1.5">
-                    {(n.spots ?? []).map((sp) => (
-                      <button
-                        key={`${sp.bookId}-${sp.locationId}`}
-                        type="button"
-                        disabled={busy}
-                        onClick={() => onRelocate(result.book.id, sp.bookId, sp.locationId)}
-                        className="rounded-lg border border-amber-400 bg-white px-3 py-1.5 text-left text-xs font-bold text-amber-900 disabled:opacity-50"
-                      >
-                        📦 {sp.code} 칸으로 보내기
-                        <span className="block text-[10px] font-medium opacity-70">
-                          {sp.level != null ? `${sp.level}등급 · ` : ""}
-                          그 줄 {sp.totalCopies}권 → {sp.totalCopies + 1}권
-                        </span>
-                      </button>
-                    ))}
-                    {/*
-                      "다른 책입니다"는 오해를 삽니다 - 제목이 같은 전혀 다른 책이라는 뜻으로
-                      읽힙니다. 실제 뜻은 "같은 책이지만 두 권을 각각 제자리에 둔다"입니다.
-                      고르는 사람이 무엇을 고르는지 문장으로 적어 둡니다.
-                    */}
-                    <button
-                      type="button"
-                      onClick={() => hide(i)}
-                      className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-left text-xs font-bold text-slate-700"
-                    >
-                      ✋ 따로 둡니다 — 이 권은 {here.code}에
-                      <span className="block text-[10px] font-medium opacity-70">
-                        {(n.spots ?? []).map((sp) => `${sp.code} ${sp.copies}권`).join(" · ") ||
-                          "그쪽 책"}
-                        은 그 칸에 그대로
-                      </span>
-                    </button>
-                  </span>
-                )}
+                {/* '📦 ○○ 칸으로 보내기'도 같은 이유로 뺐습니다 — 지금은 찍는 대로 적기만 합니다. */}
                 {n.action === "split" && (
                   <button
                     type="button"
@@ -1618,22 +1560,7 @@ function ResultBody({
             </span>
           </button>
           {/*
-            ③ 원래 칸으로 — 같은 책이 이미 다른 칸에 있을 때만 나옵니다. 지금 들고 있을 때
-            가져다 놓는 것이 나중에 모으는 것보다 한 번에 끝납니다.
-          */}
-          {result.homeCode && (
-            <button
-              type="button"
-              disabled={busy}
-              onClick={() => onHome(result.book.id)}
-              className="rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-left text-sm font-bold text-slate-700 disabled:opacity-50"
-            >
-              🏠 {result.homeCode} 칸으로
-              <span className="block text-[11px] font-medium opacity-70">
-                같은 책이 거기 있습니다
-              </span>
-            </button>
-          )}
+          {/* '🏠 ○○ 칸으로'도 뺐습니다 — 지금 한 권씩 옮기면 그 책은 두 번 손을 탑니다. */}
           <button
             type="button"
             onClick={onSkip}
