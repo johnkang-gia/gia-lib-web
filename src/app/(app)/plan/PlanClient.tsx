@@ -1,12 +1,19 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import ShelfMap from "@/components/ShelfMap";
 import { AUDIENCE_COLOR, type Audience } from "@/lib/audience";
 import { categoryOf } from "@/lib/categories";
 import { levelColor } from "@/lib/bookLevels";
-import { buildPlan, PLAN_RULES, type PlanBook, type PlanRule, type PlanZone } from "@/lib/plan";
+import {
+  buildPlan,
+  PLAN_RULES,
+  type PlanBook,
+  type PlanResult,
+  type PlanRule,
+  type PlanZone,
+} from "@/lib/plan";
 import type { LibLocation, LibMap, LibSettings } from "@/lib/types";
 
 /**
@@ -114,10 +121,48 @@ export default function PlanClient({
     [books, onlyLevel]
   );
 
-  const plan = useMemo(
-    () => buildPlan(targetBooks, targetZones, rule, freshShelf, fillTarget),
-    [targetBooks, targetZones, rule, freshShelf, fillTarget]
-  );
+  /*
+    ── 계획은 화면을 다 그린 뒤에 계산합니다 ────────────────────────────────
+    처음에는 그리는 도중(useMemo)에 계산했습니다. 책이 천 권이 넘자 그 계산이 첫 화면 그리기를
+    통째로 막아서, **화면이 「정리 계획을 여는 중…」에서 영영 멈췄습니다.** 서버가 보낸 내용은
+    멀쩡히 와 있는데도요.
+
+    그려 놓고 나서 계산하면 적어도 고르는 단추들은 바로 만져집니다. 계산이 실패하면 빈 화면
+    대신 **왜 실패했는지**를 적습니다 - 아무 말 없이 멈춘 화면만큼 손쓸 수 없는 것이 없습니다.
+  */
+  const [computed, setComputed] = useState<PlanResult | null>(null);
+  const [planError, setPlanError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let alive = true;
+    setComputed(null);
+    setPlanError(null);
+    // 한 틱 미뤄서 화면이 먼저 그려지게 합니다.
+    const id = setTimeout(() => {
+      try {
+        const result = buildPlan(targetBooks, targetZones, rule, freshShelf, fillTarget);
+        if (alive) setComputed(result);
+      } catch (e) {
+        if (alive) setPlanError(e instanceof Error ? e.message : "계획을 계산하지 못했습니다.");
+      }
+    }, 0);
+    return () => {
+      alive = false;
+      clearTimeout(id);
+    };
+  }, [targetBooks, targetZones, rule, freshShelf, fillTarget]);
+
+  const plan: PlanResult = computed ?? {
+    zones: [],
+    groups: [],
+    leftover: [],
+    moveCount: 0,
+    stayCount: 0,
+    uncategorized: 0,
+    noAudience: 0,
+    seriesBooks: 0,
+    seriesCount: 0,
+  };
 
   const noCapacity = targetZones.filter((z) => z.capacity === null).length;
 
@@ -265,6 +310,17 @@ export default function PlanClient({
             </p>
           )}
         </div>
+
+        {computed === null && !planError && (
+          <p className="mt-3 rounded-xl bg-slate-50 px-3 py-2 text-sm font-semibold text-slate-500">
+            책 {targetBooks.length.toLocaleString()}권을 칸에 나눠 담는 중…
+          </p>
+        )}
+        {planError && (
+          <p className="mt-3 rounded-xl bg-rose-50 px-3 py-2 text-sm font-semibold text-rose-800">
+            계획을 계산하지 못했습니다 — {planError}
+          </p>
+        )}
 
         <div className="mt-4 flex flex-wrap items-center gap-4">
           <label className="flex items-center gap-2 text-sm text-slate-600">
