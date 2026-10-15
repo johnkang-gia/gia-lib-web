@@ -201,16 +201,29 @@ async function probeGoogleBooks(): Promise<Probe> {
     적혀 있으면 할 수 있는 일이 없습니다.
   */
   const isbn = "9780064400558"; // Charlotte's Web (HarperTrophy)
+  /*
+    ── 키 탓인가, 서버 IP 탓인가 ────────────────────────────────────────────
+    키를 넣었는데도 세 가지 나라 설정 모두 0건이었습니다. 그러면 남은 갈림길은 둘입니다.
+
+      · 키 쪽 문제   — 키를 빼고 물었을 때는 결과가 나온다
+      · 서버 IP 문제 — 키가 있든 없든 0건 (구글이 데이터센터 IP 의 검색 결과를 비워 보냄)
+
+    둘을 가르지 않으면 "키를 다시 만들어 보라"는 헛수고를 시키게 됩니다. 그래서 키 없이도
+    한 번 물어보고, 검색 연산자(isbn:) 말고 번호만 넣는 방식도 함께 봅니다.
+  */
   const tries = [
-    { label: "나라 없음", q: "" },
-    { label: "US", q: "&country=US" },
-    { label: "KR", q: "&country=KR" },
+    { label: "키+US", q: "&country=US", key: true },
+    { label: "키+나라없음", q: "", key: true },
+    { label: "키없이", q: "&country=US", key: false },
+    { label: "번호만(키+US)", q: "&country=US", key: true, plain: true },
   ];
   const results: { label: string; status: number | null; title: string | null; error?: string }[] = [];
   let ms = 0;
   for (const t of tries) {
+    const q = (t as { plain?: boolean }).plain ? isbn : `isbn:${isbn}`;
+    const kp = (t as { key?: boolean }).key === false ? "" : keyParam;
     const got = await timed(() =>
-      get(`https://www.googleapis.com/books/v1/volumes?maxResults=1&q=isbn:${isbn}${keyParam}${t.q}`)
+      get(`https://www.googleapis.com/books/v1/volumes?maxResults=1&q=${q}${kp}${t.q}`)
     );
     ms += got.ms;
     if (!got.value) {
@@ -246,14 +259,21 @@ async function probeGoogleBooks(): Promise<Probe> {
 
   const working = results.find((x) => x.title);
   if (!working) {
+    const keyless = results.find((x) => x.label === "키없이");
     return {
       ...base,
       ms,
       detail: `어느 쪽으로도 결과가 없습니다 — ${line} (지금 설정: country=${now})`,
       todo:
-        "키가 막 만들어진 뒤라면 몇 분 지나 다시 눌러보세요. 계속 0건이면 구글 클라우드 콘솔에서 " +
-        "그 키의 **API 제한에 Books API 가 들어 있는지**와 프로젝트에 **Books API 가 사용 설정**되어 " +
-        "있는지 확인해주세요. 영어 원서는 오픈라이브러리·카카오가 받아주므로 그동안도 조회는 됩니다.",
+        keyless && keyless.status === 200
+          ? "**키를 바꿔도 안 됩니다** — 키가 있든 없든 응답은 정상(200)인데 결과가 0건입니다. " +
+            "구글 북스가 데이터센터(Vercel) IP 로 들어오는 검색의 결과를 비워 보내는 것으로 보입니다. " +
+            "우리가 손댈 수 있는 쪽이 아니므로 구글 북스는 당분간 '있으면 좋은 곳'으로 두고, 카카오와 " +
+            "오픈라이브러리로 채웁니다(실제로 Wings of Fire · Dog Man 은 카카오가 권 제목까지 줬습니다). " +
+            "영어 원서 보강이 더 필요하면 알라딘 API 를 한 곳 더 붙이는 쪽이 낫습니다."
+          : "키가 막 만들어진 뒤라면 몇 분 지나 다시 눌러보세요. 계속 이러면 콘솔에서 그 키의 " +
+            "**API 제한에 Books API 가 들어 있는지**와 프로젝트에 **Books API 가 사용 설정**되어 있는지 " +
+            "확인해주세요. 그동안도 카카오·오픈라이브러리로 조회는 됩니다.",
     };
   }
 
