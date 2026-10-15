@@ -383,3 +383,81 @@ async function fromOpenLibrary(isbn: string): Promise<BookLookup | null> {
     source: "오픈라이브러리",
   });
 }
+
+/* ──────────────────────────────────────────────────────────────────────────
+   조회처 전부에게 물어보기 (제목 다시 채우기용)
+   ────────────────────────────────────────────────────────────────────────── */
+
+/**
+ * 한 ISBN 을 **모든 조회처에** 물어 답을 다 모읍니다.
+ *
+ * ── lookupIsbn 과 무엇이 다른가 ────────────────────────────────────────────
+ * lookupIsbn 은 **먼저 답한 곳이 이깁니다.** 등록할 때는 그게 맞습니다 - 한 권을 넣으려고
+ * 네 곳을 다 기다릴 이유가 없습니다.
+ *
+ * 그런데 그 규칙 때문에 사고가 있었습니다. 수입 영어 전집을 국내 조회처(국립중앙도서관·
+ * 카카오)가 **세트 이름**으로 등록해 두는 일이 많아서, Wings of Fire 네 권이 전부
+ * "Wings of Fire" 라는 한 제목으로 들어왔습니다. 권 제목은 Google Books 쪽에 있었는데
+ * 앞의 조회처가 먼저 답해서 거기까지 가지 않았습니다.
+ *
+ * 그래서 고칠 때는 **전부 모아 놓고 고릅니다**(어느 것을 쓸지는 titlePick.ts).
+ *
+ * ── 시간을 묶어 둡니다 ─────────────────────────────────────────────────────
+ * 조회처 네 곳을 나란히 묻고, 한 곳이 응답하지 않아도 7초에서 끊습니다. 1,100종을 돌려야
+ * 하므로 한 권이 느려지면 전체가 느려집니다.
+ */
+export async function lookupIsbnAll(isbn: string): Promise<BookLookup[]> {
+  const clean = isbn.replace(/[^0-9X]/gi, "").toUpperCase();
+  if (clean.length !== 10 && clean.length !== 13) return [];
+  // 10자리로 적힌 책은 조회처마다 받아주는 형태가 달라서 두 형태를 봅니다(많아도 둘까지).
+  const forms = isbnVariants(clean).slice(0, 2);
+  const steps = [fromNationalLibrary, fromKakao, fromGoogleBooks, fromOpenLibrary];
+
+  const chains = steps.map((step) =>
+    withBudget(
+      (async () => {
+        for (const form of forms) {
+          try {
+            const found = await step(form);
+            if (found?.title) return found;
+          } catch {
+            // 한 형태가 안 되면 다른 형태로. 조회처 하나가 죽어도 나머지는 계속합니다.
+          }
+        }
+        return null;
+      })(),
+      7000
+    )
+  );
+
+  const got = (await Promise.all(chains)).filter((v): v is BookLookup => Boolean(v?.title));
+
+  /*
+    같은 조회처가 10자리·13자리로 같은 제목을 두 번 주는 일이 있습니다. 화면에 같은 줄이
+    두 번 뜨면 사람이 "둘 중 어느 것이냐"를 고민하게 됩니다 - 고민할 것이 없는 고민입니다.
+  */
+  const seen = new Set<string>();
+  const out: BookLookup[] = [];
+  for (const g of got) {
+    const key = `${g.source}|${g.title.trim().toLowerCase()}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push({ ...g, isbn: canonicalIsbn(clean) });
+  }
+  return out;
+}
+
+/** 약속을 정해진 시간 안에서만 기다립니다. 넘으면 null(그 조회처는 없는 것으로). */
+async function withBudget<T>(promise: Promise<T>, ms: number): Promise<T | null> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<null>((resolve) => {
+        timer = setTimeout(() => resolve(null), ms);
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
