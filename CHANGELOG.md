@@ -3,6 +3,23 @@
 새로 배포될 때마다 맨 위에 한 항목이 쌓입니다. 화면 오른쪽 위의 버전 숫자와 이 목록의 맨 위
 숫자가 같으면, 지금 보고 있는 화면이 최신입니다.
 
+## v0.71.1 - 2026-10-15
+
+**제목 뒤에 붙은 저자 표기와 소리치는 대문자**
+
+다시 판정한 147건을 다시 훑어보니 세 종류가 남아 있었습니다.
+
+- 「Christmas Chaos for the Hundred-Mile-An-Hour Dog**. by Jeremy Strong**」 — 제목 뒤에 저자가
+  붙어 옵니다. 저자는 따로 적는 칸이 있으므로 뗍니다. **마침표 뒤에 오는 경우만** 뗍니다 —
+  「Love You Forever by Robert Munsch」 처럼 제목 자체에 by 가 들어가는 책과 섞이면 안 됩니다.
+- 「… (Junie B. Jones 8) **(챕터북)**」 — 국내 분류 꼬리표도 제목이 아닙니다.
+- 「**JUNIE B. JONES AND THE MUSHY GUSHY VALENTIME**」 — 전부 대문자. 목록에서 이것만 소리치고
+  있으면 읽기 어렵습니다. 「Junie B. Jones and the Mushy Gushy Valentime」 으로 되돌립니다.
+  관사·전치사만 소문자로 두고 is·has 같은 동사는 그대로 둡니다. **대문자가 섞인 보통 제목은
+  건드리지 않습니다** — 「The Magic School Bus」 「The BFG」 는 그대로입니다.
+
+검사 60가지 통과.
+
 ## v0.71.0 - 2026-10-15
 
 **조회해 온 제목에서 상품 포장 문구를 떼어냅니다**

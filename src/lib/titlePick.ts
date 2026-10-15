@@ -99,7 +99,7 @@ export function looksLikeSet(title: string): boolean {
  */
 
 /** 제목이 아니라 상품 포장 설명인 괄호 묶음. */
-const PACKAGING = /(CD|QR|MP3|DVD|음원|세이펜|오디오|워크북|단어장|해설|번역|스티커|포함|Book\s*\+\s*CD|StoryPlus|Audio\s*CD)/i;
+const PACKAGING = /(CD|QR|MP3|DVD|음원|세이펜|오디오|워크북|단어장|해설|번역|스티커|포함|Book\s*\+\s*CD|StoryPlus|Audio\s*CD|챕터북|리더스|그림책|원서|영어원서)/i;
 
 /** 공백·줄바꿈을 하나로. 조회처 자료에 \r\n 과 탭이 그대로 들어 있습니다. */
 const squeeze = (s: string) => s.replace(/[\s\u00a0]+/g, " ").trim();
@@ -126,8 +126,53 @@ export function cleanTitle(raw: string): string {
     붙어 버립니다(원래 자료에 띄어쓰기가 없던 자리입니다). 괄호 앞에 한 칸을 넣어 줍니다.
   */
   t = squeeze(t).replace(/([^\s(\[])([(\[])/g, "$1 $2");
+  /*
+    「… Dog. by Jeremy Strong」 「… Puddings. Illustrated by Rowan Clifford」 처럼 제목 뒤에
+    저자 표기가 붙어 오는 자료가 있습니다. 저자는 따로 적는 칸이 있으므로 제목에서 뗍니다.
+    마침표 뒤에 오는 경우만 뗍니다 - 「Love You Forever by Robert Munsch」 처럼 제목 자체에
+    by 가 들어가는 책과 섞이지 않게 하기 위해서입니다.
+  */
+  t = t.replace(/\.\s*(Illustrated\s+by|Written\s+by|by)\s+[^.]*$/i, "");
+
   t = squeeze(t).replace(/\s*([:;,])\s*$/, "").replace(/\s+([:;,.])/g, "$1");
-  return t;
+  return titleCaseShouting(t);
+}
+
+/**
+ * 전부 대문자로 적힌 제목을 읽을 수 있게 되돌립니다.
+ *
+ * 국내 자료는 영어 제목을 「JUNIE B. JONES AND THE MUSHY GUSHY VALENTIME」 처럼 전부 대문자로
+ * 적어 둔 것이 많습니다. 목록에서 이것만 소리치고 있으면 읽기 어렵습니다.
+ *
+ * 지금 제목과 겹치는 자리는 keepCasing 이 사람이 적어 둔 글자로 되돌리지만, 띄어쓰기가
+ * 달라서(「Junie B.Jones」 ↔ 「JUNIE B. JONES」) 겹치는 자리를 못 찾는 경우가 있습니다. 그때를
+ * 위한 마지막 손질입니다.
+ *
+ * **대문자가 섞여 있는 보통 제목은 건드리지 않습니다.** 네 글자 이상 통째로 대문자인 낱말이
+ * 둘 이상일 때만 손댑니다 - 「The Magic School Bus」 나 「The BFG」 는 그대로 둡니다.
+ */
+function titleCaseShouting(t: string): string {
+  const words = t.split(" ");
+  /** 낱말에서 뒤에 붙은 구두점을 떼어 본 알맹이. 「GUIDE:」 의 알맹이는 「GUIDE」 입니다. */
+  const core = (w: string) => w.replace(/[^A-Za-z'’.-]+$/, "");
+  const shouting = words.filter((w) => /^[A-Z][A-Z'’.-]{3,}$/.test(core(w))).length;
+  if (shouting < 2) return t;
+  /*
+    관사·접속사·전치사만 소문자로 둡니다. is·has 같은 동사를 여기 넣으면
+    「Junie B. Jones has a Monster」 처럼 문장 가운데가 주저앉습니다.
+  */
+  const small = new Set(["a", "an", "the", "and", "or", "of", "in", "on", "at", "to", "for", "with", "by", "from"]);
+  return words
+    .map((w, i) => {
+      const c = core(w);
+      const tail = w.slice(c.length);
+      // 전부 대문자가 아닌 낱말(이미 제대로 적힌 것)은 그대로 둡니다.
+      if (!c || !/^[A-Z][A-Z'’.-]*$/.test(c)) return w;
+      const lower = c.toLowerCase();
+      if (i > 0 && small.has(lower)) return lower + tail;
+      return lower.replace(/(^|[\s.'’-])([a-z])/g, (_m, p, ch) => p + ch.toUpperCase()) + tail;
+    })
+    .join(" ");
 }
 
 /**
