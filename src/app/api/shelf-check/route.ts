@@ -755,6 +755,14 @@ async function handlePost(request: Request) {
     }
   }
 
+  /** 이번 옮김까지 반영한 '다른 칸' 현황. 아래 문구와 셈이 모두 이것을 씁니다. */
+  const liveOthers = movedFrom
+    ? otherShelves
+        .map((o) => (o.code === movedFrom ? { ...o, copies: o.copies - 1 } : o))
+        .filter((o) => o.copies > 0)
+    : otherShelves;
+  const liveOtherTotal = liveOthers.reduce((n, o) => n + o.copies, 0);
+
   if (existing && onlyMoving) {
     // 센 권수는 그대로 두고, 마지막으로 확인한 시각만 새로 적습니다.
     await supabase
@@ -819,16 +827,34 @@ async function handlePost(request: Request) {
     });
   }
 
-  // 지금 적혀 있는 자리가 다르면 이 칸으로 바꿉니다 - 이 작업의 본론입니다.
+  /*
+    지금 적혀 있는 자리가 다르면 이 칸으로 바꿉니다.
+
+    다만 **문구를 가려 씁니다.** 'A → B' 는 "A에서 꺼내 B로 옮겼다"로 읽힙니다. 그런데 이
+    줄이 A 에도 여전히 세어져 있다면 옮긴 것이 아니라 **두 칸에 나뉘어 있는 것**이고, 바뀐
+    것은 '대표 자리' 한 칸뿐입니다. 실제로 그 문구를 보고 "3-3 있던 걸 3-4로 옮겨버렸다"고
+    읽은 일이 있었습니다 - 3-3 의 한 권은 그대로 있었는데도요.
+  */
   if (book.location_id !== here.id) {
     patch.location_id = here.id;
-    notices.push({
-      tone: "info",
-      title: from ? `${from.code} → ${here.code}` : `자리 없음 → ${here.code}`,
-      detail: from
-        ? "예전에 적혀 있던 자리와 다릅니다. 이 칸으로 바꿨습니다."
-        : "자리가 비어 있던 책입니다. 이 칸으로 적었습니다.",
-    });
+    if (liveOtherTotal > 0) {
+      notices.push({
+        tone: "info",
+        title: `두 칸에 나뉘어 있습니다 — ${here.code} ${copiesHere}권 · ${liveOthers
+          .map((o) => `${o.code} ${o.copies}권`)
+          .join(" · ")}`,
+        detail:
+          "옮긴 것이 아닙니다. 양쪽 다 세어 둔 그대로이고, 책에 적어 두는 '대표 자리'만 이 칸으로 바꿨습니다.",
+      });
+    } else {
+      notices.push({
+        tone: "info",
+        title: from ? `${from.code} → ${here.code}` : `자리 없음 → ${here.code}`,
+        detail: from
+          ? "예전에 적혀 있던 자리와 다릅니다. 이 칸으로 바꿨습니다."
+          : "자리가 비어 있던 책입니다. 이 칸으로 적었습니다.",
+      });
+    }
   }
 
   /*
@@ -977,12 +1003,6 @@ async function handlePost(request: Request) {
     return { title: spotsOf(titleIds), series: spotsOf(seriesIds), spots };
   }
 
-  const liveOthers = movedFrom
-    ? otherShelves
-        .map((o) => (o.code === movedFrom ? { ...o, copies: o.copies - 1 } : o))
-        .filter((o) => o.copies > 0)
-    : otherShelves;
-  const liveOtherTotal = liveOthers.reduce((n, o) => n + o.copies, 0);
   const foundTotal = copiesHere + liveOtherTotal;
   /** 장서에 적힌 권수. 이번에 '장서추가'를 눌렀으면 올린 뒤의 값입니다. */
   const recordedTotal = (patch.total_copies as number | undefined) ?? book.total_copies;
@@ -1059,6 +1079,31 @@ async function handlePost(request: Request) {
 
   const relatives = await relativesPromise;
   if (relatives.title.length > 0) {
+    /*
+      ── 같은 제목 전체를 한 줄로 ──────────────────────────────────────────
+      사람은 ISBN 이 아니라 '그 책'으로 셉니다. "Tonight on the Titanic 2권 있는데 왜 다
+      등록됐다고 안 나오냐"가 그 말입니다. 그런데 같은 책이라도 판(ISBN)이 다르면 자료는
+      다른 줄이고, 줄마다 따로 세기 때문에 어느 줄에도 '그 책 모두 몇 권'은 안 나옵니다.
+
+      그래서 이 줄 것과 다른 줄 것을 합쳐 한 줄로 적어 둡니다. 숫자가 안 맞으면 그게 곧
+      "이 판본들을 한 줄로 합쳐야 한다"는 신호입니다 - 합치는 버튼은 바로 아래 있습니다.
+    */
+    const otherRecorded = relatives.spots.reduce(
+      (n, sp, i, all) => (all.findIndex((x) => x.bookId === sp.bookId) === i ? n + sp.totalCopies : n),
+      0
+    );
+    const otherCounted = relatives.spots.reduce((n, sp) => n + sp.copies, 0);
+    notices.push({
+      tone: "info",
+      title: `같은 제목 모두 — 장서 ${recordedTotal + otherRecorded}권 · 찾은 ${
+        foundTotal + otherCounted
+      }권`,
+      detail: `${[
+        `${here.code} ${copiesHere}권`,
+        ...liveOthers.map((o) => `${o.code} ${o.copies}권`),
+        ...relatives.title.map((r) => `${r.code} ${r.copies}권`),
+      ].join(" · ")} — 판(ISBN)이 다르면 따로 한 줄이라, 줄마다 세면 '그 책 모두 몇 권'이 안 나옵니다. 숫자가 안 맞으면 아래에서 한 줄로 모아주세요.`,
+    });
     notices.push({
       tone: "warn",
       title: `같은 제목이 ${relatives.title.map((r) => `${r.code} ${r.copies}권`).join(" · ")}에 있습니다`,
