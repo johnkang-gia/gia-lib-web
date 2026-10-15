@@ -2,7 +2,7 @@ import { createClient } from "@/lib/supabase/server";
 import { getLocations, getMap, getSettings } from "@/lib/server/library";
 import { fetchAll } from "@/lib/server/fetchAll";
 import type { PlanBook } from "@/lib/plan";
-import PlanClient from "./PlanClient";
+import PlanShell from "./PlanShell";
 
 export const dynamic = "force-dynamic";
 
@@ -33,5 +33,5 @@ export default async function PlanPage() {
     ),
   ]);
 
-  return <PlanClient books={books} locations={locations} map={map} settings={settings} />;
+  return <PlanShell books={books} locations={locations} map={map} settings={settings} />;
 }
