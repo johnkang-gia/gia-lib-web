@@ -105,6 +105,12 @@ const MENU_GROUPS: {
         icon: "🔎",
         desc: "도서관 화면에 띄워 두는 찾기(메뉴 없음)",
       },
+      {
+        href: "/stats",
+        label: "통계",
+        icon: "📊",
+        desc: "달별 추이 · 인기 도서 · 반별 · 안 나간 책",
+      },
       { href: "/students", label: "학생별 이력", icon: "🙋", desc: "학생이 빌린 책 기록" },
       { href: "/settings", label: "설정", icon: "⚙️", desc: "대출 기간 · 권수 규칙" },
     ],
