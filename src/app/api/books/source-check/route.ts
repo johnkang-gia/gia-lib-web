@@ -186,46 +186,87 @@ async function probeNationalLibrary(): Promise<Probe> {
 }
 
 async function probeGoogleBooks(): Promise<Probe> {
-  const base: Probe = {
-    name: "구글 북스",
-    needsKey: false,
-    hasKey: true,
-    ok: false,
-    ms: 0,
-    detail: "",
-  };
+  const base: Probe = { name: "구글 북스", needsKey: false, hasKey: true, ok: false, ms: 0, detail: "" };
   const key = process.env.GOOGLE_BOOKS_API_KEY;
-  const r = await timed(() =>
-    get(
-      "https://www.googleapis.com/books/v1/volumes?maxResults=1&q=intitle:%22Charlotte%27s%20Web%22" +
-        (key ? `&key=${encodeURIComponent(key)}` : "")
-    )
-  );
-  if (!r.value) return { ...base, ms: r.ms, detail: `연결하지 못했습니다 — ${r.error}` };
-  if (r.value.status === 429) {
+  const keyParam = key ? `&key=${encodeURIComponent(key)}` : "";
+
+  /*
+    ── 나라를 적어 보내는지에 따라 결과가 갈립니다 ──────────────────────────
+    키를 넣은 뒤에도 조회가 **200인데 0건**으로 왔습니다. 구글 북스는 묻는 쪽의 위치를 보고 그
+    나라에서 볼 수 있는 책만 돌려주는데, 위치를 못 정하면 아무것도 안 주는 일이 있습니다. 우리
+    서버는 서울(Vercel icn1)에 있고 영어 원서는 한국에서 묶인 경우가 많습니다.
+
+    그래서 점검이 **실제로 쓰는 ISBN 조회**로 세 가지(나라 없음 · US · KR)를 모두 물어봅니다.
+    어느 쪽이 되는지 보이면 사람이 GOOGLE_BOOKS_COUNTRY 를 정할 수 있습니다 - "안 된다"만
+    적혀 있으면 할 수 있는 일이 없습니다.
+  */
+  const isbn = "9780064400558"; // Charlotte's Web (HarperTrophy)
+  const tries = [
+    { label: "나라 없음", q: "" },
+    { label: "US", q: "&country=US" },
+    { label: "KR", q: "&country=KR" },
+  ];
+  const results: { label: string; status: number | null; title: string | null; error?: string }[] = [];
+  let ms = 0;
+  for (const t of tries) {
+    const got = await timed(() =>
+      get(`https://www.googleapis.com/books/v1/volumes?maxResults=1&q=isbn:${isbn}${keyParam}${t.q}`)
+    );
+    ms += got.ms;
+    if (!got.value) {
+      results.push({ label: t.label, status: null, title: null, error: got.error ?? undefined });
+      continue;
+    }
+    let title: string | null = null;
+    try {
+      const json = JSON.parse(got.value.text) as { items?: { volumeInfo?: { title?: string } }[] };
+      title = json.items?.[0]?.volumeInfo?.title ?? null;
+    } catch {
+      title = null;
+    }
+    results.push({ label: t.label, status: got.value.status, title });
+  }
+
+  const now = (process.env.GOOGLE_BOOKS_COUNTRY ?? "US").trim() || "나라 없음";
+  const line = results
+    .map((x) => `${x.label}: ${x.title ? x.title : x.status === 200 ? "0건" : `오류 ${x.status ?? "연결실패"}`}`)
+    .join(" · ");
+
+  if (results.some((x) => x.status === 429)) {
     return {
       ...base,
-      ms: r.ms,
-      detail: "오늘 몫을 다 썼습니다 (429).",
+      ms,
+      detail: `오늘 몫을 다 썼습니다 (429). ${line}`,
       todo:
-        "구글 북스는 키 없이 쓰면 **서버 IP 단위**로 하루 한도를 셉니다. Vercel은 IP를 여러 " +
-        "서비스가 나눠 쓰기 때문에 우리가 많이 쓰지 않아도 금방 찹니다. 한국 책은 카카오가 " +
-        "받아주므로 당장 문제는 아닙니다. 영어 원서까지 확실히 하려면 구글 클라우드 콘솔에서 " +
-        "Books API 키를 무료로 받아 GOOGLE_BOOKS_API_KEY 로 넣어주세요(그러면 우리 몫으로 셉니다).",
+        "키가 없으면 **서버 IP 단위**로 하루 한도를 셉니다. Vercel 은 IP 를 여러 서비스가 나눠 쓰므로 " +
+        "우리가 많이 쓰지 않아도 금방 찹니다. 구글 클라우드 콘솔에서 Books API 키를 받아 " +
+        "GOOGLE_BOOKS_API_KEY 로 넣어주세요(그러면 우리 몫으로 셉니다).",
     };
   }
-  if (r.value.status !== 200) {
-    return { ...base, ms: r.ms, detail: `오류 (${r.value.status}). ${short(r.value.text)}` };
+
+  const working = results.find((x) => x.title);
+  if (!working) {
+    return {
+      ...base,
+      ms,
+      detail: `어느 쪽으로도 결과가 없습니다 — ${line} (지금 설정: country=${now})`,
+      todo:
+        "키가 막 만들어진 뒤라면 몇 분 지나 다시 눌러보세요. 계속 0건이면 구글 클라우드 콘솔에서 " +
+        "그 키의 **API 제한에 Books API 가 들어 있는지**와 프로젝트에 **Books API 가 사용 설정**되어 " +
+        "있는지 확인해주세요. 영어 원서는 오픈라이브러리·카카오가 받아주므로 그동안도 조회는 됩니다.",
+    };
   }
-  try {
-    const json = JSON.parse(r.value.text) as { items?: { volumeInfo?: { title?: string } }[] };
-    const title = json.items?.[0]?.volumeInfo?.title;
-    return title
-      ? { ...base, ok: true, ms: r.ms, detail: `정상 — ${title}` }
-      : { ...base, ms: r.ms, detail: "응답은 왔지만 결과가 0건입니다." };
-  } catch {
-    return { ...base, ms: r.ms, detail: "응답을 해석하지 못했습니다." };
-  }
+
+  const ok = working.label === now;
+  return {
+    ...base,
+    ok,
+    ms,
+    detail: `${line} — 지금 설정: country=${now}`,
+    todo: ok
+      ? undefined
+      : `지금 설정(${now})으로는 0건입니다. Vercel 환경변수 **GOOGLE_BOOKS_COUNTRY** 를 «${working.label === "나라 없음" ? "(빈 값)" : working.label}» 로 두고 다시 배포해주세요.`,
+  };
 }
 
 async function probeOpenLibrary(): Promise<Probe> {

@@ -155,6 +155,7 @@ async function byTitleGoogleBooks(query: string): Promise<BookLookup[]> {
   for (const q of [`intitle:"${query}"`, `intitle:${query}`]) {
     const json = await fetchJson(
       `https://www.googleapis.com/books/v1/volumes?maxResults=10&q=${encodeURIComponent(q)}` +
+      googleCountryParam() +
         googleKeyParam()
     );
     const items = Array.isArray(json?.items) ? json.items : [];
@@ -290,7 +291,7 @@ async function fromNationalLibrary(isbn: string): Promise<BookLookup | null> {
 
 async function fromGoogleBooks(isbn: string): Promise<BookLookup | null> {
   const json = await fetchJson(
-    `https://www.googleapis.com/books/v1/volumes?q=isbn:${isbn}` + googleKeyParam()
+    `https://www.googleapis.com/books/v1/volumes?q=isbn:${isbn}` + googleKeyParam() + googleCountryParam()
   );
   return googleVolume(json?.items?.[0]?.volumeInfo, isbn);
 }
@@ -305,6 +306,23 @@ async function fromGoogleBooks(isbn: string): Promise<BookLookup | null> {
 function googleKeyParam(): string {
   const key = process.env.GOOGLE_BOOKS_API_KEY;
   return key ? `&key=${encodeURIComponent(key)}` : "";
+}
+
+/**
+ * 구글 북스에 **어느 나라에서 묻는지**를 적어 보냅니다.
+ *
+ * ── 왜 필요한가 ───────────────────────────────────────────────────────────
+ * 키를 넣은 뒤에도 조회가 비어서 왔습니다. 429(한도 초과)도 아니고 오류도 아니고, **200인데
+ * 결과가 0건**이었습니다. 구글 북스는 요청한 서버의 위치를 보고 그 나라에서 볼 수 있는 책만
+ * 돌려주는데, 위치를 못 정하면 아무것도 안 주는 일이 있습니다. 우리 서버는 Vercel(서울)에
+ * 있고 영어 원서는 한국에서 볼 수 없게 묶인 경우가 많습니다.
+ *
+ * 우리가 쓰는 것은 **서지사항(제목·저자)** 뿐이고 본문을 읽는 게 아니므로, 책이 가장 많이
+ * 공개된 쪽으로 물어보는 것이 맞습니다. 바꿀 수 있게 환경변수로 두되 기본값은 US 입니다.
+ */
+function googleCountryParam(): string {
+  const c = (process.env.GOOGLE_BOOKS_COUNTRY ?? "US").trim();
+  return c ? `&country=${encodeURIComponent(c)}` : "";
 }
 
 /**
