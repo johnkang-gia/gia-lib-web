@@ -42,7 +42,7 @@ export async function POST(request: Request) {
   const { data: auth } = await supabase.auth.getUser();
   if (!auth.user) return NextResponse.json({ error: "로그인이 필요합니다." }, { status: 401 });
 
-  let body: { targets?: string[] };
+  let body: { targets?: string[]; remove?: string[] };
   try {
     body = (await request.json()) as typeof body;
   } catch {
@@ -50,12 +50,28 @@ export async function POST(request: Request) {
   }
   // 같은 책이 여러 번 들어 있을 수 있습니다(복본은 권수만큼 라벨이 필요합니다).
   const adding = (body.targets ?? []).map((t) => String(t).trim()).filter(Boolean);
-  if (adding.length === 0) {
+  /*
+    ── 한 장만 빼기 ───────────────────────────────────────────────────────
+    재등록을 되돌리면 그 책의 라벨은 더 뽑을 이유가 없습니다. 그런데 되돌렸다고 라벨이
+    저절로 빠지지 않으면, 나중에 뽑은 종이에 **없는 책의 라벨**이 한 장 섞입니다 - 붙일 곳을
+    찾다가 결국 다시 등록하게 됩니다.
+
+    모아둔 것을 통째로 비우는 길(DELETE)밖에 없으면 그 한 장을 빼려고 전부를 버려야 합니다.
+    그래서 **같은 id 한 번만** 빼는 길을 둡니다 - 복본은 권수만큼 들어 있으므로 전부 지워서는
+    안 됩니다.
+  */
+  const removing = (body.remove ?? []).map((t) => String(t).trim()).filter(Boolean);
+  if (adding.length === 0 && removing.length === 0) {
     return NextResponse.json({ error: "모아둘 라벨이 없습니다." }, { status: 400 });
   }
 
   const pile = await readPile(supabase);
-  const targets = [...(pile?.targets ?? []), ...adding];
+  const kept = [...(pile?.targets ?? [])];
+  for (const id of removing) {
+    const at = kept.indexOf(id);
+    if (at >= 0) kept.splice(at, 1);
+  }
+  const targets = [...kept, ...adding];
   if (targets.length > MAX) {
     return NextResponse.json(
       { error: `모아둔 라벨이 ${MAX}장을 넘습니다. 먼저 뽑고 비워주세요.` },
@@ -74,6 +90,9 @@ export async function POST(request: Request) {
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
     return NextResponse.json({ pile: data as LibPrintJob, added: adding.length, count: targets.length });
   }
+
+  // 빼기만 들어왔는데 모아둔 자리가 아예 없으면 만들 것이 없습니다.
+  if (targets.length === 0) return NextResponse.json({ pile: null, added: 0, count: 0 });
 
   const { data, error } = await supabase
     .from("lib_print_jobs")

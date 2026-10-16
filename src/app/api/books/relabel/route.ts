@@ -62,13 +62,22 @@ export async function POST(request: Request) {
     if (!email) return NextResponse.json({ error: "로그인이 필요합니다." }, { status: 401 });
 
     const body = (await request.json().catch(() => null)) as {
-      action?: "find" | "apply";
+      action?: "find" | "apply" | "undo" | "redo";
       code?: string;
       /** apply: 사람이 표지에서 읽어 적은 ISBN. */
       isbn?: string;
       /** apply: 고쳐 쓸 줄(find 가 돌려준 것). 없으면 새로 만듭니다. */
       bookId?: string;
+      /** undo · redo: 되돌릴 재등록 기록. */
+      logId?: string;
     } | null;
+
+    /*
+      되돌리기·수정은 찍은 번호가 아니라 **기록 한 줄**을 가리킵니다. 그래서 code 검사보다
+      먼저 처리합니다.
+    */
+    if (body?.action === "undo") return await undo(supabase, email, body.logId ?? "");
+    if (body?.action === "redo") return await redo(supabase, email, body.logId ?? "", body.isbn ?? "");
 
     const code = normalizeScan(body?.code ?? "");
     if (!code) return NextResponse.json({ error: "읽힌 값이 없습니다." }, { status: 400 });
@@ -111,13 +120,15 @@ export async function GET() {
       .select("id,title,item_code,isbn,total_copies,label_level")
       .not("item_code", "is", null)
       .order("item_code", { ascending: true }),
+    // 되돌린 것은 세지 않습니다 - 되돌렸는데도 "바꿨다"로 남으면 숫자가 거짓이 됩니다.
     supabase
       .from("lib_relabel_log")
       .select("id", { count: "exact", head: true })
-      .eq("from_product", true),
+      .eq("from_product", true)
+      .is("undone_at", null),
     supabase
       .from("lib_relabel_log")
-      .select("code,isbn,what,created_at")
+      .select("id,code,isbn,what,created_at,undone_at,book_id,before_json")
       .order("created_at", { ascending: false })
       .limit(30),
   ]);
@@ -143,7 +154,30 @@ export async function GET() {
       copies: b.total_copies,
       level: b.label_level,
     })),
-    recent: (recent ?? []) as { code: string; isbn: string | null; what: string; created_at: string }[],
+    /*
+      최근에 한 것들. 새로고침해도 남아 있어야 합니다 - 화면 state 에만 두면 창을 닫는 순간
+      "무엇을 바꿨는지"가 사라지고, 되돌리기 버튼도 함께 사라집니다.
+    */
+    recent: ((recent ?? []) as {
+      id: string;
+      code: string;
+      isbn: string | null;
+      what: string;
+      created_at: string;
+      undone_at: string | null;
+      book_id: string | null;
+      before_json: { book?: { title?: string; item_code?: string | null; total_copies?: number } } | null;
+    }[]).map((r) => ({
+      id: r.id,
+      code: r.code,
+      isbn: r.isbn,
+      what: r.what,
+      at: r.created_at,
+      undoneAt: r.undone_at,
+      canUndo: !r.undone_at && Boolean(r.before_json?.book),
+      beforeTitle: r.before_json?.book?.title ?? null,
+      beforeCopies: r.before_json?.book?.total_copies ?? null,
+    })),
   });
 }
 
@@ -259,6 +293,38 @@ async function apply(
 
   let resultId: string;
   let what: "replaced" | "split" | "moved" | "created";
+  /*
+    ── 바꾸기 전 상태를 붙잡아 둡니다 ───────────────────────────────────────
+    요청: "뭐로 바뀌었는지에 대한 정보가 재등록에는 나오지 않아서 제대로 등록이 되는지를
+    모르겠어. 기존 책이 어떻게 다시 등록되는 건지 알 수 있도록 만들어줘."
+
+    맞는 말입니다. 지금까지는 "바꿨습니다" 한 줄만 보여줬는데, 그러면 **무엇이 무엇으로**
+    바뀌었는지 알 수 없습니다. 바뀐 뒤에는 바꾸기 전 모습이 어디에도 안 남아 있으므로,
+    고치기 **전에** 적어 두었다가 함께 돌려줍니다.
+  */
+  /*
+    자리 기록도 함께 붙잡아 둡니다. 한 권만 남은 줄이 다른 ISBN 줄로 합쳐질 때 그 줄과 자리
+    기록이 함께 지워지는데, 자리는 책장을 한 칸씩 비워 가며 만든 자료입니다 - 되돌릴 때 같이
+    돌아오지 않으면 그 칸을 처음부터 다시 찍어야 합니다.
+  */
+  const { data: beforeChecks } = source
+    ? await supabase.from("lib_shelf_check").select("*").eq("book_id", source.id)
+    : { data: [] };
+
+  const before = source
+    ? {
+        title: source.title,
+        code: source.item_code,
+        isbn: source.isbn,
+        copies: source.total_copies,
+        level: source.label_level,
+        locationId: source.location_id ?? null,
+      }
+    : null;
+  /** 남은 권수가 어느 줄에 얼마로 남았는지(여러 권 줄에서 한 권을 뗀 경우). */
+  let leftover: { code: string | null; copies: number } | null = null;
+  /** 새로 만든 '남은 권수' 줄의 id. 되돌릴 때 이 줄을 지웁니다. */
+  let leftoverId: string | null = null;
 
   if (source && !target) {
     /*
@@ -302,18 +368,23 @@ async function apply(
     if (error) return NextResponse.json({ error: error.message }, { status: 400 });
 
     if (rest > 0) {
-      const { error: restErr } = await supabase.from("lib_books").insert({
-        title: source.title,
-        author: source.author,
-        // 상품코드는 남은 권수 줄이 들고 갑니다 - 그 번호로 찍으면 거기서 또 한 권이 떨어집니다.
-        item_code: source.item_code,
-        product_code: source.product_code,
-        label_level: source.label_level,
-        location_id: source.location_id,
-        audience: source.audience,
-        category: source.category,
-        total_copies: rest,
-      });
+      const { data: restRow, error: restErr } = await supabase
+        .from("lib_books")
+        .insert({
+          title: source.title,
+          author: source.author,
+          // 상품코드는 남은 권수 줄이 들고 갑니다 - 그 번호로 찍으면 거기서 또 한 권이 떨어집니다.
+          item_code: source.item_code,
+          product_code: source.product_code,
+          label_level: source.label_level,
+          location_id: source.location_id,
+          audience: source.audience,
+          category: source.category,
+          total_copies: rest,
+        })
+        .select("id")
+        .single();
+      if (restRow) leftoverId = (restRow as { id: string }).id;
       if (restErr) {
         // 되돌립니다. 반쪽만 바뀐 상태로 두면 권수가 조용히 사라집니다.
         await supabase
@@ -332,6 +403,7 @@ async function apply(
         );
       }
     }
+    if (rest > 0) leftover = { code: source.item_code, copies: rest };
     resultId = source.id;
     what = rest > 0 ? "split" : "replaced";
   } else if (source && target) {
@@ -353,6 +425,7 @@ async function apply(
     const rest = source.total_copies - 1;
     if (rest > 0) {
       await supabase.from("lib_books").update({ total_copies: rest }).eq("id", source.id);
+      leftover = { code: source.item_code, copies: rest };
     } else {
       await supabase.from("lib_shelf_check").delete().eq("book_id", source.id);
       await supabase.from("lib_books").delete().eq("id", source.id);
@@ -424,20 +497,67 @@ async function apply(
     번호를 새로 등록한 경우(created)는 더미에서 뺀 것이 아니므로 세지 않습니다 - 그것까지
     세면 총 권수가 부풀어 다 바꿨는데도 남은 것처럼 보입니다.
   */
-  await supabase.from("lib_relabel_log").insert({
-    code,
-    isbn,
-    book_id: resultId,
-    what,
-    from_product: Boolean(source && hasProductCodeAsId(source)),
-    created_by: email,
-  });
+  const { data: logRow } = await supabase
+    .from("lib_relabel_log")
+    .insert({
+      code,
+      isbn,
+      book_id: resultId,
+      what,
+      from_product: Boolean(source && hasProductCodeAsId(source)),
+      created_by: email,
+      // 되돌리기의 재료. 고친 뒤에는 전 모습이 어디에도 남지 않습니다.
+      before_json: source ? { book: source, checks: beforeChecks ?? [] } : null,
+      leftover_id: leftoverId,
+      target_id: target?.id ?? null,
+    })
+    .select("id")
+    .single();
 
   const { data: finalRow } = await supabase.from("lib_books").select("*").eq("id", resultId).maybeSingle();
+  const after = finalRow as LibBook | null;
+
+  /*
+    자리(칸) 이름을 붙여 줍니다. 전/후를 맞춰 보는 사람에게 uuid 는 아무 뜻이 없습니다.
+    전·후가 같은 칸이면 한 번만 읽어 옵니다.
+  */
+  const locIds = [before?.locationId, after?.location_id].filter((v): v is string => Boolean(v));
+  const shelfBy = new Map<string, string>();
+  if (locIds.length > 0) {
+    const { data: locs } = await supabase
+      .from("lib_locations")
+      .select("id,code")
+      .in("id", Array.from(new Set(locIds)));
+    for (const l of (locs ?? []) as { id: string; code: string }[]) shelfBy.set(l.id, l.code);
+  }
+
   return NextResponse.json({
     ok: true,
     what,
-    book: finalRow as LibBook | null,
+    book: after,
+    /** 바꾸기 전 모습. 화면이 전/후를 나란히 놓고 보여줍니다. */
+    before: before
+      ? { ...before, shelf: before.locationId ? (shelfBy.get(before.locationId) ?? null) : null }
+      : null,
+    after: after
+      ? {
+          id: after.id,
+          title: after.title,
+          isbn: after.isbn,
+          code: after.item_code,
+          productCode: after.product_code ?? null,
+          copies: after.total_copies,
+          level: after.label_level,
+          author: after.author ?? null,
+          publisher: after.publisher ?? null,
+          coverUrl: after.cover_url ?? null,
+          shelf: after.location_id ? (shelfBy.get(after.location_id) ?? null) : null,
+        }
+      : null,
+    leftover,
+    /** 라벨에 실제로 찍힐 번호. 화면에서 바코드로 그려 눈으로 확인할 수 있게 합니다. */
+    barcode: after ? (after.item_code ?? after.isbn ?? "") : "",
+    logId: (logRow as { id: string } | null)?.id ?? null,
     foundBy: found?.source ?? null,
     message:
       what === "replaced"
@@ -448,4 +568,205 @@ async function apply(
             ? "이미 있던 ISBN 줄에 한 권을 더했습니다"
             : "새로 등록했습니다",
   });
+}
+
+/**
+ * **되돌리기** — 재등록 한 건을 바꾸기 전으로 돌립니다.
+ *
+ * 요청: "재등록한 것도 다시 할 수 있도록 되돌리기 버튼이랑 수정 버튼도 만들어줘."
+ *
+ * ── 되돌릴 수 있는 이유 ───────────────────────────────────────────────────
+ * 바꾸기 **전에** 그 줄과 자리 기록을 통째로 적어 두었습니다(before_json). 되돌리기는 그걸
+ * 그대로 다시 써 넣는 일입니다.
+ *
+ * ── 그 뒤에 또 바꿨으면 거절합니다 ────────────────────────────────────────
+ * 12권짜리 줄에서 한 권을 뗀 뒤 또 한 권을 떼면, 첫 번째를 되돌리는 것은 두 번째를 지우는
+ * 일이 됩니다. 그런 경우에는 "이건 못 돌립니다"라고 말합니다 - 조용히 어긋나게 만드는 것보다
+ * 낫습니다. 되돌리는 순서는 **나중에 한 것부터**입니다.
+ */
+async function undo(supabase: Awaited<ReturnType<typeof createClient>>, email: string, logId: string) {
+  if (!logId) return NextResponse.json({ error: "되돌릴 기록을 알 수 없습니다." }, { status: 400 });
+
+  const { data: logData } = await supabase
+    .from("lib_relabel_log")
+    .select("*")
+    .eq("id", logId)
+    .maybeSingle();
+  const log = logData as {
+    id: string;
+    code: string;
+    isbn: string | null;
+    book_id: string | null;
+    what: string;
+    before_json: { book: LibBook; checks: Record<string, unknown>[] } | null;
+    leftover_id: string | null;
+    target_id: string | null;
+    undone_at: string | null;
+  } | null;
+
+  if (!log) return NextResponse.json({ error: "그 기록을 찾지 못했습니다." }, { status: 400 });
+  if (log.undone_at) return NextResponse.json({ error: "이미 되돌린 기록입니다." }, { status: 400 });
+  if (!log.before_json?.book) {
+    return NextResponse.json(
+      {
+        error:
+          "이 기록에는 바꾸기 전 모습이 남아 있지 않습니다(되돌리기가 생기기 전에 한 것입니다). 「장서 관리」에서 손으로 고쳐주세요.",
+      },
+      { status: 400 }
+    );
+  }
+
+  const b = log.before_json.book;
+
+  /*
+    ── 그 뒤에 또 손댄 것이 있는지 봅니다 ─────────────────────────────────
+    남은 권수 줄의 권수가 제가 만들어 둔 값과 다르면, 그 줄에서 또 한 권이 떨어져 나간 것입니다.
+    그걸 지우면 두 번째 재등록이 조용히 사라집니다.
+  */
+  if (log.leftover_id) {
+    const { data: leftRow } = await supabase
+      .from("lib_books")
+      .select("id,total_copies")
+      .eq("id", log.leftover_id)
+      .maybeSingle();
+    const left = leftRow as { id: string; total_copies: number } | null;
+    if (!left) {
+      return NextResponse.json(
+        { error: "남은 권수 줄이 이미 없어졌습니다 — 되돌리면 권수가 어긋납니다. 「장서 관리」에서 확인해주세요." },
+        { status: 400 }
+      );
+    }
+    if (left.total_copies !== b.total_copies - 1) {
+      return NextResponse.json(
+        {
+          error: `그 뒤에 또 재등록한 것이 있습니다(남은 권수가 ${b.total_copies - 1}권이어야 하는데 ${left.total_copies}권입니다). 나중에 한 것부터 되돌려주세요.`,
+        },
+        { status: 400 }
+      );
+    }
+  }
+
+  // ① 이미 있던 ISBN 줄로 보낸 경우: 그 줄의 권수를 한 권 내립니다.
+  if (log.target_id) {
+    const { data: tRow } = await supabase
+      .from("lib_books")
+      .select("id,total_copies")
+      .eq("id", log.target_id)
+      .maybeSingle();
+    const t = tRow as { id: string; total_copies: number } | null;
+    if (t) {
+      if (t.total_copies <= 1) {
+        return NextResponse.json(
+          { error: "보낸 줄이 한 권뿐입니다 — 되돌리면 그 줄이 0권이 됩니다. 「장서 관리」에서 확인해주세요." },
+          { status: 400 }
+        );
+      }
+      await supabase.from("lib_books").update({ total_copies: t.total_copies - 1 }).eq("id", t.id);
+    }
+  }
+
+  // ② 새로 만든 '남은 권수' 줄을 지웁니다(권수는 원래 줄로 돌아갑니다).
+  if (log.leftover_id) {
+    await supabase.from("lib_shelf_check").delete().eq("book_id", log.leftover_id);
+    await supabase.from("lib_books").delete().eq("id", log.leftover_id);
+  }
+
+  /*
+    ③ 원래 줄을 그대로 다시 써 넣습니다.
+
+    줄이 지워졌을 수도 있습니다(한 권뿐이라 다른 ISBN 줄로 합쳐진 경우). 그때는 같은 내용으로
+    새로 만듭니다 - id 는 달라지지만 사람이 보는 것(제목·번호·권수·자리)은 같습니다.
+  */
+  const restore = {
+    title: b.title,
+    author: b.author ?? null,
+    isbn: b.isbn ?? null,
+    item_code: b.item_code ?? null,
+    product_code: b.product_code ?? null,
+    label_level: b.label_level ?? null,
+    location_id: b.location_id ?? null,
+    total_copies: b.total_copies,
+    publisher: b.publisher ?? null,
+    pub_year: b.pub_year ?? null,
+    cover_url: b.cover_url ?? null,
+    audience: b.audience ?? null,
+    category: b.category ?? null,
+  };
+
+  const { data: stillThere } = await supabase.from("lib_books").select("id").eq("id", b.id).maybeSingle();
+  let restoredId = b.id;
+  if (stillThere) {
+    const { error } = await supabase.from("lib_books").update(restore).eq("id", b.id);
+    if (error) return NextResponse.json({ error: `되돌리지 못했습니다: ${error.message}` }, { status: 400 });
+  } else {
+    const { data: made, error } = await supabase.from("lib_books").insert(restore).select("id").single();
+    if (error || !made) {
+      return NextResponse.json({ error: `되돌리지 못했습니다: ${error?.message ?? ""}` }, { status: 400 });
+    }
+    restoredId = (made as { id: string }).id;
+    // 자리 기록도 함께 돌려놓습니다. 책장을 한 칸씩 비워 가며 만든 자료입니다.
+    const checks = (log.before_json.checks ?? []) as Record<string, unknown>[];
+    if (checks.length > 0) {
+      await supabase.from("lib_shelf_check").insert(
+        checks.map((c) => ({
+          book_id: restoredId,
+          location_id: c.location_id,
+          copies: c.copies,
+          checked_at: c.checked_at,
+          checked_by: c.checked_by,
+        }))
+      );
+    }
+  }
+
+  // ④ 재등록하며 적어 둔 옛 번호를 지웁니다(그 번호는 다시 상품코드 줄을 가리켜야 합니다).
+  if (log.code && log.code !== log.isbn) {
+    await supabase.from("lib_book_aliases").delete().eq("code", log.code).eq("book_id", log.book_id ?? "");
+  }
+
+  await supabase
+    .from("lib_relabel_log")
+    .update({ undone_at: new Date().toISOString(), undone_by: email })
+    .eq("id", log.id);
+
+  return NextResponse.json({
+    ok: true,
+    undone: true,
+    restoredId,
+    message: `되돌렸습니다 — ${b.title} / ${b.item_code ?? b.isbn ?? ""} / ${b.total_copies}권`,
+  });
+}
+
+/**
+ * **수정** — 되돌린 뒤 다른 ISBN 으로 다시 등록합니다.
+ *
+ * ISBN 을 잘못 적는 일은 반드시 생깁니다(표지를 눈으로 베껴 적는 자리니까요). 그때 할 일은
+ * "되돌리고 다시 적기" 두 단계인데, 사람에게 두 번 누르게 하면 중간에서 멈춘 상태가 생깁니다.
+ * 그래서 한 번에 합니다 - 되돌리기가 거절되면 아무것도 바꾸지 않고 그 이유를 그대로 전합니다.
+ */
+async function redo(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  email: string,
+  logId: string,
+  isbn: string
+) {
+  const undone = await undo(supabase, email, logId);
+  if (undone.status !== 200) return undone;
+
+  const { data: logData } = await supabase
+    .from("lib_relabel_log")
+    .select("code, before_json")
+    .eq("id", logId)
+    .maybeSingle();
+  const log = logData as { code: string; before_json: { book: LibBook } | null } | null;
+  if (!log?.before_json?.book) {
+    return NextResponse.json({ error: "되돌렸지만 다시 등록할 줄을 찾지 못했습니다. 번호를 다시 찍어주세요." }, { status: 400 });
+  }
+
+  /*
+    되돌리기가 줄을 새로 만들었을 수 있으므로(원래 줄이 지워졌던 경우) 찍은 번호로 다시
+    찾습니다. 그러면 어느 쪽이든 지금 그 번호를 쥐고 있는 줄로 들어갑니다.
+  */
+  const again = await findBook(supabase, log.code);
+  return await apply(supabase, email, log.code, isbn, again?.id);
 }
