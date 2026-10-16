@@ -110,28 +110,25 @@ export default function LocationsClient({
    * 안 채웁니다. 이미 적어 둔 등급은 건드리지 않습니다.
    */
   async function fillLevelsFromCode() {
-    const targets = rows
-      .filter((l) => l.label_level == null)
-      .map((l) => {
-        const m = /^(\d+)\s*-/.exec(l.code.trim());
-        return m ? { ...l, label_level: Number(m[1]) } : null;
-      })
-      .filter((v): v is LibLocation => v != null);
+    const targets: { id: string; code: string; label_level: number }[] = [];
+    for (const l of rows) {
+      if (l.label_level != null) continue;
+      const m = /^(\d+)\s*-/.exec(l.code.trim());
+      if (m) targets.push({ id: l.id, code: l.code, label_level: Number(m[1]) });
+    }
     if (targets.length === 0) {
       setError("등급이 비어 있는 칸이 없거나, 번호에서 등급을 읽을 수 없습니다.");
       return;
     }
     setBusy(true);
     setError(null);
-    const { error: err } = await supabase
-      .from("lib_locations")
-      .upsert(targets.map((l) => ({ id: l.id, code: l.code, label_level: l.label_level })));
+    const { error: err } = await supabase.from("lib_locations").upsert(targets);
     setBusy(false);
     if (err) {
       setError(err.message);
       return;
     }
-    const byId = new Map(targets.map((l) => [l.id, l.label_level]));
+    const byId = new Map(targets.map((l) => [l.id, l.label_level] as const));
     setRows((prev) =>
       prev.map((l) => (byId.has(l.id) ? { ...l, label_level: byId.get(l.id) ?? null } : l))
     );
@@ -564,6 +561,31 @@ export default function LocationsClient({
                 등급 없음(가리지 않음)
               </option>
             </select>
+
+            {/*
+              ── 등급 라벨색 ───────────────────────────────────────────────
+              요청: "색도 라벨색으로 선택할 수 있게 해줘."
+
+              책 라벨은 등급마다 색이 정해져 있습니다(2등급 주황, 3등급 진회색 …). 칸 색을 그
+              색으로 맞춰 두면 책장 앞에서 **라벨 색과 칸 색이 같아 보입니다** - 꽂을 자리를
+              글자를 읽지 않고도 찾습니다.
+            */}
+            <span className="flex items-center gap-1.5 text-sm">
+              라벨색
+              {[2, 3, 4, 5, 6].map((lv) => (
+                <button
+                  key={`lv-${lv}`}
+                  type="button"
+                  onClick={() => void savePicked({ color: levelColor(lv) })}
+                  className="flex h-6 w-6 items-center justify-center rounded-full text-[10px] font-bold text-white ring-1 ring-white/40"
+                  style={{ background: levelColor(lv) }}
+                  title={`${lv}등급 라벨색으로`}
+                  aria-label={`${lv}등급 라벨색`}
+                >
+                  {lv}
+                </button>
+              ))}
+            </span>
 
             <span className="flex items-center gap-1.5 text-sm">
               색
