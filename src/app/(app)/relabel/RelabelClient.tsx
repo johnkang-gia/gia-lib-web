@@ -34,9 +34,12 @@ import type { LibBook } from "@/lib/types";
  * 바코드를 그려 둡니다. 눈으로 대보면 끝나는 일을 화면이 대신 주장하게 두지 않습니다.
  */
 
+/** 이 책이 책장등록에서 몇 권 나왔는지. 「한 권 더인지」를 묻는 근거입니다. */
+type ShelfCounts = { copies: number; shelf: number; rows: number; loansOut: number };
+
 type Found =
   | { kind: "product"; book: LibBook; message: string }
-  | { kind: "isbn"; book: LibBook; message: string }
+  | { kind: "isbn"; book: LibBook; message: string; counts: ShelfCounts }
   | { kind: "new"; code: string; isProduct: boolean; message: string }
   | { kind: "error"; message: string; detail?: string };
 
@@ -126,6 +129,7 @@ const WHAT_KO: Record<string, string> = {
   split: "여러 권 줄에서 한 권 떼어냄",
   moved: "이미 있던 ISBN 줄로 보냄",
   created: "새로 등록",
+  addcopy: "장서에 한 권 더함(책장 밖에 있던 권)",
 };
 
 export default function RelabelClient() {
@@ -215,13 +219,13 @@ export default function RelabelClient() {
       } else {
         setScanned(code);
         setFound(j);
-        // 이미 ISBN 줄이면 적을 것이 없습니다 - 바로 라벨만 담습니다.
-        if (j.kind === "isbn") {
-          await addToPile(j.book.id);
-          setNote(`${j.book.title} — 이미 ISBN 줄입니다. 라벨만 담았습니다.`);
-          setFound(null);
-          setScanned("");
-        }
+        /*
+          이미 등록된 책이어도 **그냥 라벨만 담지 않습니다.**
+
+          지금 찍는 책들은 책장에서 빼내어 따로 모아 둔 것이라, 장서에 있다는 사실만으로는
+          손에 든 이 한 권이 책장등록 때 이미 센 그 책인지, 그때 못 센 또 한 권인지 알 수
+          없습니다. 둘은 권수가 한 권 다릅니다 - 그래서 묻습니다(아래 화면).
+        */
       }
     } catch (e) {
       setNote(`보내지 못했습니다 — ${e instanceof Error ? e.message : String(e)}`);
@@ -340,6 +344,61 @@ export default function RelabelClient() {
       void loadPile();
     } catch (e) {
       setNote(`보내지 못했습니다 — ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  /** 책장등록에 없던 한 권을 장서에 더하고 라벨을 담습니다. */
+  async function doAddCopy(book: LibBook) {
+    if (busy) return;
+    setBusy(true);
+    setNote(null);
+    try {
+      const res = await fetch("/api/books/relabel", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "addcopy", code: scanned, bookId: book.id }),
+      });
+      const j = (await res.json()) as Partial<ApplyResult> & { error?: string };
+      if (j.error || !j.after) {
+        setNote(j.error ?? "장서에 더하지 못했습니다.");
+        return;
+      }
+      setResult({
+        what: j.what ?? "addcopy",
+        message: j.message ?? "",
+        foundBy: null,
+        before: j.before ?? null,
+        after: j.after,
+        leftover: null,
+        barcode: j.barcode ?? "",
+        logId: j.logId ?? null,
+        scanned,
+        titleFrom: null,
+        titleKept: false,
+        titleChoices: [],
+      });
+      await addToPile(j.after.id);
+      setFound(null);
+      setScanned("");
+      void loadProgress();
+    } catch (e) {
+      setNote(`보내지 못했습니다 — ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  /** 책장등록 때 이미 센 그 책입니다 — 숫자는 건드리지 않고 라벨만 담습니다. */
+  async function doLabelOnly(book: LibBook) {
+    if (busy) return;
+    setBusy(true);
+    try {
+      await addToPile(book.id);
+      setNote(`${book.title} — 책장등록에서 이미 센 책으로 두고 라벨만 담았습니다.`);
+      setFound(null);
+      setScanned("");
     } finally {
       setBusy(false);
     }
@@ -667,6 +726,64 @@ export default function RelabelClient() {
                   </p>
                 </div>
               )}
+            </div>
+          )}
+
+          {/* ── 이미 등록된 책: 같은 책인가, 또 한 권인가 ──────────────────── */}
+          {found.kind === "isbn" && (
+            <div className="mt-3 rounded-xl border-2 border-gia-gold/50 bg-amber-50/40 p-3">
+              <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1 text-sm">
+                <span>
+                  장서에 적힌 보유 <b className="text-gia-navy">{found.counts.copies}권</b>
+                </span>
+                <span>
+                  책장등록에서 찍힌 <b className="text-emerald-700">{found.counts.shelf}권</b>
+                  {found.counts.rows > 0 && (
+                    <span className="text-xs text-slate-500"> ({found.counts.rows}칸)</span>
+                  )}
+                </span>
+                {found.counts.loansOut > 0 && (
+                  <span className="text-xs text-slate-500">대출 중 {found.counts.loansOut}권</span>
+                )}
+              </div>
+
+              {/*
+                숫자를 보고 **추천**은 하되 정하지는 않습니다. 책장등록은 칸을 하나씩 비워 가며
+                한 권씩 찍은 기록이라, 장서보다 적으면 그 차이만큼은 아직 책장 밖에 있다는
+                뜻입니다 - 지금 손에 든 더미가 바로 그것입니다.
+              */}
+              <p className="mt-1.5 text-xs leading-relaxed text-slate-600">
+                {found.counts.shelf === 0
+                  ? "책장등록에 한 번도 안 나온 책입니다 — 이 책은 통째로 책장 밖에 있었다는 뜻입니다."
+                  : found.counts.copies > found.counts.shelf + found.counts.loansOut
+                    ? `책장에서 찍힌 것보다 장서가 ${found.counts.copies - found.counts.shelf - found.counts.loansOut}권 많습니다 — 그만큼이 아직 책장 밖에 있습니다. 손에 든 이 책이 그중 하나라면 오른쪽입니다.`
+                    : "책장등록에서 장서 권수만큼 다 찍혔습니다 — 손에 든 이 책이 그때 못 센 또 한 권이라면 왼쪽입니다."}
+              </p>
+
+              <div className="mt-2.5 grid gap-2 sm:grid-cols-2">
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => void doAddCopy(found.book)}
+                  className="rounded-lg border-2 border-gia-navy bg-white px-3 py-2.5 text-left text-sm font-semibold text-gia-navy disabled:opacity-50"
+                >
+                  책장에 없던 <b>따로 한 권</b>입니다
+                  <div className="mt-0.5 text-xs font-normal text-slate-600">
+                    장서를 {found.counts.copies}권 → <b>{found.counts.copies + 1}권</b>으로 하고 라벨 담기
+                  </div>
+                </button>
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => void doLabelOnly(found.book)}
+                  className="rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-left text-sm font-semibold text-slate-700 disabled:opacity-50"
+                >
+                  책장등록 때 <b>이미 센 그 책</b>입니다
+                  <div className="mt-0.5 text-xs font-normal text-slate-600">
+                    장서 {found.counts.copies}권 그대로 두고 라벨만 담기
+                  </div>
+                </button>
+              </div>
             </div>
           )}
         </div>

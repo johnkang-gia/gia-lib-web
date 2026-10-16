@@ -48,9 +48,27 @@ export const maxDuration = 60;
  * 그때 "등록되지 않은 책"이 뜨면 사람은 같은 책을 두 번 등록합니다.
  */
 
+/**
+ * 이 책이 **책장등록에서 몇 권 나왔는지.**
+ *
+ * 지금 찍는 책들은 책장에서 빼내어 따로 모아 둔 것이라 책장등록에 없는 것이 당연합니다.
+ * 그래서 「장서 N권 · 책장에서 찍힌 M권」을 나란히 보여주고, 손에 든 이 한 권이 **책장에서
+ * 이미 찍은 그 책인지, 따로 한 권 더인지**를 사람에게 묻습니다. 이건 화면이 알 수 없습니다.
+ */
+type ShelfCounts = {
+  /** 장서에 적힌 보유 권수. */
+  copies: number;
+  /** 책장등록에서 찍힌 권수(칸마다 합). */
+  shelf: number;
+  /** 몇 칸에서 나왔는지. */
+  rows: number;
+  /** 대출 중이라 책장에 없던 권수. */
+  loansOut: number;
+};
+
 type Found =
   | { kind: "product"; book: LibBook; message: string }
-  | { kind: "isbn"; book: LibBook; message: string }
+  | { kind: "isbn"; book: LibBook; message: string; counts: ShelfCounts }
   | { kind: "new"; code: string; isProduct: boolean; message: string }
   | { kind: "error"; message: string; detail?: string };
 
@@ -62,7 +80,7 @@ export async function POST(request: Request) {
     if (!email) return NextResponse.json({ error: "로그인이 필요합니다." }, { status: 401 });
 
     const body = (await request.json().catch(() => null)) as {
-      action?: "find" | "apply" | "undo" | "redo" | "settitle";
+      action?: "find" | "apply" | "undo" | "redo" | "settitle" | "addcopy";
       code?: string;
       /** apply: 사람이 표지에서 읽어 적은 ISBN. */
       isbn?: string;
@@ -100,6 +118,9 @@ export async function POST(request: Request) {
     const code = normalizeScan(body?.code ?? "");
     if (!code) return NextResponse.json({ error: "읽힌 값이 없습니다." }, { status: 400 });
 
+    if (body?.action === "addcopy") {
+      return await addCopy(supabase, email, normalizeScan(body.code ?? ""), body.bookId ?? "");
+    }
     if (body?.action === "apply") {
       return await apply(supabase, email, code, body.isbn ?? "", body.bookId, body.title);
     }
@@ -262,12 +283,22 @@ async function find(supabase: Awaited<ReturnType<typeof createClient>>, code: st
             : "상품코드로 등록된 책입니다 — 손에 든 책의 ISBN을 적어주세요",
       };
     }
+    const [{ data: checkRows }, { count: outCount }] = await Promise.all([
+      supabase.from("lib_shelf_check").select("copies").eq("book_id", book.id),
+      supabase
+        .from("lib_loans")
+        .select("id", { count: "exact", head: true })
+        .eq("book_id", book.id)
+        .is("returned_at", null),
+    ]);
+    const rows = (checkRows ?? []) as { copies: number }[];
+    const shelf = rows.reduce((n, r) => n + (r.copies ?? 0), 0);
+
     return {
       kind: "isbn",
       book,
-      message: book.isbn
-        ? "이미 ISBN으로 등록된 책입니다 — 라벨만 담으시면 됩니다"
-        : "도서관 라벨 번호로 등록된 책입니다 — 라벨만 담으시면 됩니다",
+      counts: { copies: book.total_copies, shelf, rows: rows.length, loansOut: outCount ?? 0 },
+      message: "이미 등록된 책입니다 — 손에 든 이 한 권이 어느 쪽인지 알려주세요",
     };
   }
 
@@ -772,6 +803,97 @@ async function apply(
 }
 
 /**
+ * **장서에 한 권 더하기** — 책장등록에 없던 한 권을 보유 권수에 더합니다.
+ *
+ * 요청: "이미 ISBN 등록된 책이라면 장서 추가할 건지, 아니면 같은 책인지를 물어봐줘야 해.
+ * 이미 등록된 책의 장서가 몇 권인지 알려주고 여기에서 한 권 추가되는 건지, 아니면 그 책을
+ * 찍은 건지를 물어보고 적용시켜줘야 해."
+ *
+ * ── 화면이 혼자 정할 수 없는 일입니다 ───────────────────────────────────
+ * 지금 찍는 책들은 책장에서 빼내어 따로 모아 둔 것입니다. 그래서 바코드를 찍었을 때 그 책이
+ * 장서에 이미 있다는 사실은 **아무것도 말해 주지 않습니다.** 손에 든 이 한 권이
+ *
+ *   · 책장등록 때 이미 세어 둔 그 책일 수도 있고(그때 찍고 도로 꽂아 둔 것),
+ *   · 그때 세지 못한 **또 한 권**일 수도 있습니다(따로 빼 둔 더미에 있던 것).
+ *
+ * 둘은 숫자가 한 권 다릅니다. 책을 들고 있는 사람만 압니다 - 그래서 묻습니다.
+ *
+ * 되돌릴 수 있게 기록도 한 줄 남깁니다. 다만 **상품코드 더미에서 뺀 것은 아니므로**
+ * (from_product = false) 진행 숫자("27권 중 N권")에는 들어가지 않습니다.
+ */
+async function addCopy(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  email: string,
+  code: string,
+  bookId: string
+) {
+  if (!bookId) return NextResponse.json({ error: "어느 책인지 알 수 없습니다." }, { status: 400 });
+
+  const { data: row } = await supabase.from("lib_books").select("*").eq("id", bookId).maybeSingle();
+  const book = row as LibBook | null;
+  if (!book) return NextResponse.json({ error: "그 책을 찾지 못했습니다." }, { status: 400 });
+
+  const { error } = await supabase
+    .from("lib_books")
+    .update({ total_copies: book.total_copies + 1 })
+    .eq("id", book.id);
+  if (error) return NextResponse.json({ error: error.message }, { status: 400 });
+
+  const { data: logRow } = await supabase
+    .from("lib_relabel_log")
+    .insert({
+      code: code || book.item_code || book.isbn || "",
+      isbn: book.isbn,
+      book_id: book.id,
+      what: "addcopy",
+      from_product: false,
+      created_by: email,
+      before_json: { book, checks: [], targetProduct: book.product_code ?? null },
+      target_id: book.id,
+    })
+    .select("id")
+    .single();
+
+  let shelf: string | null = null;
+  if (book.location_id) {
+    const { data: loc } = await supabase
+      .from("lib_locations")
+      .select("code")
+      .eq("id", book.location_id)
+      .maybeSingle();
+    shelf = (loc as { code: string } | null)?.code ?? null;
+  }
+
+  const side = (copies: number) => ({
+    id: book.id,
+    title: book.title,
+    isbn: book.isbn,
+    code: book.item_code,
+    productCode: book.product_code ?? null,
+    copies,
+    level: book.label_level,
+    author: book.author ?? null,
+    publisher: book.publisher ?? null,
+    coverUrl: book.cover_url ?? null,
+    shelf,
+  });
+
+  return NextResponse.json({
+    ok: true,
+    what: "addcopy",
+    before: { ...side(book.total_copies), locationId: book.location_id ?? null },
+    after: side(book.total_copies + 1),
+    leftover: null,
+    barcode: book.item_code ?? book.isbn ?? "",
+    logId: (logRow as { id: string } | null)?.id ?? null,
+    titleFrom: null,
+    titleKept: false,
+    titleChoices: [],
+    message: `책장에 없던 한 권을 더했습니다 — 장서 ${book.total_copies + 1}권`,
+  });
+}
+
+/**
  * **제목 고치기** — 화면에 뜬 제목이 손에 든 책과 다를 때 그 자리에서 고칩니다.
  *
  * 요청: "내가 가지고 있는 책의 제목과 재등록에서 나오는 책의 제목이 달라."
@@ -1003,8 +1125,13 @@ async function undo(supabase: Awaited<ReturnType<typeof createClient>>, email: s
     }
   }
 
-  // ④ 재등록하며 적어 둔 옛 번호를 지웁니다(그 번호는 다시 상품코드 줄을 가리켜야 합니다).
-  if (log.code && log.code !== log.isbn) {
+  /*
+    ④ 재등록하며 적어 둔 옛 번호를 지웁니다(그 번호는 다시 상품코드 줄을 가리켜야 합니다).
+
+    「장서에 한 권 더하기」는 번호를 적은 적이 없습니다 - 그 책이 전에 재등록되며 생긴
+    옛 번호가 남아 있을 뿐이라, 여기서 지우면 멀쩡한 단서를 지우게 됩니다.
+  */
+  if (log.what !== "addcopy" && log.code && log.code !== log.isbn) {
     await supabase.from("lib_book_aliases").delete().eq("code", log.code).eq("book_id", log.book_id ?? "");
   }
 
