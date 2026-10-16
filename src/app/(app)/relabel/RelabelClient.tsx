@@ -5,7 +5,7 @@ import Link from "next/link";
 import Barcode from "@/components/Barcode";
 import CoverShot from "@/components/CoverShot";
 import { beep, setSoundOn, soundOn } from "@/lib/beep";
-import { normalizeIsbn, normalizeScan } from "@/lib/scan";
+import { canonicalIsbn, isIsbn, isValidIsbn, normalizeIsbn, normalizeScan } from "@/lib/scan";
 import type { LibBook } from "@/lib/types";
 
 /**
@@ -183,6 +183,14 @@ export default function RelabelClient() {
   const [isbnFix, setIsbnFix] = useState(false);
   /** 바코드가 없는 책 — 손으로 치는 번호 칸(늘 보입니다). */
   const [bareIsbn, setBareIsbn] = useState("");
+  /**
+   * 번호를 **손으로 쳐 넣었는지**(= 책에 바코드가 없다는 뜻).
+   *
+   * 찍어서 들어온 번호면 그 책에는 쓸 수 있는 바코드가 이미 인쇄되어 있습니다 - 라벨은
+   * 같은 번호를 한 번 더 붙이는 일입니다. 손으로 친 번호면 책에 바코드가 없다는 뜻이라
+   * 라벨이 있어야 합니다. 같은 "등록되지 않은 ISBN"이라도 둘은 다릅니다.
+   */
+  const [typedEntry, setTypedEntry] = useState(false);
   /** 표지 사진으로 제목 찾기. */
   const [shooting, setShooting] = useState(false);
   const [shotBusy, setShotBusy] = useState(false);
@@ -243,9 +251,10 @@ export default function RelabelClient() {
     return () => clearInterval(id);
   }, [found, editing]);
 
-  async function doFind(raw: string) {
+  async function doFind(raw: string, typed = false) {
     const code = normalizeScan(raw);
     if (!code || busy) return;
+    setTypedEntry(typed);
     setBusy(true);
     setNote(null);
     setFound(null);
@@ -287,9 +296,34 @@ export default function RelabelClient() {
           쓰기」, 도서관 라벨 번호(GIA-B-…)로 들고 있는 책이면 「뽑기」. 어느 쪽이든 화면에서
           바꿀 수 있습니다.
         */
+        /*
+          ── 라벨이 필요한 경우는 둘뿐입니다 ──────────────────────────────────
+          "이미 ISBN 바코드가 있기 때문에 그걸로 찍었고, 그렇기 때문에 그냥 ISBN 바코드를
+          등록하면 되기 때문이야. 바코드가 필요한 건 바코드가 아예 없거나, 상품목록 바코드일
+          경우야."
+
+          그대로입니다. 책에 인쇄된 바코드가 **그 책 한 권을 가리키면** 라벨은 같은 번호를 한
+          번 더 붙이는 일입니다. 라벨이 필요한 경우는
+            · 바코드가 아예 없는 책   - 찍을 것이 없어 번호를 손으로 쳤습니다.
+            · 상품코드 바코드인 책     - 그 번호는 열두 권을 한꺼번에 가리킵니다.
+          뿐입니다.
+        */
         if (j.kind === "isbn") {
-          const usable = Boolean(j.book.isbn) && !j.book.item_code;
-          setWantLabel(!usable);
+          const own = [j.book.item_code, j.book.isbn].filter(Boolean) as string[];
+          const scanIsOwn =
+            !typed &&
+            own.some(
+              (v) =>
+                v.toUpperCase() === code.toUpperCase() ||
+                (isIsbn(v) && isIsbn(code) && canonicalIsbn(v) === canonicalIsbn(code))
+            );
+          setWantLabel(!scanIsOwn);
+        } else if (j.kind === "new") {
+          /*
+            찍어서 들어온 ISBN 이면 그 책에는 쓸 수 있는 바코드가 이미 있습니다 - 라벨을 다시
+            뽑을 이유가 없습니다. 손으로 친 번호면 바코드가 없다는 뜻이라 라벨이 필요합니다.
+          */
+          setWantLabel(j.isProduct || typed || !isValidIsbn(code));
         } else {
           setWantLabel(true);
         }
@@ -388,7 +422,7 @@ export default function RelabelClient() {
         titleChoices: j.titleChoices ?? [],
       });
       say("ok");
-      await addToPile(j.after.id);
+      if (wantLabel) await addToPile(j.after.id);
       void loadProgress();
       setFound(null);
       setScanned("");
@@ -955,7 +989,7 @@ export default function RelabelClient() {
               onKeyDown={(e) => {
                 if (e.key === "Enter") {
                   e.preventDefault();
-                  void doFind(bareIsbn);
+                  void doFind(bareIsbn, true);
                 }
               }}
               placeholder="책에 적힌 ISBN 숫자 (978… 또는 10자리, 끝이 X여도 됩니다)"
@@ -965,7 +999,7 @@ export default function RelabelClient() {
             <button
               type="button"
               disabled={busy || ![10, 13].includes(normalizeIsbn(bareIsbn).length)}
-              onClick={() => void doFind(bareIsbn)}
+              onClick={() => void doFind(bareIsbn, true)}
               className="rounded-lg bg-gia-navy px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
             >
               등록
@@ -1211,14 +1245,51 @@ export default function RelabelClient() {
                       」라고 답했습니다 — 등록한 뒤 한 번 눌러 바꿀 수 있습니다.
                     </p>
                   )}
-                  <div className="mt-3 flex flex-wrap gap-2">
+                  {/*
+                    ── 라벨을 뽑을지 ─────────────────────────────────────────
+                    요청: "등록되지 않은 ISBN이라고 나오면 그냥 라벨 담기 하지 말고 등록할 수
+                    있게 만들어줘. 굳이 라벨을 다시 뽑을 필요가 없어."
+
+                    맞습니다. 찍어서 들어온 번호라면 그 책에는 쓸 수 있는 바코드가 이미
+                    인쇄되어 있습니다 - 라벨은 같은 번호를 한 번 더 붙이는 일입니다. 그래서
+                    기본은 **등록만**입니다. 손으로 쳐 넣은 번호(= 책에 바코드가 없다는 뜻)일
+                    때만 라벨 쪽이 기본이 됩니다.
+                  */}
+                  <div className="mt-3 flex flex-wrap items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2">
+                    <span className="text-xs font-bold text-slate-500">라벨</span>
+                    <button
+                      type="button"
+                      onClick={() => setWantLabel(false)}
+                      className={`rounded-lg px-2.5 py-1.5 text-sm ${
+                        !wantLabel ? "bg-gia-navy font-semibold text-white" : "border border-slate-300 text-slate-600"
+                      }`}
+                    >
+                      필요 없습니다 (책 바코드 그대로)
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setWantLabel(true)}
+                      className={`rounded-lg px-2.5 py-1.5 text-sm ${
+                        wantLabel ? "bg-gia-navy font-semibold text-white" : "border border-slate-300 text-slate-600"
+                      }`}
+                    >
+                      라벨 뽑기 (모아뽑기에 담기)
+                    </button>
+                    <span className="text-xs text-slate-500">
+                      {typedEntry
+                        ? "번호를 손으로 치셨으니 책에 바코드가 없는 듯합니다 — 라벨이 있어야 찍힙니다"
+                        : "찍어서 들어온 번호라 책에 바코드가 이미 있습니다 — 라벨은 같은 번호를 한 번 더 붙이는 일입니다"}
+                    </span>
+                  </div>
+
+                  <div className="mt-2 flex flex-wrap gap-2">
                     <button
                       type="button"
                       disabled={busy}
                       onClick={() => void doApply({ code: found.code, isbn: found.code })}
                       className="rounded-lg bg-gia-navy px-3 py-2 text-sm font-semibold text-white disabled:opacity-50"
                     >
-                      {busy ? "등록 중…" : "맞습니다 — 등록 + 라벨 담기"}
+                      {busy ? "등록 중…" : wantLabel ? "맞습니다 — 등록 + 라벨 담기" : "맞습니다 — 등록만 하기"}
                     </button>
                     <button
                       type="button"
@@ -1269,7 +1340,7 @@ export default function RelabelClient() {
                     onClick={() => void doApply({ code: found.code, isbn: found.code, title: newTitle.trim() })}
                     className="rounded-lg bg-gia-navy px-3 py-2 text-sm font-semibold text-white disabled:opacity-50"
                   >
-                    이 제목으로 등록 + 라벨 담기
+                    {wantLabel ? "이 제목으로 등록 + 라벨 담기" : "이 제목으로 등록만 하기"}
                   </button>
                 </div>
               )}
@@ -1309,6 +1380,34 @@ export default function RelabelClient() {
                 이 수가 남아 있으면 손에 든 책은 그중 하나입니다(숫자 그대로). 0이면 장서에
                 없던 한 권입니다(+1). 숫자를 보고 추천은 하되, 정하는 것은 사람입니다.
               */}
+              {/* ── 라벨을 뽑을까, 책에 있는 바코드를 그대로 쓸까 ───────────── */}
+              <div className="mt-2 flex flex-wrap items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2">
+                <span className="text-xs font-bold text-slate-500">라벨</span>
+                <button
+                  type="button"
+                  onClick={() => setWantLabel(false)}
+                  className={`rounded-lg px-2.5 py-1.5 text-sm ${
+                    !wantLabel ? "bg-gia-navy font-semibold text-white" : "border border-slate-300 text-slate-600"
+                  }`}
+                >
+                  필요 없습니다 (책 바코드 그대로)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setWantLabel(true)}
+                  className={`rounded-lg px-2.5 py-1.5 text-sm ${
+                    wantLabel ? "bg-gia-navy font-semibold text-white" : "border border-slate-300 text-slate-600"
+                  }`}
+                >
+                  라벨 뽑기 (모아뽑기에 담기)
+                </button>
+                <span className="text-xs text-slate-500">
+                  {wantLabel
+                    ? "찍은 번호가 이 책 한 권을 가리키지 않습니다(상품코드이거나 손으로 친 번호) — 라벨이 있어야 합니다"
+                    : "찍은 그 바코드가 이 책의 번호입니다 — 라벨은 같은 번호를 한 번 더 붙이는 일입니다"}
+                </span>
+              </div>
+
               {(() => {
                 const notCounted = found.counts.copies - found.counts.shelf - found.counts.loansOut;
                 /*
