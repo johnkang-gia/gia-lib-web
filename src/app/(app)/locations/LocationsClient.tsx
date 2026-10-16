@@ -45,6 +45,79 @@ export default function LocationsClient({
 
   const unplaced = rows.filter((l) => l.map_x === null || l.map_y === null);
 
+  /**
+   * 칸 번호를 **숫자로** 비교합니다 — 3-10 이 3-2 보다 뒤에 오도록.
+   *
+   * 글자로 비교하면 「3-10 · 3-2」처럼 섞이고, 앞자리(등급)가 다르면 더 엉킵니다.
+   * 「2-1 · 3-1 · 3-2 · 3-10 · 4-1」이 사람이 기대하는 차례입니다.
+   */
+  function byCode(a: LibLocation, b: LibLocation) {
+    const parts = (code: string) =>
+      code
+        .trim()
+        .split(/[^0-9A-Za-z가-힣]+/)
+        .filter(Boolean);
+    const pa = parts(a.code);
+    const pb = parts(b.code);
+    for (let i = 0; i < Math.max(pa.length, pb.length); i += 1) {
+      const x = pa[i] ?? "";
+      const y = pb[i] ?? "";
+      const nx = Number(x);
+      const ny = Number(y);
+      if (Number.isFinite(nx) && Number.isFinite(ny) && x !== "" && y !== "") {
+        if (nx !== ny) return nx - ny;
+      } else if (x !== y) {
+        return x.localeCompare(y);
+      }
+    }
+    return 0;
+  }
+
+  /**
+   * **등급·번호순으로 정리.**
+   *
+   * 요청: "3등급 책장을 추가했는데 3등급 쪽으로 정렬되지 않고 맨 뒤에 나와서 책장등록하려니까
+   * 6등급 뒤에 나와."
+   *
+   * 새 칸은 **만든 차례**로 맨 뒤에 붙습니다(sort_order = 지금 칸 수). 그래서 나중에 3-9 를
+   * 하나 더 만들면 6등급 뒤에 섭니다. 칸 번호가 곧 자리 순서이므로, 번호대로 다시 매기는
+   * 버튼을 둡니다 - 한 번 누르면 2-1 · 2-2 … 6-7 차례가 됩니다.
+   */
+  async function sortByCode(list: LibLocation[] = rows) {
+    setBusy(true);
+    setError(null);
+    const ordered = [...list].sort(byCode).map((l, i) => ({ ...l, sort_order: i }));
+    /*
+      한 줄씩 보내면 서른 번이 넘습니다. 한 번에 보내되 code 를 함께 넣습니다 - 비울 수 없는
+      칸이라 빠지면 거절당합니다(upsert 는 그 줄을 통째로 다시 씁니다).
+    */
+    const { error: err } = await supabase
+      .from("lib_locations")
+      .upsert(ordered.map((l) => ({ id: l.id, code: l.code, sort_order: l.sort_order })));
+    setBusy(false);
+    if (err) {
+      setError(err.message);
+      return;
+    }
+    setRows(ordered);
+  }
+
+  /** 한 칸 위/아래로 — 번호로는 안 되는 차례(치우침·특별 칸)를 사람이 직접 맞춥니다. */
+  async function move(id: string, dir: -1 | 1) {
+    const at = rows.findIndex((l) => l.id === id);
+    const to = at + dir;
+    if (at < 0 || to < 0 || to >= rows.length) return;
+    const next = [...rows];
+    [next[at], next[to]] = [next[to], next[at]];
+    const renumbered = next.map((l, i) => ({ ...l, sort_order: i }));
+    setRows(renumbered);
+    const two = [renumbered[at], renumbered[to]];
+    const { error: err } = await supabase
+      .from("lib_locations")
+      .upsert(two.map((l) => ({ id: l.id, code: l.code, sort_order: l.sort_order })));
+    if (err) setError(err.message);
+  }
+
   function patch(id: string, changes: Partial<LibLocation>) {
     setRows((prev) => prev.map((l) => (l.id === id ? { ...l, ...changes } : l)));
   }
@@ -76,7 +149,13 @@ export default function LocationsClient({
       setError(err.message.includes("duplicate") ? `이미 있는 구역 이름입니다: ${code}` : err.message);
       return;
     }
-    setRows((prev) => [...prev, data as LibLocation]);
+    /*
+      새 칸은 만든 차례로 맨 뒤에 붙습니다. 3등급 칸을 하나 더 만들었는데 6등급 뒤에 서면
+      책장등록할 때 그 칸을 한참 찾습니다 - 만들자마자 번호 차례로 돌려놓습니다.
+    */
+    const next = [...rows, data as LibLocation];
+    setRows(next);
+    void sortByCode(next);
     setNewCode("");
     setNewName("");
   }
@@ -108,7 +187,11 @@ export default function LocationsClient({
         error?: string;
       };
       if (!res.ok) throw new Error(json.error ?? "만들지 못했습니다.");
-      if (json.locations?.length) setRows((prev) => [...prev, ...json.locations!]);
+      if (json.locations?.length) {
+        const next = [...rows, ...json.locations];
+        setRows(next);
+        void sortByCode(next);
+      }
       setBulkMsg(
         `${json.created ?? 0}개를 만들었습니다` +
           ((json.skipped ?? 0) > 0 ? ` (이미 있던 ${json.skipped}개는 건너뜀)` : "")
@@ -325,6 +408,15 @@ export default function LocationsClient({
               aria-label="전체 선택"
             />
             구역 목록 ({rows.length}개)
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => void sortByCode()}
+              className="ml-2 rounded-lg border border-slate-300 px-2.5 py-1 text-xs font-semibold text-slate-700 disabled:opacity-50"
+              title="2-1 · 2-2 … 6-7 처럼 칸 번호(등급) 차례로 다시 매깁니다"
+            >
+              ⇅ 등급·번호순으로 정리
+            </button>
           </h2>
           <div className="ml-auto flex flex-wrap gap-2">
             <input
@@ -518,6 +610,27 @@ export default function LocationsClient({
                   picked.includes(loc.id) ? "bg-slate-50" : ""
                 }`}
               >
+                {/* 번호로는 안 되는 차례를 사람이 직접 맞추는 자리. */}
+                <span className="flex shrink-0 flex-col leading-none">
+                  <button
+                    type="button"
+                    onClick={() => void move(loc.id, -1)}
+                    className="px-1 text-xs text-slate-400 hover:text-gia-navy"
+                    title="한 칸 위로"
+                    aria-label={`${loc.code} 위로`}
+                  >
+                    ▲
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void move(loc.id, 1)}
+                    className="px-1 text-xs text-slate-400 hover:text-gia-navy"
+                    title="한 칸 아래로"
+                    aria-label={`${loc.code} 아래로`}
+                  >
+                    ▼
+                  </button>
+                </span>
                 <input
                   type="checkbox"
                   checked={picked.includes(loc.id)}
