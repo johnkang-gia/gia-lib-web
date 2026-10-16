@@ -2,9 +2,6 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import ShelfMap from "@/components/ShelfMap";
-import { AUDIENCE_COLOR, type Audience } from "@/lib/audience";
-import { categoryOf } from "@/lib/categories";
 import { levelColor } from "@/lib/bookLevels";
 import {
   buildPlan,
@@ -170,11 +167,6 @@ export default function PlanClient({
   const [openZone, setOpenZone] = useState<string | null>(null);
 
   /** 칸 이름 찾기(책이 지금 어디 있는지 말해 줄 때 씁니다). */
-  const zoneName = useMemo(() => {
-    const m = new Map<string, string>();
-    for (const l of locations) m.set(l.id, l.code);
-    return m;
-  }, [locations]);
 
   useEffect(() => {
     let alive = true;
@@ -276,6 +268,45 @@ export default function PlanClient({
     seriesBooks: 0,
     seriesCount: 0,
   };
+
+  const zoneName = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const l of locations) m.set(l.id, l.code);
+    return m;
+  }, [locations]);
+  /**
+   * **정리 순서** — 어느 칸부터 손대면 좋은지.
+   *
+   * 요청: "어디부터 정리해야 할지 가장 책이 덜 움직이는 거부터 순서도 정해줘."
+   *
+   * 칸마다 움직여야 하는 권수를 셉니다 - **가져올 책**(이 칸에 와야 하는데 지금 다른 칸에
+   * 있는 책)과 **빼낼 책**(지금 이 칸에 있지만 다른 칸으로 갈 책). 그 합이 적은 칸부터
+   * 세웁니다.
+   *
+   * 적은 것부터 하는 이유: 한 칸을 끝내면 그 칸은 더 건드릴 일이 없고, 빼낸 자리가 다음 칸의
+   * 숨통이 됩니다. 큰 칸부터 들면 책을 바닥에 쌓아 두고 시작해야 합니다.
+   */
+  const steps = useMemo(() => {
+    const goTo = new Map<string, string>();
+    for (const zp of plan.zones) for (const b of zp.books) goTo.set(b.id, zp.zone.id);
+
+    return plan.zones
+      .map((zp) => {
+        const incoming = zp.books
+          .filter((b) => b.location_id !== zp.zone.id)
+          .map((b) => ({
+            ...b,
+            from: b.location_id ? (zoneName.get(b.location_id) ?? null) : null,
+          }));
+        const stay = zp.books.length - incoming.length;
+        const outgoing = books
+          .filter((b) => b.location_id === zp.zone.id && goTo.get(b.id) && goTo.get(b.id) !== zp.zone.id)
+          .map((b) => ({ ...b, goTo: goTo.get(b.id) as string }));
+        return { zone: zp.zone, incoming, outgoing, stay, moves: incoming.length + outgoing.length };
+      })
+      .sort((a, b) => (a.moves !== b.moves ? a.moves - b.moves : a.zone.sort_order - b.zone.sort_order));
+  }, [plan.zones, books, zoneName]);
+
 
   const noCapacity = targetZones.filter((z) => z.capacity === null).length;
 
@@ -646,147 +677,152 @@ export default function PlanClient({
         )}
       </section>
 
-      {/* ── ③ 칸별 배치 미리보기 ──────────────────────────────────────── */}
+      {/* ── ③ 정리 순서 ──────────────────────────────────────────────── */}
       <section className={card}>
-        <h2 className="text-sm font-bold text-slate-500">③ 칸별 배치 미리보기</h2>
+        <h2 className="text-sm font-bold text-slate-500">③ 어느 칸부터 정리할까요</h2>
+        <p className="mt-1 text-xs leading-relaxed text-slate-500">
+          <b>책이 가장 덜 움직이는 칸부터</b> 세워 두었습니다. 한 칸을 끝낼 때마다 그 칸은 더 건드리지 않아도 되고,
+          빼낸 자리가 다음 칸의 숨통이 됩니다. 위에서부터 한 칸씩 해 나가시면 됩니다.
+        </p>
 
-        <div className="mt-3">
-          <ShelfMap
-            map={map}
-            locations={locations.filter((l) => l.kind !== "임시")}
-            counts={Object.fromEntries(plan.zones.map((z) => [z.zone.id, z.books.length]))}
-            className="w-full rounded-xl"
-          />
-        </div>
-
-        <ul className="mt-4 space-y-2">
-          {plan.zones.map((zp) => {
-            const cat = categoryOf(zp.category);
-            const over = zp.fill !== null && zp.fill > 1;
-            return (
-              <li
-                key={zp.zone.id}
-                className="flex flex-wrap items-center gap-3 rounded-xl px-3 py-2.5 ring-1 ring-slate-100"
-              >
+        <ol className="mt-3 space-y-2">
+          {steps.map((st, i) => (
+            <li key={st.zone.id} className="rounded-xl ring-1 ring-slate-100">
+              <div className="flex flex-wrap items-center gap-2 px-3 py-2.5">
+                <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-slate-900 text-xs font-bold text-white">
+                  {i + 1}
+                </span>
                 <span
                   className="rounded-lg px-2.5 py-1 text-sm font-black"
-                  style={{ background: `${zp.zone.color}1f`, color: zp.zone.color }}
+                  style={{ background: `${st.zone.color}1f`, color: st.zone.color }}
                 >
-                  {zp.zone.code}
+                  {st.zone.code}
                 </span>
-
-                {zp.books.length === 0 ? (
-                  <span className="text-sm text-slate-300">비움</span>
+                {st.moves === 0 ? (
+                  <span className="text-sm font-semibold text-emerald-700">손댈 것 없습니다 — 이미 제자리입니다</span>
                 ) : (
-                  <>
-                    {zp.primary && (
-                      <span
-                        className="rounded-md px-2 py-0.5 text-xs font-bold text-white"
-                        style={{
-                          background:
-                            AUDIENCE_COLOR[zp.primary as Audience] ?? "#64748b",
-                        }}
-                      >
-                        {zp.primary}
-                      </span>
-                    )}
-                    {cat && (
-                      <span
-                        className="rounded-md px-2 py-0.5 text-xs font-semibold"
-                        style={{ background: `${cat.color}1f`, color: cat.color }}
-                      >
-                        {cat.icon} {cat.key}
-                      </span>
-                    )}
-                    {zp.groupLabels.length > 1 && (
-                      <span className="text-[11px] text-slate-400">
-                        +{zp.groupLabels.length - 1}개 분류 섞임
-                      </span>
-                    )}
-                  </>
-                )}
-
-                <span className="ml-auto flex items-center gap-2 text-sm">
-                  {zp.books.length > 0 && (
-                    <button
-                      type="button"
-                      onClick={() => setOpenZone((v) => (v === zp.zone.id ? null : zp.zone.id))}
-                      className="rounded-lg border border-slate-300 px-2 py-0.5 text-xs font-semibold text-slate-700"
-                      title="이 칸에 넣을 책과, 그 책이 지금 어디 있는지"
-                    >
-                      {openZone === zp.zone.id ? "접기" : "무슨 책인지 보기"}
-                    </button>
-                  )}
-                  <span className={over ? "font-bold text-red-600" : "text-slate-500"}>
-                    {zp.books.length}권
-                  </span>
-                  {zp.zone.capacity !== null && (
-                    <span className="text-xs text-slate-400">/ {zp.zone.capacity}권</span>
-                  )}
-                  {zp.fill !== null && (
-                    <span className="h-2 w-24 overflow-hidden rounded-full bg-slate-100">
-                      <span
-                        className={`block h-full ${over ? "bg-red-500" : "bg-slate-400"}`}
-                        style={{ width: `${Math.min(100, zp.fill * 100)}%` }}
-                      />
+                  <span className="text-sm text-slate-700">
+                    <b className="text-gia-navy">{st.moves}권</b>만 움직이면 됩니다
+                    <span className="ml-2 text-xs text-slate-500">
+                      {st.incoming.length > 0 && `가져올 ${st.incoming.length}권`}
+                      {st.incoming.length > 0 && st.outgoing.length > 0 && " · "}
+                      {st.outgoing.length > 0 && `빼낼 ${st.outgoing.length}권`}
+                      {st.stay > 0 && ` · 그대로 ${st.stay}권`}
                     </span>
-                  )}
-                </span>
+                  </span>
+                )}
+                {st.moves > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => setOpenZone((v) => (v === st.zone.id ? null : st.zone.id))}
+                    className="ml-auto rounded-lg border border-slate-300 px-2.5 py-1 text-xs font-semibold text-slate-700"
+                  >
+                    {openZone === st.zone.id ? "접기" : "무엇을 옮기나 보기"}
+                  </button>
+                )}
+              </div>
 
-                {/*
-                  ── 이 칸에 무슨 책을 넣고, 그 책이 지금 어디 있는지 ──────────
-                  요청: "6-1부터 무슨 책을 여기에 넣어야 하고 이 책은 지금 어디에 있고, 이걸
-                  정리해서 알려줘야 해. 그래서 내가 그걸 보고 실제로 책을 정리하는 방식이야."
-
-                  꽂을 **차례대로** 적습니다(왼쪽부터 그 순서로 꽂으면 됩니다). 지금 자리가
-                  다른 책은 어디서 가져와야 하는지 함께 적고, 이미 이 칸에 있는 책은 「그대로」
-                  라고만 적습니다 - 손이 갈 일이 없는 책을 굵게 쓰면 종이가 시끄러워집니다.
-                */}
-                {openZone === zp.zone.id && (
-                  <ol className="w-full list-none space-y-0.5 border-t border-slate-100 pt-2 text-sm">
-                    {zp.books.map((b, i) => {
-                      const now = b.location_id ? (zoneName.get(b.location_id) ?? null) : null;
-                      const stay = b.location_id === zp.zone.id;
-                      return (
-                        <li key={b.id} className="flex flex-wrap items-baseline gap-x-2 py-0.5">
-                          <span className="w-7 shrink-0 text-right text-xs text-slate-400">{i + 1}.</span>
-                          <span className="font-medium text-slate-800">{b.title}</span>
-                          {b.series && (
-                            <span className="rounded bg-violet-100 px-1 py-0.5 text-[10px] font-bold text-violet-800">
-                              {b.series}
-                              {b.series_no != null ? ` ${b.series_no}` : ""}
-                            </span>
-                          )}
-                          {b.author && <span className="text-xs text-slate-500">{b.author}</span>}
-                          {(b.pages ?? 0) > 0 && (
-                            <span className="text-[11px] text-slate-400">{b.pages}쪽</span>
-                          )}
-                          <span className="ml-auto text-xs">
-                            {stay ? (
-                              <span className="text-slate-400">그대로</span>
-                            ) : (
-                              <span className="font-semibold text-amber-700">
-                                {now ? `${now} 에서 가져오기` : "자리 모름 — 찾아야 합니다"}
+              {openZone === st.zone.id && (
+                <div className="border-t border-slate-100 px-3 py-2 text-sm">
+                  {st.outgoing.length > 0 && (
+                    <>
+                      <div className="text-xs font-bold text-amber-700">
+                        먼저 빼냅니다 — 이 칸에 있지만 다른 칸으로 갈 책 {st.outgoing.length}권
+                      </div>
+                      <ul className="mt-1 mb-2 space-y-0.5">
+                        {st.outgoing.map((b) => (
+                          <li key={b.id} className="flex flex-wrap items-baseline gap-x-2">
+                            <span className="text-slate-800">{b.title}</span>
+                            {b.series && (
+                              <span className="rounded bg-violet-100 px-1 text-[10px] font-bold text-violet-800">
+                                {b.series}
+                                {b.series_no != null ? ` ${b.series_no}` : ""}
                               </span>
                             )}
-                          </span>
-                        </li>
-                      );
-                    })}
-                  </ol>
-                )}
-              </li>
-            );
-          })}
-        </ul>
+                            <span className="ml-auto text-xs font-semibold text-amber-700">
+                              → {zoneName.get(b.goTo) ?? "?"} 로
+                            </span>
+                          </li>
+                        ))}
+                      </ul>
+                    </>
+                  )}
+                  {st.incoming.length > 0 && (
+                    <>
+                      <div className="text-xs font-bold text-gia-navy">
+                        그다음 가져옵니다 — 이 칸에 와야 하는 책 {st.incoming.length}권 (꽂을 차례대로)
+                      </div>
+                      <ol className="mt-1 space-y-0.5">
+                        {st.incoming.map((b, n) => (
+                          <li key={b.id} className="flex flex-wrap items-baseline gap-x-2">
+                            <span className="w-6 shrink-0 text-right text-xs text-slate-400">{n + 1}.</span>
+                            <span className="text-slate-800">{b.title}</span>
+                            {b.series && (
+                              <span className="rounded bg-violet-100 px-1 text-[10px] font-bold text-violet-800">
+                                {b.series}
+                                {b.series_no != null ? ` ${b.series_no}` : ""}
+                              </span>
+                            )}
+                            {b.author && <span className="text-xs text-slate-500">{b.author}</span>}
+                            {(b.pages ?? 0) > 0 && (
+                              <span className="text-[11px] text-slate-400">{b.pages}쪽</span>
+                            )}
+                            <span className="ml-auto text-xs font-semibold text-slate-600">
+                              {b.from ? `${b.from} 에서` : "자리 모름 — 찾아야 합니다"}
+                            </span>
+                          </li>
+                        ))}
+                      </ol>
+                    </>
+                  )}
+                  {st.stay > 0 && (
+                    <p className="mt-2 text-xs text-slate-400">
+                      나머지 {st.stay}권은 이미 이 칸이 제자리입니다 — 그대로 두세요.
+                    </p>
+                  )}
+                </div>
+              )}
+            </li>
+          ))}
+        </ol>
+
+        {plan.leftover.length > 0 && (
+          <p className="mt-3 rounded-lg bg-amber-50 px-3 py-2 text-xs leading-relaxed text-amber-900">
+            자리를 못 받은 책 {plan.leftover.length}권이 있습니다 — 칸 정원을 올리거나(구역 관리) 채움 정도를
+            높이면 들어갑니다.
+          </p>
+        )}
       </section>
 
       {/* ── ④ 확정 ────────────────────────────────────────────────────── */}
       <section className={`${card} flex flex-wrap items-center gap-3`}>
-        <div className="min-w-0">
-          <h2 className="text-sm font-bold text-slate-500">④ 확정하고 정리 시작</h2>
-          <p className="mt-1 text-xs text-slate-400">
-            확정하면 책마다 갈 자리가 적힙니다. 지금 꽂힌 자리는 그대로입니다.
+        <div className="min-w-0 basis-full">
+          <h2 className="text-sm font-bold text-slate-500">④ 확정하면 무슨 일이 일어나나요</h2>
+          {/*
+            요청: "이 계획으로 확정하게 되면 어떻게 되는 건지 모르겠어서 못 누르겠어."
+
+            못 누르는 게 맞습니다 - 무슨 일이 일어나는지 모르는 버튼은 누르면 안 됩니다.
+            그래서 **바뀌는 것과 바뀌지 않는 것**을 버튼 옆에 적어 둡니다.
+          */}
+          <ul className="mt-2 space-y-1 text-xs leading-relaxed text-slate-600">
+            <li>
+              · 책마다 <b>「가야 할 자리」</b>가 적힙니다(3-4로 갈 책 → 3-4). 그것뿐입니다.
+            </li>
+            <li>
+              · <b>지금 꽂혀 있는 자리는 바뀌지 않습니다.</b> 실제로 책을 옮기고 자리 등록에서 찍었을 때 바뀝니다 —
+              정리하는 며칠 동안에도 「그 책 어디 있어요?」에 답할 수 있습니다.
+            </li>
+            <li>
+              · 확정해야 <b>이동 목록 인쇄</b>가 채워집니다(지금 비어 있는 이유입니다). 위의 정리 순서는 확정하지
+              않아도 보입니다.
+            </li>
+            <li>
+              · 마음에 안 들면 <b>「계획 지우기」</b>로 적어 둔 자리를 전부 지웁니다. 책은 그대로입니다.
+            </li>
+          </ul>
+          <p className="mt-2 text-xs leading-relaxed text-slate-500">
+            <b>정리하는 법:</b> 위 ③의 ①번 칸부터 한 칸씩 — 빼낼 책을 먼저 빼고, 가져올 책을 적힌 차례대로 꽂습니다.
+            꽂은 뒤 <b>「자리 등록」에서 그 칸을 찍으면</b> 그때 자리가 바뀝니다.
           </p>
         </div>
         <div className="ml-auto flex flex-wrap gap-2">
@@ -796,13 +832,7 @@ export default function PlanClient({
             className="rounded-xl border border-slate-300 px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50"
           >
             🖨 이동 목록 인쇄
-          </button>
-          <button
-            type="button"
-            onClick={() => router.push("/move")}
-            className="rounded-xl border border-slate-300 px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50"
-          >
-            📷 정리 실행 화면
+            <span className="ml-1 text-xs font-normal text-slate-400">(확정 뒤)</span>
           </button>
           <button
             type="button"
