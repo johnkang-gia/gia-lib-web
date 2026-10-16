@@ -91,6 +91,8 @@ type RecentRow = {
   canUndo: boolean;
   beforeTitle: string | null;
   beforeCopies: number | null;
+  /** 바꾼 뒤 그 한 권이 들어간 책의 지금 제목(기록이 아니라 책에서 읽은 것). */
+  afterTitle: string | null;
 };
 
 /** 상품코드 책이 몇 권 남았고 몇 권을 바꿨는지. 종이 아니라 **권**으로 셉니다. */
@@ -768,8 +770,21 @@ export default function RelabelClient() {
                     <span className="font-mono text-xs text-slate-500">{r.code}</span>
                     <span className="text-slate-400">→</span>
                     <span className="font-mono text-xs text-emerald-700">{r.isbn ?? "—"}</span>
+                    {/*
+                      제목은 **책에서** 읽어온 것입니다(afterTitle). 바꾸기 전 제목이 따로 남아
+                      있고 서로 다를 때만 「전 제목 → 후 제목」으로 보여줍니다 - 상품코드 줄의
+                      제목이 전집 이름이었다가 그 권의 제목으로 바뀌는 일이 흔합니다.
+                    */}
                     <span className={`font-semibold ${r.undoneAt ? "line-through" : "text-slate-800"}`}>
-                      {r.beforeTitle ?? "(제목 기록 없음)"}
+                      {r.beforeTitle && r.afterTitle && r.beforeTitle !== r.afterTitle ? (
+                        <>
+                          <span className="font-normal text-slate-500">{r.beforeTitle}</span>
+                          <span className="mx-1 text-slate-400">→</span>
+                          {r.afterTitle}
+                        </>
+                      ) : (
+                        (r.afterTitle ?? r.beforeTitle ?? "(그 줄이 지워졌습니다)")
+                      )}
                     </span>
                     <span className="text-xs text-slate-400">{WHAT_KO[r.what] ?? r.what}</span>
                     <span className="ml-auto text-xs text-slate-400">

@@ -133,6 +133,50 @@ export async function GET() {
       .limit(30),
   ]);
 
+  /*
+    ── 기록에 적힌 제목을 **책에서 읽어옵니다** ──────────────────────────────
+    처음에는 바꾸기 전 스냅샷(before_json)에서만 제목을 꺼냈습니다. 그랬더니 스냅샷을 남기기
+    전에 한 재등록은 「제목 기록 없음」으로 떴습니다 - 기록은 있는데 무슨 책인지 모르는, 쓸모
+    없는 줄입니다.
+
+    그 줄도 **어느 책으로 들어갔는지(book_id)와 ISBN**은 갖고 있습니다. 거기서 지금 제목을
+    읽어오면 됩니다. 제목은 책에 있지 기록에 있는 것이 아니고, 책 쪽이 **지금 맞는 제목**
+    입니다(제목을 나중에 고쳤다면 고친 제목이 나와야 합니다).
+
+    book_id 가 비어 있는 줄(책이 지워졌거나 옛 기록)은 ISBN 으로 한 번 더 찾습니다.
+  */
+  const recentRows = (recent ?? []) as {
+    id: string;
+    code: string;
+    isbn: string | null;
+    what: string;
+    created_at: string;
+    undone_at: string | null;
+    book_id: string | null;
+    before_json: { book?: { title?: string; item_code?: string | null; total_copies?: number } } | null;
+  }[];
+
+  const wantIds = [...new Set(recentRows.map((r) => r.book_id).filter((v): v is string => Boolean(v)))];
+  const wantIsbns = [
+    ...new Set(recentRows.filter((r) => !r.book_id).map((r) => r.isbn).filter((v): v is string => Boolean(v))),
+  ];
+  const [{ data: byId }, { data: byIsbn }] = await Promise.all([
+    wantIds.length > 0
+      ? supabase.from("lib_books").select("id,title,isbn").in("id", wantIds)
+      : Promise.resolve({ data: [] as { id: string; title: string; isbn: string | null }[] }),
+    wantIsbns.length > 0
+      ? supabase.from("lib_books").select("id,title,isbn").in("isbn", wantIsbns)
+      : Promise.resolve({ data: [] as { id: string; title: string; isbn: string | null }[] }),
+  ]);
+  const titleById = new Map(
+    ((byId ?? []) as { id: string; title: string }[]).map((b) => [b.id, b.title] as const)
+  );
+  const titleByIsbn = new Map(
+    ((byIsbn ?? []) as { isbn: string | null; title: string }[])
+      .filter((b) => b.isbn)
+      .map((b) => [b.isbn as string, b.title] as const)
+  );
+
   // 고유 번호가 상품코드인 줄만(도서관 라벨 GIA-B-… 은 이미 제 번호가 있는 책입니다).
   const left = ((rows ?? []) as (LibBook & { total_copies: number })[]).filter((b) =>
     hasProductCodeAsId(b)
@@ -158,16 +202,7 @@ export async function GET() {
       최근에 한 것들. 새로고침해도 남아 있어야 합니다 - 화면 state 에만 두면 창을 닫는 순간
       "무엇을 바꿨는지"가 사라지고, 되돌리기 버튼도 함께 사라집니다.
     */
-    recent: ((recent ?? []) as {
-      id: string;
-      code: string;
-      isbn: string | null;
-      what: string;
-      created_at: string;
-      undone_at: string | null;
-      book_id: string | null;
-      before_json: { book?: { title?: string; item_code?: string | null; total_copies?: number } } | null;
-    }[]).map((r) => ({
+    recent: recentRows.map((r) => ({
       id: r.id,
       code: r.code,
       isbn: r.isbn,
@@ -175,8 +210,14 @@ export async function GET() {
       at: r.created_at,
       undoneAt: r.undone_at,
       canUndo: !r.undone_at && Boolean(r.before_json?.book),
+      /** 바꾸기 전 제목(스냅샷이 있는 경우에만). */
       beforeTitle: r.before_json?.book?.title ?? null,
       beforeCopies: r.before_json?.book?.total_copies ?? null,
+      /** 바꾼 뒤 그 한 권이 들어간 책의 **지금 제목**. 기록이 아니라 책에서 읽습니다. */
+      afterTitle:
+        (r.book_id ? titleById.get(r.book_id) : null) ??
+        (r.isbn ? titleByIsbn.get(r.isbn) : null) ??
+        null,
     })),
   });
 }
