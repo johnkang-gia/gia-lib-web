@@ -496,7 +496,7 @@ export default function RelabelClient() {
     }
   }
 
-  /** 책장등록 때 이미 센 그 책입니다 — 숫자는 건드리지 않습니다(라벨은 고른 대로). */
+  /** 장서에 이미 세어져 있는 그 책입니다 — 권수는 건드리지 않습니다(라벨은 고른 대로). */
   async function doLabelOnly(book: LibBook) {
     if (busy) return;
     setBusy(true);
@@ -505,8 +505,8 @@ export default function RelabelClient() {
       if (wantLabel) await addToPile(book.id);
       setNote(
         wantLabel
-          ? `${book.title} — 이미 센 책으로 두고 라벨만 담았습니다.`
-          : `${book.title} — 이미 센 책이고 책에 있는 바코드를 그대로 씁니다. 아무것도 바꾸지 않았습니다.`
+          ? `${book.title} — 장서에 이미 있는 책으로 두고 라벨만 담았습니다(숫자 그대로).`
+          : `${book.title} — 장서에 이미 있는 책이고 책 바코드를 그대로 씁니다. 아무것도 바꾸지 않았습니다.`
       );
       setFound(null);
       setScanned("");
@@ -1282,148 +1282,108 @@ export default function RelabelClient() {
               </div>
 
               {/*
-                숫자를 보고 **추천**은 하되 정하지는 않습니다. 책장등록은 칸을 하나씩 비워 가며
-                한 권씩 찍은 기록이라, 장서보다 적으면 그 차이만큼은 아직 책장 밖에 있다는
-                뜻입니다 - 지금 손에 든 더미가 바로 그것입니다.
-              */}
-              <p className="mt-1.5 text-xs leading-relaxed text-slate-600">
-                {found.counts.shelf === 0
-                  ? "책장등록에 한 번도 안 나온 책입니다 — 이 책은 통째로 책장 밖에 있었다는 뜻입니다."
-                  : found.counts.copies > found.counts.shelf + found.counts.loansOut
-                    ? `책장에서 찍힌 것보다 장서가 ${found.counts.copies - found.counts.shelf - found.counts.loansOut}권 많습니다 — 그만큼이 아직 책장 밖에 있습니다. 손에 든 이 책이 그중 하나라면 오른쪽입니다.`
-                    : "책장등록에서 장서 권수만큼 다 찍혔습니다 — 손에 든 이 책이 그때 못 센 또 한 권이라면 왼쪽입니다."}
-              </p>
+                ── 묻는 것은 「이 한 권이 장서에 이미 세어져 있나」입니다 ──────
+                처음에는 「책장등록 때 이미 센 책이냐」고 물었습니다. 그런데 책장등록 0권 ·
+                장서 1권인 책이 바로 걸렸습니다 - 그 한 권은 책장등록을 안 한 것뿐이고, 손에
+                든 이 책이 **바로 그 한 권**입니다. 그런데 화면에는 「장서를 2권으로」와
+                「책장등록 때 이미 센 책」 두 가지뿐이라 둘 다 틀린 말이었습니다.
 
-              {/* ── 지금 어디 있나 ─────────────────────────────────────── */}
-              {/*
-                ── 자리는 **책장등록에서 찍힌 칸만** 봅니다 ─────────────────────
-                줄에 적어 둔 '정해 둔 자리'는 정리 전에 적은 임시 자리라 지금 책장과 상관이
-                없습니다. 지금 책장에 있는 책은 전부 책장등록으로 찍었고, 여기서 다루는 책은
-                그 밖에서 가져온 것입니다. 두 숫자를 섞으면 매번 어느 쪽이 맞는지 사람이
-                판단해야 합니다.
+                장서 권수를 올릴지 말지가 문제이므로, 묻는 말도 그것이어야 합니다.
+
+                  아직 안 세어진 권수 = 장서 - 책장등록 - 대출중
+
+                이 수가 남아 있으면 손에 든 책은 그중 하나입니다(숫자 그대로). 0이면 장서에
+                없던 한 권입니다(+1). 숫자를 보고 추천은 하되, 정하는 것은 사람입니다.
               */}
-              <div className="mt-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm">
-                {found.place.checks.length > 0 ? (
+              {(() => {
+                const notCounted = found.counts.copies - found.counts.shelf - found.counts.loansOut;
+                /*
+                  ── 늘릴 때와 늘리지 않을 때 ─────────────────────────────────
+                  장서 1권 · 책장등록 1권이면 그 한 권은 책장에서 세어졌습니다. 그러니 손에 든
+                  이 책은 **그 위에 더 있는 한 권**이고, 그때만 +1 이 맞습니다.
+
+                  장서 1권 · 책장등록 0권이면 다릅니다. 그 한 권은 책장등록을 안 한 것뿐이고
+                  손에 든 이 책이 바로 그 한 권입니다. 여기서 +1 을 하면 없는 책이 한 권
+                  생깁니다. 그래서 그때는 **늘리지 않고**, 책장에 꽂은 뒤 「자리 등록」에서
+                  찍어 달라고 말하고 넘깁니다 - 그래야 책장과 장서가 맞아떨어집니다.
+                */
+                const addIsRight = notCounted <= 0;
+                return addIsRight ? (
                   <>
-                    <span className="text-xs font-bold text-slate-500">책장등록에서 찍힌 칸</span>{" "}
-                    <b className="text-base text-gia-navy">
-                      {found.place.checks.map((c) => `${c.code} ${c.copies}권`).join(" · ")}
-                    </b>
-                    <span className="ml-2 text-xs text-slate-500">— 가서 같은 책이 꽂혀 있는지 보세요</span>
+                    <p className="mt-1.5 text-xs leading-relaxed text-slate-600">
+                      장서 {found.counts.copies}권이 책장에서 모두 찍혔습니다 — 손에 든 이 책은 그 위에 더 있는 한
+                      권입니다. 장서를 한 권 늘리는 것이 맞습니다.
+                    </p>
+                    <div className="mt-2.5 grid gap-2 sm:grid-cols-2">
+                      <button
+                        type="button"
+                        disabled={busy}
+                        onClick={() => void doAddCopy(found.book)}
+                        className="rounded-lg border-2 border-gia-navy bg-white px-3 py-2.5 text-left text-sm font-semibold text-gia-navy disabled:opacity-50"
+                      >
+                        장서에 <b>없던 한 권</b>입니다
+                        <div className="mt-0.5 text-xs font-normal text-slate-600">
+                          장서를 {found.counts.copies}권 → <b>{found.counts.copies + 1}권</b>으로{" "}
+                          {wantLabel ? "하고 라벨 담기" : "하기 (라벨 없음)"}
+                        </div>
+                      </button>
+                      <button
+                        type="button"
+                        disabled={busy}
+                        onClick={() => void doLabelOnly(found.book)}
+                        className="rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-left text-sm font-semibold text-slate-700 disabled:opacity-50"
+                      >
+                        아니요 — <b>장서에 이미 있는 그 책</b>입니다
+                        <div className="mt-0.5 text-xs font-normal text-slate-600">
+                          장서 {found.counts.copies}권 그대로 두고{" "}
+                          {wantLabel ? "라벨만 담기" : "넘어가기 (라벨 없음)"}
+                        </div>
+                      </button>
+                    </div>
                   </>
                 ) : (
-                  <span className="text-slate-500">책장등록에 나오지 않은 책입니다 — 책장 밖에 있던 책입니다.</span>
-                )}
-              </div>
-
-              {/* ── ISBN 적어 넣기 ─────────────────────────────────────── */}
-              <div className="mt-2 rounded-lg border border-slate-200 bg-white px-3 py-2">
-                <div className="flex flex-wrap items-center gap-2 text-sm">
-                  <span className="text-xs font-bold text-slate-500">ISBN</span>
-                  <span className={found.book.isbn ? "font-mono text-slate-800" : "text-slate-400"}>
-                    {found.book.isbn ?? "없습니다"}
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setIsbnFix((v) => !v);
-                      setIsbn("");
-                    }}
-                    className="ml-auto text-xs font-semibold text-gia-navy underline"
-                  >
-                    {isbnFix ? "접기" : found.book.isbn ? "ISBN 고쳐 적기" : "표지의 ISBN 적어 넣기"}
-                  </button>
-                </div>
-                {isbnFix && (
-                  <div className="mt-2 flex flex-wrap gap-2">
-                    <input
-                      value={isbn}
-                      onChange={(e) => setIsbn(e.target.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter") {
-                          e.preventDefault();
-                          void doSetIsbn(found.book, isbn);
-                        }
-                      }}
-                      placeholder="978… 또는 10자리(끝이 X여도 됩니다)"
-                      className="flex-1 rounded-lg border border-slate-300 px-3 py-2 text-base tracking-wider outline-none focus:border-gia-gold"
-                      autoComplete="off"
-                      autoFocus
-                    />
-                    <button
-                      type="button"
-                      disabled={busy || ![10, 13].includes(normalizeIsbn(isbn).length)}
-                      onClick={() => void doSetIsbn(found.book, isbn)}
-                      className="rounded-lg bg-gia-navy px-3 py-2 text-sm font-semibold text-white disabled:opacity-50"
-                    >
-                      적어 넣기
-                    </button>
-                  </div>
-                )}
-                {isbnFix && (
-                  <p className="mt-1.5 text-xs leading-relaxed text-slate-500">
-                    ISBN이 붙으면 조회처에서 표지·저자를 받아올 수 있고, 라벨 없이 <b>책 뒤 바코드로도</b> 찍힙니다.
-                    상품코드를 고유 번호로 쓰던 줄이면 그 번호는 찾기용 단서로 옮겨 둡니다.
-                  </p>
-                )}
-              </div>
-
-              {/* ── 라벨을 뽑을까, 책에 있는 바코드를 그대로 쓸까 ───────── */}
-              <div className="mt-2 flex flex-wrap items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2">
-                <span className="text-xs font-bold text-slate-500">라벨</span>
-                <button
-                  type="button"
-                  onClick={() => setWantLabel(false)}
-                  className={`rounded-lg px-2.5 py-1.5 text-sm ${
-                    !wantLabel
-                      ? "bg-gia-navy font-semibold text-white"
-                      : "border border-slate-300 text-slate-600"
-                  }`}
-                >
-                  책에 있는 바코드 그대로
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setWantLabel(true)}
-                  className={`rounded-lg px-2.5 py-1.5 text-sm ${
-                    wantLabel ? "bg-gia-navy font-semibold text-white" : "border border-slate-300 text-slate-600"
-                  }`}
-                >
-                  라벨 뽑기 (모아뽑기에 담기)
-                </button>
-                <span className="text-xs text-slate-500">
-                  {found.book.item_code
-                    ? `이 책은 도서관 번호(${found.book.item_code})로 들고 있어서 라벨이 필요합니다`
-                    : "책 뒤 ISBN 바코드를 그대로 쓸 수 있습니다 — 라벨은 같은 번호를 한 번 더 붙이는 일입니다"}
-                </span>
-              </div>
-
-              <div className="mt-2.5 grid gap-2 sm:grid-cols-2">
-                <button
-                  type="button"
-                  disabled={busy}
-                  onClick={() => void doAddCopy(found.book)}
-                  className="rounded-lg border-2 border-gia-navy bg-white px-3 py-2.5 text-left text-sm font-semibold text-gia-navy disabled:opacity-50"
-                >
-                  책장에 없던 <b>따로 한 권</b>입니다
-                  <div className="mt-0.5 text-xs font-normal text-slate-600">
-                    장서를 {found.counts.copies}권 → <b>{found.counts.copies + 1}권</b>으로{" "}
-                    {wantLabel ? "하고 라벨 담기" : "하기 (라벨 없음)"}
-                  </div>
-                </button>
-                <button
-                  type="button"
-                  disabled={busy}
-                  onClick={() => void doLabelOnly(found.book)}
-                  className="rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-left text-sm font-semibold text-slate-700 disabled:opacity-50"
-                >
-                  책장등록 때 <b>이미 센 그 책</b>입니다
-                  <div className="mt-0.5 text-xs font-normal text-slate-600">
-                    장서 {found.counts.copies}권 그대로 두고{" "}
-                    {wantLabel ? "라벨만 담기" : "넘어가기 (라벨 없음)"}
-                  </div>
-                </button>
-              </div>
+                  <>
+                    <div className="mt-2 rounded-lg bg-white px-3 py-2.5">
+                      <p className="text-sm leading-relaxed text-slate-700">
+                        장서에는 {found.counts.copies}권인데 책장에서는 {found.counts.shelf}권만 찍혔습니다 —{" "}
+                        <b>{notCounted}권이 아직 책장 밖</b>에 있다는 뜻이고, 손에 든 이 책이 그 한 권입니다.
+                        <b> 장서 숫자는 그대로 둡니다</b>(여기서 늘리면 없는 책이 한 권 생깁니다).
+                      </p>
+                      <p className="mt-1.5 text-xs leading-relaxed text-slate-500">
+                        이 책은 라벨을 붙여 책장에 꽂은 뒤{" "}
+                        <Link href="/place" className="font-semibold text-gia-navy underline">
+                          자리 등록
+                        </Link>
+                        에서 찍어 주세요 — 그때 비로소 책장 숫자와 장서가 맞아떨어집니다.
+                      </p>
+                    </div>
+                    <div className="mt-2.5 grid gap-2 sm:grid-cols-2">
+                      <button
+                        type="button"
+                        disabled={busy}
+                        onClick={() => void doLabelOnly(found.book)}
+                        className="rounded-lg border-2 border-gia-navy bg-white px-3 py-2.5 text-left text-sm font-semibold text-gia-navy disabled:opacity-50"
+                      >
+                        {wantLabel ? "라벨 담고 넘기기" : "그대로 넘기기"}
+                        <div className="mt-0.5 text-xs font-normal text-slate-600">
+                          장서 {found.counts.copies}권 그대로 — 나중에 자리 등록에서 찍기
+                        </div>
+                      </button>
+                      <button
+                        type="button"
+                        disabled={busy}
+                        onClick={() => void doAddCopy(found.book)}
+                        className="rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-left text-xs text-slate-600 disabled:opacity-50"
+                      >
+                        아니요 — 이것 말고 <b>또 한 권</b>이 더 있습니다
+                        <div className="mt-0.5 text-[11px] text-slate-500">
+                          장서를 {found.counts.copies}권 → {found.counts.copies + 1}권으로
+                        </div>
+                      </button>
+                    </div>
+                  </>
+                );
+              })()}
 
               <button
                 type="button"
