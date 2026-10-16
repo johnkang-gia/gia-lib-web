@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { normalizeScan } from "@/lib/scan";
+import { normalizeIsbn, normalizeScan } from "@/lib/scan";
 import type { LibBook } from "@/lib/types";
 
 /**
@@ -30,6 +30,15 @@ type Found =
 
 type DoneRow = { id: string; title: string; isbn: string | null; what: string; note: string };
 
+/** 상품코드 책이 몇 권 남았고 몇 권을 바꿨는지. 종이 아니라 **권**으로 셉니다. */
+type Progress = {
+  leftRows: number;
+  leftCopies: number;
+  doneCopies: number;
+  totalCopies: number;
+  left: { id: string; title: string; code: string | null; isbn: string | null; copies: number; level: number | null }[];
+};
+
 export default function RelabelClient() {
   const [scan, setScan] = useState("");
   const [found, setFound] = useState<Found | null>(null);
@@ -39,8 +48,19 @@ export default function RelabelClient() {
   const [note, setNote] = useState<string | null>(null);
   const [done, setDone] = useState<DoneRow[]>([]);
   const [pile, setPile] = useState<{ id: string; count: number } | null>(null);
+  const [prog, setProg] = useState<Progress | null>(null);
+  const [showLeft, setShowLeft] = useState(false);
   const scanRef = useRef<HTMLInputElement>(null);
   const isbnRef = useRef<HTMLInputElement>(null);
+
+  const loadProgress = useCallback(async () => {
+    try {
+      const j = (await (await fetch("/api/books/relabel")).json()) as Progress & { error?: string };
+      if (!j.error) setProg(j);
+    } catch {
+      // 진행 숫자를 못 읽어도 재등록은 할 수 있습니다.
+    }
+  }, []);
 
   const loadPile = useCallback(async () => {
     try {
@@ -56,7 +76,8 @@ export default function RelabelClient() {
 
   useEffect(() => {
     void loadPile();
-  }, [loadPile]);
+    void loadProgress();
+  }, [loadPile, loadProgress]);
 
   /*
     스캐너는 키보드처럼 글자를 쏟습니다. 커서가 찍는 칸에 있어야 들어갑니다. 다만 ISBN 을
@@ -124,6 +145,8 @@ export default function RelabelClient() {
       ]);
       setFound(null);
       setScanned("");
+      // 한 권 바꿀 때마다 남은 권수가 하나 줄어듭니다 - 그 숫자를 다시 읽습니다.
+      void loadProgress();
     } catch {
       setNote("모아뽑기에 담지 못했습니다.");
     }
@@ -173,6 +196,65 @@ export default function RelabelClient() {
         상품코드는 &lsquo;책 한 권&rsquo;이 아니라 &lsquo;상품 한 줄&rsquo;을 가리켜서, 전집은 열두 권이 같은 번호입니다. 어느 권인지는 표지를
         보는 사람만 알 수 있어서 한 권씩 묻습니다 — 같은 번호를 또 찍으면 또 한 권이 떨어져 나옵니다.
       </p>
+
+      {/* ── 얼마나 남았나 ──────────────────────────────────────────────── */}
+      {prog && (
+        <div className="mt-5 rounded-xl border border-slate-200 bg-white p-4">
+          <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
+            <span className="text-sm text-slate-600">상품코드로 등록된 책</span>
+            <span className="text-lg font-bold text-gia-navy">{prog.totalCopies}권</span>
+            <span className="text-sm text-slate-400">중</span>
+            <span className="text-lg font-bold text-emerald-700">{prog.doneCopies}권</span>
+            <span className="text-sm text-slate-600">바꿨습니다</span>
+            <span className="ml-auto text-sm font-semibold text-amber-700">
+              남은 {prog.leftCopies}권
+              {prog.leftRows > 0 && <span className="font-normal text-slate-500"> ({prog.leftRows}줄)</span>}
+            </span>
+          </div>
+          <div className="mt-2.5 h-2.5 w-full overflow-hidden rounded-full bg-slate-100">
+            <div
+              className="h-full bg-emerald-500 transition-[width] duration-300"
+              style={{
+                width: `${prog.totalCopies > 0 ? Math.round((prog.doneCopies / prog.totalCopies) * 100) : 0}%`,
+              }}
+            />
+          </div>
+          {/*
+            종이 아니라 권으로 세는 이유를 적어 둡니다. 「8줄 중 1줄」로 보면 거의 안 줄어드는
+            것처럼 보이는데, 실제로 손이 가는 일은 권 단위입니다.
+          */}
+          <p className="mt-2 text-xs leading-relaxed text-slate-500">
+            한 권 재등록할 때마다 남은 권수가 하나 줄어듭니다. 같은 상품코드에 여러 권이 묶여 있으면 그 줄은
+            권수만 줄고 남아 있다가, 마지막 한 권까지 바꾸면 사라집니다.
+          </p>
+          {prog.leftCopies === 0 ? (
+            <p className="mt-2 rounded-lg bg-emerald-50 px-3 py-2 text-sm font-semibold text-emerald-800">
+              상품코드로 남은 책이 없습니다 — 전부 교체됐습니다.
+            </p>
+          ) : (
+            <>
+              <button
+                type="button"
+                onClick={() => setShowLeft((v) => !v)}
+                className="mt-2 text-xs font-semibold text-gia-navy underline"
+              >
+                {showLeft ? "남은 목록 접기" : `남은 ${prog.leftRows}줄 보기`}
+              </button>
+              {showLeft && (
+                <div className="mt-2 divide-y divide-slate-100 rounded-lg border border-slate-200 text-sm">
+                  {prog.left.map((b) => (
+                    <div key={b.id} className="flex flex-wrap items-baseline gap-x-2 px-3 py-1.5">
+                      <span className="font-mono text-xs text-slate-500">{b.code}</span>
+                      <span className="font-semibold text-slate-800">{b.title}</span>
+                      <span className="ml-auto text-xs text-amber-700">{b.copies}권 남음</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      )}
 
       {/* ── 찍는 칸 ─────────────────────────────────────────────────────── */}
       <div className="mt-5">
@@ -235,14 +317,26 @@ export default function RelabelClient() {
                       void doApply();
                     }
                   }}
-                  inputMode="numeric"
-                  placeholder="978…"
+                  /*
+                    inputMode="numeric" 을 뺐습니다. 10자리 ISBN 의 마지막 자리는 **X** 일 수
+                    있는데(067988338X), 숫자 자판에는 X 가 없습니다.
+                  */
+                  placeholder="978… 또는 10자리(끝이 X여도 됩니다)"
                   className="flex-1 rounded-lg border border-slate-300 px-3 py-2 text-base tracking-wider outline-none focus:border-gia-gold"
                   autoComplete="off"
                 />
                 <button
                   type="button"
-                  disabled={busy || isbn.replace(/\D/g, "").length < 10}
+                  /*
+                    ── X 를 숫자가 아니라고 떼면 안 됩니다 ───────────────────
+                    실제로 걸렸습니다. 「067988338X」를 적었는데 버튼이 꺼져 있었습니다 - 이
+                    조건이 \D(숫자 아닌 것)를 지워서 9자리로 셌기 때문입니다. 10자리 ISBN 의
+                    마지막 자리는 체크숫자이고, 10 을 뜻할 때 **X** 로 적습니다.
+
+                    서버는 이 값을 제대로 받습니다(067988338X → 9780679883388). 막고 있던 것은
+                    화면뿐이었습니다.
+                  */
+                  disabled={busy || ![10, 13].includes(normalizeIsbn(isbn).length)}
                   onClick={() => void doApply()}
                   className="rounded-lg bg-gia-navy px-3 py-2 text-sm font-semibold text-white disabled:opacity-50"
                 >

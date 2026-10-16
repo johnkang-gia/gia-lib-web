@@ -144,6 +144,29 @@ export function isbnVariants(raw: string): string[] {
   return [...out];
 }
 
+/**
+ * 같은 상품코드를 가리키는 **글자들**(12자리 UPC ↔ 13자리 EAN).
+ *
+ * ── 실제로 걸린 일 ─────────────────────────────────────────────────────────
+ * 장서에 `090129003990` 으로 저장돼 있는 책을 스캐너로 찍으니 `0090129003990` 이 들어왔습니다.
+ * 같은 바코드인데 글자가 달라서 **"등록되지 않은 번호"** 가 떴습니다. 그대로였다면 이미 있는
+ * 책을 새로 등록해 두 줄이 됐을 것입니다.
+ *
+ * 왜 다른가: 미국 상품코드(UPC-A)는 12자리이고, 세계 표준(EAN-13)은 13자리입니다. UPC-A 를
+ * EAN-13 으로 쓸 때는 **앞에 0 하나를 붙입니다.** 두 번호는 같은 상품을 가리키고 체크숫자도
+ * 그대로 맞습니다 - 그래서 스캐너는 설정에 따라 12자리로도, 13자리로도 보냅니다. 어느 쪽으로
+ * 들어와도 같은 책을 찾아야 합니다.
+ */
+export function codeVariants(raw: string): string[] {
+  const code = normalizeScan(raw);
+  const out = new Set<string>();
+  if (!code) return [];
+  out.add(code);
+  if (/^[0-9]{13}$/.test(code) && code.startsWith("0")) out.add(code.slice(1));
+  if (/^[0-9]{12}$/.test(code)) out.add(`0${code}`);
+  return [...out];
+}
+
 /** ISBN 체크숫자가 맞는지 확인합니다(오타로 엉뚱한 번호가 등록되는 걸 막습니다). */
 export function isValidIsbn(raw: string) {
   const isbn = normalizeIsbn(raw);

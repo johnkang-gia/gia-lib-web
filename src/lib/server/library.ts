@@ -9,7 +9,7 @@ import {
   type LibSettings,
   type LibStudent,
 } from "@/lib/types";
-import { isItemCode, isbnVariants, normalizeIsbn } from "@/lib/scan";
+import { codeVariants, isItemCode, isbnVariants, normalizeIsbn } from "@/lib/scan";
 import { fetchAll } from "@/lib/server/fetchAll";
 import { withDepartment } from "@/lib/department";
 
@@ -136,14 +136,30 @@ export async function findBook(
     if (rows[0]) return rows[0];
   }
 
-  // 라벨 형식이 아닌 자체 코드를 쓴 경우까지 한 번 더 확인합니다.
-  const { data: byItem, error: itemError } = await supabase
+  /*
+    라벨 형식이 아닌 자체 코드(상품코드)로 등록된 책입니다.
+
+    **글자 하나 차이를 함께 봅니다.** 장서에 12자리로 저장된 책을 스캐너가 13자리로 보내는
+    일이 실제로 있었습니다(UPC-A 를 EAN-13 으로 쓸 때 앞에 0 을 붙입니다). 같은 바코드인데
+    못 찾으면 사람은 이미 있는 책을 새로 등록해 두 줄로 만듭니다.
+  */
+  const { data: byItemRows, error: itemError } = await supabase
     .from("lib_books")
     .select(select)
-    .eq("item_code", code)
-    .maybeSingle();
+    .in("item_code", codeVariants(code))
+    .limit(1);
   if (itemError) throw new Error(`책을 찾는 중 오류: ${itemError.message}`);
-  if (byItem) return byItem as unknown as LibBookWithShelf;
+  const byItem = ((byItemRows ?? []) as unknown as LibBookWithShelf[])[0];
+  if (byItem) return byItem;
+
+  // 상품코드를 찾기용 단서로만 적어 둔 책도 봅니다(요즘 등록은 이쪽입니다).
+  const { data: byProduct } = await supabase
+    .from("lib_books")
+    .select(select)
+    .in("product_code", codeVariants(code))
+    .limit(1);
+  const product = ((byProduct ?? []) as unknown as LibBookWithShelf[])[0];
+  if (product) return product;
 
   /*
     ── 마지막으로 '옛 번호'를 봅니다 ────────────────────────────────────────
@@ -162,7 +178,7 @@ async function findByAlias(
   code: string,
   select: string
 ): Promise<LibBookWithShelf | null> {
-  const codes = Array.from(new Set([code, ...isbnVariants(code)]));
+  const codes = Array.from(new Set([code, ...isbnVariants(code), ...codeVariants(code)]));
   const { data } = await supabase
     .from("lib_book_aliases")
     .select("book_id")

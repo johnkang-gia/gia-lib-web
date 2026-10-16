@@ -84,6 +84,69 @@ export async function POST(request: Request) {
   }
 }
 
+/**
+ * **진행 상황** — 상품코드로 등록된 책이 몇 권 남았고 몇 권을 바꿨는지.
+ *
+ * 요청: "상품코드로 등록된 책이 총 몇 권인데 그중에 몇 개가 바뀌었다고 표시해서 이게 제대로
+ * 전부 교체가 되었는지 알 수 있게 해줘. 같은 코드로 여러 권이 등록된 경우 있기 때문에 한 권
+ * 재등록 할 때마다 차감해줘."
+ *
+ * ── 종이 아니라 권으로 셉니다 ─────────────────────────────────────────────
+ * 상품코드는 '책 한 권'이 아니라 '상품 한 줄'이라 전집 열두 권이 같은 번호를 씁니다. 줄 수로
+ * 세면 「8줄 중 1줄」이라 거의 안 줄어드는 것처럼 보이는데, 실제로 손이 가는 일은 27권입니다.
+ *
+ * ── 총 권수를 적어 두지 않는 이유 ─────────────────────────────────────────
+ * 처음 권수를 어디 적어 두면 그 숫자는 썩습니다 - 나중에 상품코드 책이 더 들어오면 "27권 중
+ * 30권을 바꿨다"가 됩니다. 그래서 **바꾼 쪽을 세고**(lib_relabel_log) 총 권수는 더해서
+ * 구합니다: 총 = 남은 + 바꾼.
+ */
+export async function GET() {
+  const supabase = await createClient();
+  const { data: auth } = await supabase.auth.getUser();
+  if (!auth.user) return NextResponse.json({ error: "로그인이 필요합니다." }, { status: 401 });
+
+  const [{ data: rows }, { count: done }, { data: recent }] = await Promise.all([
+    supabase
+      .from("lib_books")
+      .select("id,title,item_code,isbn,total_copies,label_level")
+      .not("item_code", "is", null)
+      .order("item_code", { ascending: true }),
+    supabase
+      .from("lib_relabel_log")
+      .select("id", { count: "exact", head: true })
+      .eq("from_product", true),
+    supabase
+      .from("lib_relabel_log")
+      .select("code,isbn,what,created_at")
+      .order("created_at", { ascending: false })
+      .limit(30),
+  ]);
+
+  // 고유 번호가 상품코드인 줄만(도서관 라벨 GIA-B-… 은 이미 제 번호가 있는 책입니다).
+  const left = ((rows ?? []) as (LibBook & { total_copies: number })[]).filter((b) =>
+    hasProductCodeAsId(b)
+  );
+  const leftCopies = left.reduce((n, b) => n + (b.total_copies ?? 0), 0);
+  const doneCopies = done ?? 0;
+
+  return NextResponse.json({
+    leftRows: left.length,
+    leftCopies,
+    doneCopies,
+    totalCopies: leftCopies + doneCopies,
+    /** 아직 남은 줄들. "제대로 전부 교체됐나"를 눈으로 확인하는 자리입니다. */
+    left: left.map((b) => ({
+      id: b.id,
+      title: b.title,
+      code: b.item_code,
+      isbn: b.isbn,
+      copies: b.total_copies,
+      level: b.label_level,
+    })),
+    recent: (recent ?? []) as { code: string; isbn: string | null; what: string; created_at: string }[],
+  });
+}
+
 /** 찍힌 번호가 무엇인지 가립니다. 아무것도 바꾸지 않습니다. */
 async function find(supabase: Awaited<ReturnType<typeof createClient>>, code: string): Promise<Found> {
   const book = await findBook(supabase, code);
@@ -351,6 +414,24 @@ async function apply(
   if (code !== isbn) {
     await supabase.from("lib_book_aliases").upsert({ code, book_id: resultId }, { onConflict: "code" });
   }
+
+  /*
+    ── 바꾼 것을 한 줄 남깁니다 ───────────────────────────────────────────
+    진행 상황("27권 중 3권 바꿨습니다")을 세는 근거입니다. 남은 권수만 보면 처음 권수를 알 수
+    없어서 "제대로 전부 교체됐나"에 답할 수 없습니다.
+
+    from_product 는 **상품코드 더미에서 한 권을 빼낸 것인지**입니다. 등록조차 안 되어 있던
+    번호를 새로 등록한 경우(created)는 더미에서 뺀 것이 아니므로 세지 않습니다 - 그것까지
+    세면 총 권수가 부풀어 다 바꿨는데도 남은 것처럼 보입니다.
+  */
+  await supabase.from("lib_relabel_log").insert({
+    code,
+    isbn,
+    book_id: resultId,
+    what,
+    from_product: Boolean(source && hasProductCodeAsId(source)),
+    created_by: email,
+  });
 
   const { data: finalRow } = await supabase.from("lib_books").select("*").eq("id", resultId).maybeSingle();
   return NextResponse.json({
