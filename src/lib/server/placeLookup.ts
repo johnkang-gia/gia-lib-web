@@ -26,7 +26,7 @@
  * 그래서 ISBN 변형은 **여기서 계산해 넘겨주고**, 함수는 찾아서 모아 주기만 합니다.
  */
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { isbnVariants, isIsbn, isItemCode } from "@/lib/scan";
+import { codeVariants, isbnVariants, isIsbn, isItemCode } from "@/lib/scan";
 import type { LibBookWithShelf, LibLocation } from "@/lib/types";
 
 /** 한 책이 어느 칸에 몇 권 세어져 있는지. */
@@ -85,6 +85,14 @@ export async function placeLookup(
     맨 끝에서 한 번은 봐 줘야 멀쩡한 책이 "등록되지 않은 책"으로 보이지 않습니다.
   */
   const aliasCodes = Array.from(new Set([code, ...variants].filter(Boolean)));
+  /*
+    ── 같은 바코드의 다른 모습 ─────────────────────────────────────────────
+    UPC-A(12자리)를 EAN-13 으로 쓸 때 앞에 0 을 붙입니다 - 장서에 12자리로 적힌 책을 스캐너가
+    13자리로 보냅니다. 재등록 화면(findBook)은 이것과 **상품코드(product_code)** 를 함께 보고
+    있었는데 이 화면은 보지 않아서, 같은 책이 한쪽에서는 「이미 등록된 책」, 다른 쪽에서는
+    「등록되지 않은 책」으로 나왔습니다. 같은 번호를 넘겨 같은 답이 나오게 합니다.
+  */
+  const codes = Array.from(new Set([code, ...codeVariants(code)].filter(Boolean)));
 
   const { data, error } = await supabase.rpc("lib_place_lookup", {
     p_location_id: args.locationId,
@@ -94,6 +102,7 @@ export async function placeLookup(
     p_alias_codes: aliasCodes,
     p_is_isbn: isIsbn(code),
     p_is_item_code: isItemCode(code),
+    p_codes: codes,
   });
 
   /*
