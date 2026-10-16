@@ -826,6 +826,11 @@ export default function PlanClient({
                           한 권 들고 시작
                         </span>
                       </span>
+                    ) : st.blocked && st.zones.length === 1 ? (
+                      <span className="flex flex-wrap items-center gap-1.5">
+                        {chip(st.zones[0])}
+                        <span className="rounded bg-amber-100 px-1.5 text-[11px] font-bold text-amber-800">자리 부족</span>
+                      </span>
                     ) : (
                       <span className="flex flex-wrap items-center gap-1.5">
                         {st.kind === "find" ? (
