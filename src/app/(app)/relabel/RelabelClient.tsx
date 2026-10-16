@@ -3,6 +3,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import Barcode from "@/components/Barcode";
+import CoverShot from "@/components/CoverShot";
+import { beep, setSoundOn, soundOn } from "@/lib/beep";
 import { normalizeIsbn, normalizeScan } from "@/lib/scan";
 import type { LibBook } from "@/lib/types";
 
@@ -170,6 +172,15 @@ export default function RelabelClient() {
   const [prog, setProg] = useState<Progress | null>(null);
   const [showLeft, setShowLeft] = useState(false);
   const [showRecent, setShowRecent] = useState(false);
+  /** 소리로 알려줄지. 책을 보는 동안 화면을 안 봐도 되게 합니다. */
+  const [sound, setSound] = useState(true);
+  /** 표지 사진으로 제목 찾기. */
+  const [shooting, setShooting] = useState(false);
+  const [shotBusy, setShotBusy] = useState(false);
+  const [shotTitle, setShotTitle] = useState<string | null>(null);
+  const [shotBooks, setShotBooks] = useState<
+    { title: string; author: string | null; publisher: string | null; isbn: string | null; cover_url: string | null }[]
+  >([]);
   const scanRef = useRef<HTMLInputElement>(null);
   const isbnRef = useRef<HTMLInputElement>(null);
 
@@ -199,7 +210,11 @@ export default function RelabelClient() {
   useEffect(() => {
     void loadPile();
     void loadProgress();
+    setSound(soundOn());
   }, [loadPile, loadProgress]);
+
+  /** 소리 한 번(꺼 두었으면 조용히 넘어갑니다). */
+  const say = useCallback((kind: "ok" | "ask" | "bad") => beep(kind, sound), [sound]);
 
   /*
     스캐너는 키보드처럼 글자를 쏟습니다. 커서가 찍는 칸에 있어야 들어갑니다. 다만 ISBN 을
@@ -228,6 +243,9 @@ export default function RelabelClient() {
     setIsbn("");
     setByTitle(false);
     setNewTitle("");
+    setShotTitle(null);
+    setShotBooks([]);
+    setShooting(false);
     try {
       const res = await fetch("/api/books/relabel", {
         method: "POST",
@@ -237,9 +255,16 @@ export default function RelabelClient() {
       const j = (await res.json()) as Found & { error?: string };
       if (j.error) {
         setNote(j.error);
+        say("bad");
       } else {
         setScanned(code);
         setFound(j);
+        /*
+          찍은 뒤 **눈을 들어야 하는지**를 소리로 알립니다. 이 화면에서 찍은 것은 거의 항상
+          사람에게 물을 거리를 만듭니다(어느 권이냐, 같은 책이냐, 이 책이 맞냐) - 그래서
+          기본은 「봐야 한다」 소리입니다.
+        */
+        say("ask");
         /*
           ── 라벨을 꼭 뽑아야 하는 책과 아닌 책 ─────────────────────────────
           요청: "이미 ISBN 등록된 책들은 라벨을 모아뽑기에 등록할 건지, 아니면 지금 코드가
@@ -334,6 +359,7 @@ export default function RelabelClient() {
       if (j.error || !j.after) {
         setNote(j.error ?? "바꾸지 못했습니다.");
         if (j.needTitle) setByTitle(true);
+        say(j.needTitle ? "ask" : "bad");
         return;
       }
       setResult({
@@ -350,6 +376,7 @@ export default function RelabelClient() {
         titleKept: Boolean(j.titleKept),
         titleChoices: j.titleChoices ?? [],
       });
+      say("ok");
       await addToPile(j.after.id);
       void loadProgress();
       setFound(null);
@@ -386,6 +413,7 @@ export default function RelabelClient() {
         setNote(j.error);
         return;
       }
+      say("ok");
       if (labelId) await addToPile("", labelId);
       setNote(j.message ?? "되돌렸습니다.");
       if (result?.logId === logId) setResult(null);
@@ -446,6 +474,7 @@ export default function RelabelClient() {
         titleKept: false,
         titleChoices: [],
       });
+      say("ok");
       if (wantLabel) await addToPile(j.after.id);
       setFound(null);
       setScanned("");
@@ -462,6 +491,7 @@ export default function RelabelClient() {
     if (busy) return;
     setBusy(true);
     try {
+      say("ok");
       if (wantLabel) await addToPile(book.id);
       setNote(
         wantLabel
@@ -472,6 +502,54 @@ export default function RelabelClient() {
       setScanned("");
     } finally {
       setBusy(false);
+    }
+  }
+
+  /**
+   * **표지 사진으로 제목 찾기** — 바코드도 ISBN 도 없는 책의 유일한 단서는 표지입니다.
+   *
+   * 읽어낸 제목을 그대로 넣지 않고 **그 제목으로 찾은 책 후보**까지 받아 고르게 합니다.
+   * 후보를 고르면 ISBN 까지 붙으므로, 라벨을 붙인 뒤부터는 바코드가 인쇄된 책과 똑같이
+   * 찍힙니다 - 제목만 넣으면 그 책은 영원히 '제목만 있는 책'으로 남습니다.
+   */
+  async function readShot(dataUrl: string) {
+    setShotBusy(true);
+    setNote(null);
+    try {
+      const res = await fetch("/api/books/cover", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ image: dataUrl }),
+      });
+      const j = (await res.json()) as {
+        read?: { title: string | null };
+        candidates?: {
+          title: string;
+          author: string | null;
+          publisher: string | null;
+          isbn: string | null;
+          cover_url: string | null;
+        }[];
+        error?: string;
+      };
+      if (!res.ok || !j.read) {
+        setNote(j.error ?? "표지를 읽지 못했습니다.");
+        say("bad");
+        return;
+      }
+      setShotTitle(j.read.title ?? null);
+      setShotBooks(j.candidates ?? []);
+      if (j.read.title) {
+        setByTitle(true);
+        setNewTitle(j.read.title);
+      }
+      setShooting(false);
+      say("ask");
+    } catch (e) {
+      setNote(`보내지 못했습니다 — ${e instanceof Error ? e.message : String(e)}`);
+      say("bad");
+    } finally {
+      setShotBusy(false);
     }
   }
 
@@ -602,9 +680,89 @@ export default function RelabelClient() {
   const recent = prog?.recent ?? [];
   const liveRecent = recent.filter((r) => !r.undoneAt);
 
+  /*
+    ── 표지 사진으로 제목 찾기 ──────────────────────────────────────────────
+    바코드도 ISBN 도 없는 책의 단서는 표지뿐입니다. 사진을 찍으면 제목을 읽고 **그 제목으로
+    찾은 책 후보**까지 보여줍니다. 후보를 고르면 ISBN 이 함께 붙어서, 라벨을 붙인 뒤부터는
+    바코드가 인쇄된 책과 똑같이 찍힙니다.
+  */
+  const coverBlock = (
+    <div className="mt-2">
+      {!shooting && (
+        <button
+          type="button"
+          onClick={() => setShooting(true)}
+          className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-700"
+        >
+          📷 표지 찍어 제목 넣기
+        </button>
+      )}
+      {shooting && (
+        <div className="mt-2">
+          <CoverShot onShot={(url) => void readShot(url)} busy={shotBusy} onClose={() => setShooting(false)} />
+        </div>
+      )}
+      {shotTitle && (
+        <p className="mt-2 text-xs text-slate-600">
+          표지에서 읽은 제목: <b>{shotTitle}</b> — 위 칸에 넣어 두었습니다. 아래 후보 중 손에 든 책이 있으면 누르세요
+          (ISBN까지 함께 들어갑니다).
+        </p>
+      )}
+      {shotBooks.length > 0 && (
+        <div className="mt-2 grid gap-2 sm:grid-cols-2">
+          {shotBooks.map((b, i) => (
+            <button
+              key={`${b.isbn ?? "none"}-${i}`}
+              type="button"
+              disabled={busy}
+              onClick={() =>
+                void doApply({ code: scanned, isbn: b.isbn ?? "", title: b.title })
+              }
+              className="flex gap-2 rounded-lg border border-slate-300 bg-white p-2 text-left hover:border-gia-gold disabled:opacity-50"
+            >
+              {b.cover_url ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={b.cover_url} alt="" className="h-16 w-11 shrink-0 rounded object-cover" />
+              ) : (
+                <div className="flex h-16 w-11 shrink-0 items-center justify-center rounded bg-slate-100 text-lg">
+                  📘
+                </div>
+              )}
+              <span className="min-w-0">
+                <span className="block text-sm font-semibold text-slate-800">{b.title}</span>
+                <span className="block text-xs text-slate-500">
+                  {[b.author, b.publisher].filter(Boolean).join(" · ")}
+                </span>
+                {b.isbn && <span className="block font-mono text-xs text-slate-400">{b.isbn}</span>}
+              </span>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+
   return (
     <div className="mx-auto max-w-5xl px-4 py-6">
-      <h1 className="text-xl font-bold text-gia-navy">재등록 · 라벨 뽑기</h1>
+      <div className="flex items-start gap-3">
+        <h1 className="text-xl font-bold text-gia-navy">재등록 · 라벨 뽑기</h1>
+        <button
+          type="button"
+          onClick={() => {
+            const next = !sound;
+            setSound(next);
+            setSoundOn(next);
+            // 켠 순간 한 번 들려줍니다 - 켜졌는지 확인하려고 책을 찍어 볼 수는 없으니까요.
+            if (next) beep("ok", true);
+          }}
+          className={`ml-auto rounded-lg border px-2.5 py-1.5 text-xs font-semibold ${
+            sound ? "border-gia-gold bg-amber-50 text-gia-navy" : "border-slate-300 text-slate-500"
+          }`}
+          title="찍을 때마다 소리로 알려줍니다 — 됐다 / 봐야 한다 / 안 됐다"
+        >
+          {sound ? "🔊 소리 켬" : "🔇 소리 끔"}
+        </button>
+      </div>
       <p className="mt-2 text-sm leading-relaxed text-slate-600">
         책에 인쇄된 바코드를 찍으세요. 상품코드로 등록된 책이면 <b>표지의 ISBN</b>을 적는 자리가 나오고, 적으면 그 정보로
         바꿔 적은 뒤 <b>모아뽑기</b>에 라벨을 담습니다. 바꾼 결과는 아래에 <b>전 → 후</b>로 펼쳐 둡니다 — 제목·권수·라벨 번호를
@@ -830,6 +988,7 @@ export default function RelabelClient() {
                       {busy ? "등록 중…" : "제목으로 등록 + 라벨 담기"}
                     </button>
                   </div>
+                  {coverBlock}
                   <p className="mt-1.5 text-xs leading-relaxed text-slate-500">
                     ISBN 칸을 비워 두면 <b>도서관 라벨 번호(GIA-B-…)</b>를 새로 발급해 그 번호로 바코드를 만듭니다 — 붙이고
                     나면 그 책도 스캐너로 한 번에 찾힙니다. ISBN을 함께 적으면 그 번호가 라벨에 들어가고, 제목은 적으신
@@ -944,6 +1103,7 @@ export default function RelabelClient() {
                   </button>
                 </div>
               )}
+              {(byTitle || !found.preview) && coverBlock}
             </div>
           )}
 
