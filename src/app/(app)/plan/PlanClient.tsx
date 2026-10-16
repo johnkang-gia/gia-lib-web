@@ -10,6 +10,7 @@ import {
   buildPlan,
   PLAN_RULES,
   type PlanBook,
+  type PlanOrder,
   type PlanResult,
   type PlanRule,
   type PlanZone,
@@ -71,9 +72,21 @@ export default function PlanClient({
   */
   const [onlyLevel, setOnlyLevel] = useState<number | null>(null);
 
+  /**
+   * 칸의 등급 — **칸 번호 앞자리가 곧 등급입니다**(2-1 은 2등급 첫째 칸).
+   *
+   * 칸에 적어 둔 등급(label_level)이 있으면 그것을 쓰고, 비어 있으면 번호에서 읽습니다.
+   * 실제로 6등급 칸에만 값이 들어 있어서, 2등급을 골라도 「칸이 없습니다」가 떴습니다.
+   */
+  const zoneLevel = (l: LibLocation): number | null => {
+    if (l.label_level != null) return l.label_level;
+    const m = /^(\d+)\s*-/.exec(l.code.trim());
+    return m ? Number(m[1]) : null;
+  };
+
   /** 이 등급에 쓰는 칸들과, 그 칸들이 '다 찍음'인지. */
   const levelZones = useMemo(
-    () => locations.filter((l) => onlyLevel != null && l.label_level === onlyLevel),
+    () => locations.filter((l) => onlyLevel != null && zoneLevel(l) === onlyLevel),
     [locations, onlyLevel]
   );
   const levelReady = levelZones.length > 0 && levelZones.every((l) => l.checked_done_at);
@@ -82,7 +95,7 @@ export default function PlanClient({
   /** 칸에 등급이 적혀 있는지. 하나도 없으면 등급별 정리를 쓸 수 없습니다. */
   const levelsOnZones = useMemo(
     () =>
-      [...new Set(locations.map((l) => l.label_level).filter((v): v is number => v != null))].sort(
+      [...new Set(locations.map((l) => zoneLevel(l)).filter((v): v is number => v != null))].sort(
         (a, b) => a - b
       ),
     [locations]
@@ -93,7 +106,7 @@ export default function PlanClient({
       locations
         .filter((l) => (useTempZones ? true : l.kind !== "임시"))
         // 등급 하나만 정리할 때는 그 등급 칸에만 담습니다.
-        .filter((l) => onlyLevel == null || l.label_level === onlyLevel)
+        .filter((l) => onlyLevel == null || zoneLevel(l) === onlyLevel)
         .map((l) => ({
           id: l.id,
           code: l.code,
@@ -114,6 +127,83 @@ export default function PlanClient({
    * 하고 두 번 다시 못 하게 됩니다. 기본 80%는 "다섯 칸 중 한 칸은 비워 둔다"는 뜻입니다.
    */
   const [fillTarget, setFillTarget] = useState(0.8);
+
+  /**
+   * 같은 묶음 안에서 무엇을 먼저 꽂을지 — 이름순이냐, 얇은 책부터냐.
+   *
+   * 요청: "알파벳, 시리즈별로 그리고 렉사일별(얇은 책부터 두꺼운 책 순으로)."
+   *
+   * 렉사일 지수는 조회처 어디도 주지 않습니다(MetaMetrics 자료라서요). 대신 말씀하신 기준
+   * 자체가 「단어 얼마 안 되는 책부터」이고, 거기에는 **쪽수**가 바로 맞습니다 - 구글북스와
+   * 오픈라이브러리가 줍니다. 시리즈는 어느 쪽을 골라도 반드시 붙여 둡니다.
+   */
+  const [order, setOrder] = useState<PlanOrder>("이름순");
+
+  /** 쪽수를 아는 책이 몇 권인지, 아직 안 물어본 책이 몇 권인지. */
+  const [pagesKnown, setPagesKnown] = useState(0);
+  const [pagesLeft, setPagesLeft] = useState(0);
+  const [pagesBusy, setPagesBusy] = useState(false);
+  /** 펼쳐 놓은 칸 — 그 칸에 무슨 책을 넣어야 하고 그 책이 지금 어디 있는지. */
+  const [openZone, setOpenZone] = useState<string | null>(null);
+
+  /** 칸 이름 찾기(책이 지금 어디 있는지 말해 줄 때 씁니다). */
+  const zoneName = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const l of locations) m.set(l.id, l.code);
+    return m;
+  }, [locations]);
+
+  useEffect(() => {
+    let alive = true;
+    void (async () => {
+      try {
+        const j = (await (await fetch("/api/books/pages")).json()) as {
+          known?: number;
+          left?: number;
+        };
+        if (alive) {
+          setPagesKnown(j.known ?? 0);
+          setPagesLeft(j.left ?? 0);
+        }
+      } catch {
+        // 쪽수를 못 세어도 이름순 정리는 됩니다.
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  /**
+   * 쪽수를 조금씩 이어서 채웁니다.
+   *
+   * 1,160종을 한 번에 돌면 화면이 60초를 넘겨 끊깁니다. 스무 권씩 받아 오고, 남은 수를 화면에
+   * 보여주며 이어 갑니다 - 중간에 멈춰도 거기까지는 남습니다.
+   */
+  async function fillPages() {
+    if (pagesBusy) return;
+    setPagesBusy(true);
+    try {
+      for (let round = 0; round < 40; round += 1) {
+        const res = await fetch("/api/books/pages", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ limit: 20 }),
+        });
+        const j = (await res.json()) as { left?: number; filled?: number; looked?: number; error?: string };
+        if (j.error) {
+          setError(j.error);
+          break;
+        }
+        setPagesLeft(j.left ?? 0);
+        setPagesKnown((n) => n + (j.filled ?? 0));
+        if ((j.looked ?? 0) === 0 || (j.left ?? 0) === 0) break;
+      }
+      router.refresh();
+    } finally {
+      setPagesBusy(false);
+    }
+  }
 
   /** 이번에 정리할 책. 등급을 골랐으면 그 등급 책만. */
   const targetBooks = useMemo(
@@ -140,7 +230,7 @@ export default function PlanClient({
     // 한 틱 미뤄서 화면이 먼저 그려지게 합니다.
     const id = setTimeout(() => {
       try {
-        const result = buildPlan(targetBooks, targetZones, rule, freshShelf, fillTarget);
+        const result = buildPlan(targetBooks, targetZones, rule, freshShelf, fillTarget, order);
         if (alive) setComputed(result);
       } catch (e) {
         if (alive) setPlanError(e instanceof Error ? e.message : "계획을 계산하지 못했습니다.");
@@ -150,7 +240,7 @@ export default function PlanClient({
       alive = false;
       clearTimeout(id);
     };
-  }, [targetBooks, targetZones, rule, freshShelf, fillTarget]);
+  }, [targetBooks, targetZones, rule, freshShelf, fillTarget, order]);
 
   const plan: PlanResult = computed ?? {
     zones: [],
@@ -350,6 +440,42 @@ export default function PlanClient({
               새 책이 들어올 자리와 손이 들어갈 틈을 남깁니다
             </span>
           </label>
+
+          {/*
+            ── 같은 묶음 안에서 무엇을 먼저 꽂을까 ───────────────────────────
+            요청: "알파벳, 시리즈별로 그리고 렉사일별(얇은 책부터 두꺼운 책 순으로)."
+
+            렉사일 지수는 우리 조회처 네 곳 어디도 주지 않습니다(MetaMetrics 자료). 없는 숫자를
+            지어내지 않고, 말씀하신 기준 자체인 「단어 얼마 안 되는 책부터」에 바로 맞는
+            **쪽수**로 세웁니다 - 구글북스·오픈라이브러리가 줍니다.
+          */}
+          <label className="flex items-center gap-2 text-sm text-slate-600">
+            <span>같은 묶음 안에서</span>
+            <select
+              value={order}
+              onChange={(e) => setOrder(e.target.value as PlanOrder)}
+              className="rounded-lg border border-slate-300 px-2 py-1 text-sm"
+            >
+              <option value="이름순">이름순 — 시리즈·작가·제목 차례로</option>
+              <option value="얇은책순">얇은 책 → 두꺼운 책 (쪽수)</option>
+            </select>
+            <span className="text-xs text-slate-400">
+              {order === "얇은책순"
+                ? `쪽수를 아는 책 ${pagesKnown}권 · 모르는 책은 맨 뒤 — 시리즈는 언제나 붙여 둡니다`
+                : "시리즈는 언제나 붙여 둡니다"}
+            </span>
+            {order === "얇은책순" && pagesLeft > 0 && (
+              <button
+                type="button"
+                disabled={pagesBusy}
+                onClick={() => void fillPages()}
+                className="rounded-lg border border-slate-300 px-2 py-1 text-xs font-semibold text-slate-700 disabled:opacity-50"
+                title="조회처에서 쪽수를 받아 채웁니다(조금씩 이어서)"
+              >
+                {pagesBusy ? `쪽수 채우는 중… (${pagesLeft}권 남음)` : `쪽수 채우기 (${pagesLeft}권 모름)`}
+              </button>
+            )}
+          </label>
         </div>
 
         {settings.plan_made_at && (
@@ -530,6 +656,16 @@ export default function PlanClient({
                 )}
 
                 <span className="ml-auto flex items-center gap-2 text-sm">
+                  {zp.books.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => setOpenZone((v) => (v === zp.zone.id ? null : zp.zone.id))}
+                      className="rounded-lg border border-slate-300 px-2 py-0.5 text-xs font-semibold text-slate-700"
+                      title="이 칸에 넣을 책과, 그 책이 지금 어디 있는지"
+                    >
+                      {openZone === zp.zone.id ? "접기" : "무슨 책인지 보기"}
+                    </button>
+                  )}
                   <span className={over ? "font-bold text-red-600" : "text-slate-500"}>
                     {zp.books.length}권
                   </span>
@@ -545,6 +681,49 @@ export default function PlanClient({
                     </span>
                   )}
                 </span>
+
+                {/*
+                  ── 이 칸에 무슨 책을 넣고, 그 책이 지금 어디 있는지 ──────────
+                  요청: "6-1부터 무슨 책을 여기에 넣어야 하고 이 책은 지금 어디에 있고, 이걸
+                  정리해서 알려줘야 해. 그래서 내가 그걸 보고 실제로 책을 정리하는 방식이야."
+
+                  꽂을 **차례대로** 적습니다(왼쪽부터 그 순서로 꽂으면 됩니다). 지금 자리가
+                  다른 책은 어디서 가져와야 하는지 함께 적고, 이미 이 칸에 있는 책은 「그대로」
+                  라고만 적습니다 - 손이 갈 일이 없는 책을 굵게 쓰면 종이가 시끄러워집니다.
+                */}
+                {openZone === zp.zone.id && (
+                  <ol className="w-full list-none space-y-0.5 border-t border-slate-100 pt-2 text-sm">
+                    {zp.books.map((b, i) => {
+                      const now = b.location_id ? (zoneName.get(b.location_id) ?? null) : null;
+                      const stay = b.location_id === zp.zone.id;
+                      return (
+                        <li key={b.id} className="flex flex-wrap items-baseline gap-x-2 py-0.5">
+                          <span className="w-7 shrink-0 text-right text-xs text-slate-400">{i + 1}.</span>
+                          <span className="font-medium text-slate-800">{b.title}</span>
+                          {b.series && (
+                            <span className="rounded bg-violet-100 px-1 py-0.5 text-[10px] font-bold text-violet-800">
+                              {b.series}
+                              {b.series_no != null ? ` ${b.series_no}` : ""}
+                            </span>
+                          )}
+                          {b.author && <span className="text-xs text-slate-500">{b.author}</span>}
+                          {(b.pages ?? 0) > 0 && (
+                            <span className="text-[11px] text-slate-400">{b.pages}쪽</span>
+                          )}
+                          <span className="ml-auto text-xs">
+                            {stay ? (
+                              <span className="text-slate-400">그대로</span>
+                            ) : (
+                              <span className="font-semibold text-amber-700">
+                                {now ? `${now} 에서 가져오기` : "자리 모름 — 찾아야 합니다"}
+                              </span>
+                            )}
+                          </span>
+                        </li>
+                      );
+                    })}
+                  </ol>
+                )}
               </li>
             );
           })}

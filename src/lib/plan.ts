@@ -31,6 +31,13 @@ export type PlanBook = {
   series_no?: number | null;
   /** 지금 붙어 있는 색 라벨의 등급(2~6). '라벨 등급' 기준으로 나눌 때 씁니다. */
   label_level?: number | null;
+  /**
+   * 쪽수 - 「얇은 책 → 두꺼운 책」으로 세울 때 씁니다.
+   *
+   * 렉사일은 조회처 어디도 주지 않아서(MetaMetrics 자료) 쪽수가 그 자리를 대신합니다.
+   * 0 은 「물어봤는데 모른다」, null 은 「아직 안 물어봤다」 - 둘 다 맨 뒤로 보냅니다.
+   */
+  pages?: number | null;
 };
 
 /** 계획을 세울 때 쓰는 최소한의 구역 정보. */
@@ -184,12 +191,29 @@ function primaryRank(value: string | null, rule: PlanRule) {
  * 전부 한 칸씩 밀어야 한다면, 정리는 한 번 하고 두 번 다시 못 합니다. 손가락이 들어갈 틈도
  * 있어야 아이가 책을 뽑고 꽂습니다. 기본값 0.8은 "다섯 칸 중 한 칸은 비워 둔다"는 뜻입니다.
  */
+/**
+ * 같은 묶음 안에서 무엇을 먼저 꽂을지.
+ *
+ * 요청: "알파벳, 시리즈별로 그리고 렉사일별(얇은 책부터 두꺼운 책 순으로)".
+ *
+ * 시리즈는 어느 쪽을 골라도 **반드시 붙여** 놓습니다(1권과 7권이 떨어지면 아이는 그 시리즈를
+ * 못 찾습니다). 달라지는 것은 시리즈 묶음과 낱권들을 **무엇으로 줄 세우느냐**입니다.
+ */
+export type PlanOrder = "이름순" | "얇은책순";
+
+/** 얇은 것부터. 쪽수를 모르는 책(0·null)은 맨 뒤로 보냅니다 - 가운데 끼면 줄이 어지럽습니다. */
+function thickness(book: PlanBook) {
+  const n = book.pages ?? 0;
+  return n > 0 ? n : Number.POSITIVE_INFINITY;
+}
+
 export function buildPlan(
   books: PlanBook[],
   zones: PlanZone[],
   rule: PlanRule,
   freshShelf: boolean,
-  fillTarget = 0.8
+  fillTarget = 0.8,
+  order: PlanOrder = "이름순"
 ): PlanResult {
   // ── ① 덩어리로 묶기 ────────────────────────────────────────────────────
   const groupMap = new Map<string, PlanGroup>();
@@ -223,17 +247,43 @@ export function buildPlan(
   });
 
   for (const group of groups) {
+    /*
+      ── 얇은 책부터 세울 때는 **묶음 단위로** 세웁니다 ──────────────────────
+      시리즈는 붙어 있어야 하므로, 시리즈 안을 쪽수로 섞으면 1·3·2권이 됩니다. 그래서 시리즈는
+      그 **가장 얇은 권**을 그 묶음의 두께로 보고, 묶음끼리 비교합니다. 시리즈 안은 언제나
+      권 번호순입니다.
+    */
+    const bundleThickness = new Map<string, number>();
+    if (order === "얇은책순") {
+      for (const b of group.books) {
+        const k = shelfKey(b);
+        const bundle = `${k.block}|${k.name}`;
+        const now = bundleThickness.get(bundle) ?? Number.POSITIVE_INFINITY;
+        bundleThickness.set(bundle, Math.min(now, thickness(b)));
+      }
+    }
+
     group.books.sort((a, b) => {
       const ka = shelfKey(a);
       const kb = shelfKey(b);
-      // ① 시리즈 묶음이 낱권보다 앞
-      if (ka.block !== kb.block) return ka.block - kb.block;
+      if (order === "얇은책순") {
+        const ta = bundleThickness.get(`${ka.block}|${ka.name}`) ?? Number.POSITIVE_INFINITY;
+        const tb = bundleThickness.get(`${kb.block}|${kb.name}`) ?? Number.POSITIVE_INFINITY;
+        // ① 얇은 묶음이 앞(쪽수를 모르는 책은 맨 뒤)
+        if (ta !== tb) return ta - tb;
+      } else if (ka.block !== kb.block) {
+        // ① 시리즈 묶음이 낱권보다 앞
+        return ka.block - kb.block;
+      }
       // ② 시리즈 이름순(낱권이면 작가순)
       const byName = ka.name.localeCompare(kb.name, "ko");
       if (byName !== 0) return byName;
       // ③ 같은 시리즈 안에서는 권 번호순
       if (ka.no !== kb.no) return ka.no - kb.no;
-      // ④ 그래도 같으면 제목순
+      // ④ 그래도 같으면 얇은 것부터, 끝으로 제목순
+      const ta = thickness(a);
+      const tb = thickness(b);
+      if (order === "얇은책순" && ta !== tb) return ta - tb;
       return (a.title ?? "").localeCompare(b.title ?? "", "ko");
     });
   }

@@ -287,6 +287,14 @@ export type BookLookup = {
   seriesNo: number | null;
   /** 조회처가 준 원본 분류 글자 - 자동 분류가 틀렸을 때 참고용입니다. */
   rawCategory: string | null;
+  /**
+   * 쪽수. 구글북스(pageCount)와 오픈라이브러리(number_of_pages)가 줍니다.
+   *
+   * 정리 계획에서 **얇은 책 → 두꺼운 책** 순으로 세울 때 씁니다. 렉사일은 조회처 어디도
+   * 주지 않으므로(MetaMetrics 자료) 그 자리를 쪽수가 대신합니다 - 「단어 얼마 안 되는 책부터」
+   * 라는 기준에는 쪽수가 바로 맞습니다.
+   */
+  pages?: number | null;
   source: string;
 };
 

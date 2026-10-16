@@ -342,6 +342,7 @@ function googleVolume(info: unknown, fallbackIsbn: string | null): BookLookup | 
         language?: string;
         categories?: string[];
         industryIdentifiers?: { type?: string; identifier?: string }[];
+        pageCount?: number;
       }
     | undefined
     | null;
@@ -366,6 +367,8 @@ function googleVolume(info: unknown, fallbackIsbn: string | null): BookLookup | 
     language: v.language === "ko" ? "한국어" : v.language === "en" ? "영어" : guessLanguage(title),
     rawCategory: Array.isArray(v.categories) ? v.categories.join(", ") : null,
     category: guessCategory(Array.isArray(v.categories) ? v.categories.join(", ") : null),
+    // 쪽수 - 정리 계획에서 얇은 책부터 세울 때 씁니다(0쪽은 '모름'으로 봅니다).
+    pages: typeof v.pageCount === "number" && v.pageCount > 0 ? v.pageCount : null,
     source: "구글 북스",
   });
 }
@@ -389,6 +392,11 @@ async function fromOpenLibrary(isbn: string): Promise<BookLookup | null> {
     publisher: publishers || null,
     pub_year: yearOf(item.publish_date),
     cover_url: item.cover?.medium ?? item.cover?.large ?? null,
+    pages:
+      typeof (item as { number_of_pages?: number }).number_of_pages === "number" &&
+      (item as { number_of_pages?: number }).number_of_pages! > 0
+        ? (item as { number_of_pages?: number }).number_of_pages!
+        : null,
     language: guessLanguage(String(item.title)),
     rawCategory: Array.isArray(item.subjects)
       ? item.subjects.map((s: { name?: string }) => s.name).filter(Boolean).slice(0, 5).join(", ")
