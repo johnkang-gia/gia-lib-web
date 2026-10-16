@@ -66,6 +66,16 @@ type After = {
   shelf: string | null;
 };
 
+/** 조회처 한 곳이 답한 제목. 서로 다를 때 사람이 고릅니다. */
+type TitleChoice = {
+  title: string;
+  source: string;
+  author: string | null;
+  publisher: string | null;
+  pubYear: string | null;
+  coverUrl: string | null;
+};
+
 type ApplyResult = {
   what: string;
   message: string;
@@ -79,6 +89,12 @@ type ApplyResult = {
   logId: string | null;
   /** 찍은 번호(화면이 들고 있습니다). */
   scanned: string;
+  /** 제목을 준 조회처. */
+  titleFrom: string | null;
+  /** 조회처에서 못 찾아 원래(상자) 제목이 그대로 남았는지. */
+  titleKept: boolean;
+  /** 조회처마다 답한 제목들. */
+  titleChoices: TitleChoice[];
 };
 
 type RecentRow = {
@@ -122,6 +138,8 @@ export default function RelabelClient() {
   const [result, setResult] = useState<ApplyResult | null>(null);
   const [editing, setEditing] = useState(false);
   const [editIsbn, setEditIsbn] = useState("");
+  const [titleEditing, setTitleEditing] = useState(false);
+  const [titleDraft, setTitleDraft] = useState("");
   const [pile, setPile] = useState<{ id: string; count: number } | null>(null);
   const [prog, setProg] = useState<Progress | null>(null);
   const [showLeft, setShowLeft] = useState(false);
@@ -256,6 +274,9 @@ export default function RelabelClient() {
         barcode: j.barcode ?? "",
         logId: j.logId ?? null,
         scanned,
+        titleFrom: j.titleFrom ?? null,
+        titleKept: Boolean(j.titleKept),
+        titleChoices: j.titleChoices ?? [],
       });
       await addToPile(j.after.id);
       void loadProgress();
@@ -304,6 +325,50 @@ export default function RelabelClient() {
     }
   }
 
+  /**
+   * **제목 고치기** — 화면의 제목이 손에 든 책과 다를 때 그 자리에서 고칩니다.
+   *
+   * 조회처는 틀립니다. 어느 쪽이 맞는지는 표지를 보고 있는 사람만 압니다 - 그 사람을
+   * 「장서 관리」로 보내면 대개 고쳐지지 않습니다.
+   */
+  async function doSetTitle(title: string, from?: TitleChoice) {
+    if (busy || !result?.after || !title.trim()) return;
+    setBusy(true);
+    setNote(null);
+    try {
+      const res = await fetch("/api/books/relabel", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "settitle",
+          bookId: result.after.id,
+          title,
+          // 조회처를 바꾼 것이면 저자·출판사·표지도 그 책의 것으로 함께 갑니다.
+          author: from?.author ?? null,
+          publisher: from?.publisher ?? null,
+          pubYear: from?.pubYear ?? null,
+          coverUrl: from?.coverUrl ?? null,
+        }),
+      });
+      const j = (await res.json()) as { after?: After; message?: string; error?: string };
+      if (j.error || !j.after) {
+        setNote(j.error ?? "제목을 고치지 못했습니다.");
+        return;
+      }
+      setResult((prev) =>
+        prev
+          ? { ...prev, after: j.after as After, titleKept: false, titleFrom: from?.source ?? "직접 적음" }
+          : prev
+      );
+      setTitleEditing(false);
+      setNote(j.message ?? null);
+    } catch (e) {
+      setNote(`보내지 못했습니다 — ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setBusy(false);
+    }
+  }
+
   /** **수정** — 되돌린 뒤 다른 ISBN 으로 다시 등록합니다(한 번에). */
   async function doRedo() {
     if (busy || !result?.logId) return;
@@ -333,6 +398,9 @@ export default function RelabelClient() {
         barcode: j.barcode ?? "",
         logId: j.logId ?? null,
         scanned: result.scanned,
+        titleFrom: j.titleFrom ?? null,
+        titleKept: Boolean(j.titleKept),
+        titleChoices: j.titleChoices ?? [],
       });
       /*
         잘못 담긴 라벨을 빼고 새 라벨을 담습니다.
@@ -607,6 +675,88 @@ export default function RelabelClient() {
                 </dl>
               </div>
             </div>
+          </div>
+
+          {/* ── 제목이 손에 든 책과 다를 때 ──────────────────────────────── */}
+          <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50/70 px-3 py-2.5">
+            <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
+              <span className="text-xs font-bold text-slate-500">제목</span>
+              <span className="text-sm font-semibold text-slate-800">{result.after.title}</span>
+              {result.titleFrom && (
+                <span className="text-xs text-slate-500">— {result.titleFrom}에서 가져온 제목입니다</span>
+              )}
+              <button
+                type="button"
+                onClick={() => {
+                  setTitleEditing((v) => !v);
+                  setTitleDraft(result.after?.title ?? "");
+                }}
+                className="ml-auto text-xs font-semibold text-gia-navy underline"
+              >
+                {titleEditing ? "접기" : "제목이 책과 다릅니다"}
+              </button>
+            </div>
+
+            {/*
+              조회처에서 못 찾은 경우. 이때 남아 있는 제목은 **상자 제목**이라, 전집이면 거의
+              틀립니다. 그냥 두면 모르고 지나가므로 눈에 띄게 말합니다.
+            */}
+            {result.titleKept && (
+              <p className="mt-2 rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-900">
+                조회처에서 이 ISBN을 찾지 못해 <b>원래 줄의 제목을 그대로</b> 두었습니다. 상품코드 한 줄에 여러 권이
+                묶여 있던 제목이라 이 책의 제목이 아닐 수 있습니다 — 표지를 보고 적어주세요.
+              </p>
+            )}
+
+            {/* 다른 조회처가 답한 제목들 */}
+            {result.titleChoices.filter((c) => c.title.trim() !== result.after?.title).length > 0 && (
+              <div className="mt-2">
+                <div className="text-xs text-slate-500">다른 조회처는 이렇게 답했습니다 — 맞는 것을 누르세요</div>
+                <div className="mt-1 flex flex-wrap gap-2">
+                  {result.titleChoices
+                    .filter((c) => c.title.trim() !== result.after?.title)
+                    .map((c) => (
+                      <button
+                        key={`${c.source}-${c.title}`}
+                        type="button"
+                        disabled={busy}
+                        onClick={() => void doSetTitle(c.title.trim(), c)}
+                        className="rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-left text-sm text-slate-700 hover:border-gia-gold disabled:opacity-50"
+                        title="이 제목으로 바꿉니다(저자·출판사·표지도 함께)"
+                      >
+                        <span className="mr-1 text-xs text-slate-400">{c.source}</span>
+                        {c.title}
+                      </button>
+                    ))}
+                </div>
+              </div>
+            )}
+
+            {(titleEditing || result.titleKept) && (
+              <div className="mt-2 flex flex-wrap gap-2">
+                <input
+                  value={titleDraft}
+                  onChange={(e) => setTitleDraft(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      void doSetTitle(titleDraft);
+                    }
+                  }}
+                  placeholder="표지에 적힌 제목을 그대로 적어주세요"
+                  className="flex-1 rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-gia-gold"
+                  autoComplete="off"
+                />
+                <button
+                  type="button"
+                  disabled={busy || !titleDraft.trim()}
+                  onClick={() => void doSetTitle(titleDraft)}
+                  className="rounded-lg bg-gia-navy px-3 py-2 text-sm font-semibold text-white disabled:opacity-50"
+                >
+                  제목 고치기
+                </button>
+              </div>
+            )}
           </div>
 
           {/* 남은 권수 */}

@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
-import { lookupIsbn } from "@/lib/isbn";
+import { lookupIsbnAll } from "@/lib/isbn";
 import { findBook } from "@/lib/server/library";
 import { pickTitle, type TitleCandidate } from "@/lib/titlePick";
 import { logLibError } from "@/lib/server/libLog";
@@ -62,7 +62,7 @@ export async function POST(request: Request) {
     if (!email) return NextResponse.json({ error: "로그인이 필요합니다." }, { status: 401 });
 
     const body = (await request.json().catch(() => null)) as {
-      action?: "find" | "apply" | "undo" | "redo";
+      action?: "find" | "apply" | "undo" | "redo" | "settitle";
       code?: string;
       /** apply: 사람이 표지에서 읽어 적은 ISBN. */
       isbn?: string;
@@ -70,12 +70,30 @@ export async function POST(request: Request) {
       bookId?: string;
       /** undo · redo: 되돌릴 재등록 기록. */
       logId?: string;
+      /** settitle: 사람이 손에 든 책을 보고 고친 제목(과 함께 바꿀 책 정보). */
+      title?: string;
+      author?: string | null;
+      publisher?: string | null;
+      pubYear?: string | null;
+      coverUrl?: string | null;
     } | null;
 
     /*
       되돌리기·수정은 찍은 번호가 아니라 **기록 한 줄**을 가리킵니다. 그래서 code 검사보다
       먼저 처리합니다.
     */
+    /*
+      제목 고치기도 찍은 번호가 아니라 **줄 하나**를 가리킵니다. 손에 책을 들고 있는 사람이
+      화면의 제목이 틀린 것을 본 그 자리에서 고칠 수 있어야 합니다.
+    */
+    if (body?.action === "settitle") {
+      return await setTitle(supabase, body.bookId ?? "", body.title ?? "", {
+        author: body.author,
+        publisher: body.publisher,
+        pubYear: body.pubYear,
+        coverUrl: body.coverUrl,
+      });
+    }
     if (body?.action === "undo") return await undo(supabase, email, body.logId ?? "");
     if (body?.action === "redo") return await redo(supabase, email, body.logId ?? "", body.isbn ?? "");
 
@@ -285,13 +303,23 @@ async function apply(
   }
   const isbn = canonicalIsbn(typed);
 
-  // 조회처에서 책 정보를 받아옵니다. 못 받아도 등록은 합니다 - 제목은 사람이 고칠 수 있습니다.
-  let found: Awaited<ReturnType<typeof lookupIsbn>> = null;
+  /*
+    ── 조회처를 **모두** 봅니다 ─────────────────────────────────────────────
+    전에는 먼저 답하는 한 곳만 썼습니다. 그런데 조회처끼리 답이 다를 때가 있습니다 - 실제로
+    9780375802928 을 오픈라이브러리는 「Tigers at Twilight」로, 카카오는 「Junie B. Jones #17」
+    로 답했습니다(손에 든 책은 후자였습니다). 한 곳만 보면 그 차이를 아무도 모릅니다.
+
+    그래서 네 곳을 한꺼번에 묻고, 고른 제목과 **고르지 않은 제목들**을 함께 돌려줍니다.
+    화면에서 한 번 눌러 바꿀 수 있게 하기 위해서입니다 - 표지를 보고 있는 사람만 어느 쪽이
+    맞는지 압니다.
+  */
+  let all: Awaited<ReturnType<typeof lookupIsbnAll>> = [];
   try {
-    found = await lookupIsbn(isbn);
+    all = await lookupIsbnAll(isbn);
   } catch (e) {
     await logLibError(supabase, "api/books/relabel:lookup", e, { email, detail: `isbn=${isbn}` });
   }
+  const found = all[0] ?? null;
 
   const source = bookId
     ? (((await supabase.from("lib_books").select("*").eq("id", bookId).maybeSingle()).data ?? null) as LibBook | null)
@@ -310,26 +338,38 @@ async function apply(
   const existing = ((sameRows ?? []) as LibBook[]).filter((b) => b.id !== source?.id);
   const target = existing[0] ?? null;
 
-  /*
-    ── 조회처 제목을 그대로 쓰지 않습니다 ───────────────────────────────────
-    실제로 돌려 보고 알았습니다. 「Tigers at Twilight」 로 제대로 적혀 있던 줄에 조회처가
-    「TIGERS AT TWILIGHT(STST00029)」 를 주었고, 그대로 덮어써 버렸습니다 - 전부 대문자에
-    유통사 재고 번호까지 붙은 글자입니다.
+  const candidates: TitleCandidate[] = all.map((b) => ({
+    title: b.title,
+    source: b.source,
+    author: b.author,
+    publisher: b.publisher,
+  }));
 
-    제목 고르는 규칙은 이미 있고 검사가 붙어 있습니다(titlePick.ts). 같은 규칙을 씁니다:
-    지금 제목을 품은 **더 자세한** 제목일 때만 바꾸고, 그렇지 않으면 **지금 제목을 지킵니다.**
-    여기는 사람이 ISBN 한 줄만 적는 자리라, 제목이 나빠지는 것을 알아챌 기회가 없습니다.
+  /*
+    ── 여기서는 **적어 넣은 ISBN 이 주인**입니다 ────────────────────────────
+    처음에는 「지금 제목을 품은 더 자세한 제목일 때만 바꾼다」는 규칙을 그대로 썼습니다.
+    「제목 다시 채우기」 화면에서 가져온 규칙인데, 거기서는 지금 제목이 **그 책의 제목**이라
+    옳은 규칙입니다.
+
+    재등록은 다릅니다. 지금 제목은 상품코드 한 줄에 열두 권이 묶여 있을 때의 **상자 제목**
+    이고, 그 열두 권 중 열한 권에게는 틀린 제목입니다. 그 제목을 지키면 떼어낸 권마다 상자
+    제목이 따라붙습니다 - 실제로 그렇게 됐습니다(Junie B. Jones 한 권이 「Tigers at
+    Twilight」로 등록됐습니다).
+
+    그래서 지금 제목을 **아예 빼고** 조회된 제목들끼리만 겨루게 합니다. 다듬기(대문자·재고
+    번호·세트 이름 걸러내기)는 그대로 돕니다 - 「TIGERS AT TWILIGHT(STST00029)」 같은 것이
+    들어오는 일은 여전히 있습니다.
   */
-  const candidates: TitleCandidate[] = found?.title
-    ? [{ title: found.title, source: found.source, author: found.author, publisher: found.publisher }]
-    : [];
+  const picked = pickTitle("", candidates);
+  /** 고른 제목을 준 조회처의 기록. 저자·출판사·표지도 **그 책의 것**이어야 합니다. */
+  const rec = (picked.source ? all.find((b) => b.source === picked.source) : null) ?? found;
 
   const info = {
-    title: (found?.title ?? "").trim(),
-    author: found?.author ?? null,
-    publisher: found?.publisher ?? null,
-    pub_year: found?.pub_year ?? null,
-    cover_url: found?.cover_url ?? null,
+    title: (picked.best ?? "").trim(),
+    author: rec?.author ?? null,
+    publisher: rec?.publisher ?? null,
+    pub_year: rec?.pub_year ?? null,
+    cover_url: rec?.cover_url ?? null,
   };
 
   let resultId: string;
@@ -390,13 +430,23 @@ async function apply(
       product_code: source.product_code ?? source.item_code ?? code,
       item_code: null,
     };
-    // 더 자세해질 때만 바꿉니다(kind === "more"). 같거나 나빠지면 지금 제목을 지킵니다.
-    const pick = pickTitle(source.title ?? "", candidates);
-    if (pick.kind === "more" && pick.best) patch.title = pick.best;
-    if (info.author && !source.author) patch.author = info.author;
-    if (info.publisher && !source.publisher) patch.publisher = info.publisher;
-    if (info.pub_year && !source.pub_year) patch.pub_year = info.pub_year;
-    if (info.cover_url && !source.cover_url) patch.cover_url = info.cover_url;
+    /*
+      조회된 제목이 있으면 **그것으로 바꿉니다**(상자 제목은 권위가 없습니다). 저자·출판사·
+      연도·표지도 함께 갈아 끼웁니다 - 상자에 적혀 있던 값은 그 상자의 대표 책 것이지, 지금
+      떼어내는 이 한 권의 것이 아닙니다. 빈칸일 때만 채우던 예전 방식으로는 상자의 저자와
+      표지가 그대로 따라붙었습니다.
+
+      조회처가 아무것도 못 찾으면 그대로 둡니다 - 지우는 것보다는 낫습니다. 대신 화면이
+      「조회처에서 못 찾아 원래 제목을 그대로 두었습니다」라고 말하고, 그 자리에서 제목을
+      적을 수 있게 합니다.
+    */
+    if (info.title) {
+      patch.title = info.title;
+      if (info.author) patch.author = info.author;
+      if (info.publisher) patch.publisher = info.publisher;
+      if (info.pub_year) patch.pub_year = info.pub_year;
+      if (info.cover_url) patch.cover_url = info.cover_url;
+    }
 
     if (rest > 0) patch.total_copies = 1;
 
@@ -495,9 +545,8 @@ async function apply(
     what = "moved";
   } else {
     // 아무 줄도 없습니다 - 새로 만듭니다.
-    // 새로 만드는 경우에는 지킬 제목이 없으니 조회 제목을 다듬어 씁니다.
-    const made0 = pickTitle("", candidates);
-    const newTitle = (made0.best ?? "").trim();
+    // 새로 만드는 경우에도 같은 제목을 씁니다(위에서 이미 골랐습니다).
+    const newTitle = info.title;
     if (!newTitle) {
       return NextResponse.json(
         {
@@ -608,6 +657,25 @@ async function apply(
     leftover,
     /** 라벨에 실제로 찍힐 번호. 화면에서 바코드로 그려 눈으로 확인할 수 있게 합니다. */
     barcode: after ? (after.item_code ?? after.isbn ?? "") : "",
+    /** 제목을 준 조회처(사람이 "어디서 온 제목이냐"를 물을 수 있어야 합니다). */
+    titleFrom: picked.source ?? null,
+    /**
+     * 조회처에서 이 ISBN 을 못 찾아 **원래 제목을 그대로 두었는지.** 그대로 두면 상자 제목이
+     * 남으므로, 화면이 그 사실을 말하고 제목을 적을 자리를 내줍니다.
+     */
+    titleKept: !info.title,
+    /**
+     * 조회처마다 답한 제목들. 서로 다를 때 화면에서 한 번 눌러 바꿀 수 있게 합니다 -
+     * 표지를 보고 있는 사람만 어느 쪽이 맞는지 압니다.
+     */
+    titleChoices: all.map((b) => ({
+      title: b.title,
+      source: b.source,
+      author: b.author ?? null,
+      publisher: b.publisher ?? null,
+      pubYear: b.pub_year ?? null,
+      coverUrl: b.cover_url ?? null,
+    })),
     logId: (logRow as { id: string } | null)?.id ?? null,
     foundBy: found?.source ?? null,
     message:
@@ -618,6 +686,74 @@ async function apply(
           : what === "moved"
             ? "이미 있던 ISBN 줄에 한 권을 더했습니다"
             : "새로 등록했습니다",
+  });
+}
+
+/**
+ * **제목 고치기** — 화면에 뜬 제목이 손에 든 책과 다를 때 그 자리에서 고칩니다.
+ *
+ * 요청: "내가 가지고 있는 책의 제목과 재등록에서 나오는 책의 제목이 달라."
+ *
+ * ── 왜 이 버튼이 필요한가 ────────────────────────────────────────────────
+ * 조회처는 틀립니다. 한 곳이 다른 책의 제목을 달고 있는 일이 실제로 있었습니다(오픈라이브러리
+ * 가 9780375802928 을 「Tigers at Twilight」로 들고 있었습니다). 그걸 알아볼 수 있는 사람은
+ * **그 순간 그 책을 손에 들고 있는 사람뿐**입니다. 그 사람에게 「장서 관리로 가서 찾아 고치
+ * 세요」라고 말하면, 열 권 중 아홉 권은 고쳐지지 않습니다.
+ *
+ * 그래서 고른 제목 옆에 **다른 조회처가 답한 제목**을 함께 띄우고, 눌러서 바꾸거나 직접
+ * 적을 수 있게 합니다. 조회처가 바뀌면 저자·출판사·표지도 그 책의 것으로 함께 갑니다 -
+ * 제목만 바꾸고 표지는 남의 책 것으로 두면 더 헷갈립니다.
+ */
+async function setTitle(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  bookId: string,
+  rawTitle: string,
+  extra: { author?: string | null; publisher?: string | null; pubYear?: string | null; coverUrl?: string | null }
+) {
+  const title = rawTitle.trim();
+  if (!bookId) return NextResponse.json({ error: "고칠 줄을 알 수 없습니다." }, { status: 400 });
+  if (!title) return NextResponse.json({ error: "제목을 적어주세요." }, { status: 400 });
+
+  const patch: Record<string, unknown> = { title };
+  // 함께 온 값만 바꿉니다. 안 온 칸을 null 로 밀면 멀쩡한 정보가 지워집니다.
+  if (extra.author !== undefined && extra.author !== null) patch.author = extra.author;
+  if (extra.publisher !== undefined && extra.publisher !== null) patch.publisher = extra.publisher;
+  if (extra.pubYear !== undefined && extra.pubYear !== null) patch.pub_year = extra.pubYear;
+  if (extra.coverUrl !== undefined && extra.coverUrl !== null) patch.cover_url = extra.coverUrl;
+
+  const { error } = await supabase.from("lib_books").update(patch).eq("id", bookId);
+  if (error) return NextResponse.json({ error: `고치지 못했습니다: ${error.message}` }, { status: 400 });
+
+  const { data: row } = await supabase.from("lib_books").select("*").eq("id", bookId).maybeSingle();
+  const book = row as LibBook | null;
+  if (!book) return NextResponse.json({ error: "고친 줄을 다시 읽지 못했습니다." }, { status: 400 });
+
+  let shelf: string | null = null;
+  if (book.location_id) {
+    const { data: loc } = await supabase
+      .from("lib_locations")
+      .select("code")
+      .eq("id", book.location_id)
+      .maybeSingle();
+    shelf = (loc as { code: string } | null)?.code ?? null;
+  }
+
+  return NextResponse.json({
+    ok: true,
+    after: {
+      id: book.id,
+      title: book.title,
+      isbn: book.isbn,
+      code: book.item_code,
+      productCode: book.product_code ?? null,
+      copies: book.total_copies,
+      level: book.label_level,
+      author: book.author ?? null,
+      publisher: book.publisher ?? null,
+      coverUrl: book.cover_url ?? null,
+      shelf,
+    },
+    message: `제목을 「${title}」 로 고쳤습니다`,
   });
 }
 
