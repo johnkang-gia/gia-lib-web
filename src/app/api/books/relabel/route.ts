@@ -155,7 +155,17 @@ export async function POST(request: Request) {
     if (body?.action === "redo") return await redo(supabase, email, body.logId ?? "", body.isbn ?? "");
 
     const code = normalizeScan(body?.code ?? "");
-    if (!code) return NextResponse.json({ error: "읽힌 값이 없습니다." }, { status: 400 });
+    /*
+      ── 찍을 바코드가 아예 없는 책 ─────────────────────────────────────────
+      요청: "바코드는 없고 ISBN만 숫자로 적혀 있는 게 있어서 그래. 심지어 ISBN도 없는 경우도
+      있어서, 그때는 책 표지를 찍어서 등록할 수 있도록 만들어 달라는 거야."
+
+      이 화면은 지금까지 **찍는 것에서 시작**했습니다. 찍을 것이 없는 책은 들어올 길이
+      없었습니다. 그래서 번호 없이도 등록을 받습니다 - 표지에서 읽은 제목(그리고 고른 후보의
+      ISBN)만 있으면 됩니다.
+    */
+    const bare = body?.action === "apply" && Boolean(body.title?.trim() || body.isbn?.trim());
+    if (!code && !bare) return NextResponse.json({ error: "읽힌 값이 없습니다." }, { status: 400 });
 
     if (body?.action === "setisbn") {
       return await setIsbn(supabase, body.bookId ?? "", body.isbn ?? "");
@@ -197,7 +207,8 @@ export async function GET() {
   const { data: auth } = await supabase.auth.getUser();
   if (!auth.user) return NextResponse.json({ error: "로그인이 필요합니다." }, { status: 401 });
 
-  const [{ data: rows }, { count: done }, { data: recent }] = await Promise.all([
+  const [{ data: rows }, { count: done }, { data: recent }, { count: madeNew }, { count: added }] =
+    await Promise.all([
     supabase
       .from("lib_books")
       .select("id,title,item_code,isbn,total_copies,label_level")
@@ -214,6 +225,26 @@ export async function GET() {
       .select("id,code,isbn,what,created_at,undone_at,book_id,before_json")
       .order("created_at", { ascending: false })
       .limit(30),
+    /*
+      ── 새로 등록한 것도 세어 보여줍니다 ───────────────────────────────────
+      요청: "지금 11장 담겨 있는데 2권은 새로 등록이고 9권이 바뀐 거잖아. 9권 바꿨다고는
+      나오는데 2권이 새로 등록이라고는 안 나와 있어."
+
+      맞습니다. 진행 막대는 **상품코드 더미**가 얼마나 줄었는지만 셉니다(그게 끝이 보이는
+      숫자니까요). 그런데 손은 그 일만 한 게 아닙니다 - 등록조차 안 되어 있던 책을 새로
+      넣기도 하고, 책장에 없던 한 권을 더하기도 합니다. 그 일이 화면에 안 보이면 "내가 한
+      일의 절반이 어디 갔나"가 됩니다. 그래서 따로 셉니다.
+    */
+    supabase
+      .from("lib_relabel_log")
+      .select("id", { count: "exact", head: true })
+      .eq("what", "created")
+      .is("undone_at", null),
+    supabase
+      .from("lib_relabel_log")
+      .select("id", { count: "exact", head: true })
+      .eq("what", "addcopy")
+      .is("undone_at", null),
   ]);
 
   /*
@@ -272,6 +303,10 @@ export async function GET() {
     leftCopies,
     doneCopies,
     totalCopies: leftCopies + doneCopies,
+    /** 등록조차 안 되어 있던 책을 새로 넣은 권수(상품코드 더미와는 별개입니다). */
+    createdCopies: madeNew ?? 0,
+    /** 책장등록에 없던 한 권을 장서에 더한 권수. */
+    addedCopies: added ?? 0,
     /** 아직 남은 줄들. "제대로 전부 교체됐나"를 눈으로 확인하는 자리입니다. */
     left: left.map((b) => ({
       id: b.id,
@@ -778,7 +813,7 @@ async function apply(
       .insert({
         isbn: isbn || null,
         item_code: ownCode,
-        product_code: code !== isbn ? code : null,
+        product_code: code && code !== isbn ? code : null,
         title: newTitle,
         author: info.author,
         publisher: info.publisher,
@@ -800,7 +835,7 @@ async function apply(
     상품코드이고, 그걸 찍었을 때 "등록되지 않은 책"이 뜨면 사람은 같은 책을 또 등록합니다.
     (같은 번호가 여러 줄을 가리킬 수 있으므로 이미 있으면 건드리지 않습니다.)
   */
-  if (code !== isbn) {
+  if (code && code !== isbn) {
     await supabase.from("lib_book_aliases").upsert({ code, book_id: resultId }, { onConflict: "code" });
   }
 
@@ -816,7 +851,8 @@ async function apply(
   const { data: logRow } = await supabase
     .from("lib_relabel_log")
     .insert({
-      code,
+      // 찍은 번호가 없으면(표지로 등록) ISBN 을 적어 둡니다 - 기록은 비워 둘 수 없습니다.
+      code: code || isbn || "(번호 없음)",
       isbn,
       book_id: resultId,
       what,

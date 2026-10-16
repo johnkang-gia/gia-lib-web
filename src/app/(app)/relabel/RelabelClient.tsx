@@ -138,6 +138,10 @@ type Progress = {
   totalCopies: number;
   left: { id: string; title: string; code: string | null; isbn: string | null; copies: number; level: number | null }[];
   recent: RecentRow[];
+  /** 등록조차 안 되어 있던 책을 새로 넣은 권수. */
+  createdCopies: number;
+  /** 책장등록에 없던 한 권을 장서에 더한 권수. */
+  addedCopies: number;
 };
 
 const WHAT_KO: Record<string, string> = {
@@ -176,6 +180,9 @@ export default function RelabelClient() {
   const [sound, setSound] = useState(true);
   /** 이미 등록된 줄에 ISBN 을 적어 넣는 칸. */
   const [isbnFix, setIsbnFix] = useState(false);
+  /** 바코드가 없는 책 — 번호를 손으로 치거나 표지를 찍어 등록하는 자리. */
+  const [bare, setBare] = useState(false);
+  const [bareIsbn, setBareIsbn] = useState("");
   /** 표지 사진으로 제목 찾기. */
   const [shooting, setShooting] = useState(false);
   const [shotBusy, setShotBusy] = useState(false);
@@ -838,6 +845,29 @@ export default function RelabelClient() {
             종이 아니라 권으로 세는 이유를 적어 둡니다. 「8줄 중 1줄」로 보면 거의 안 줄어드는
             것처럼 보이는데, 실제로 손이 가는 일은 권 단위입니다.
           */}
+          {/*
+            진행 막대는 상품코드 더미만 셉니다(끝이 보이는 숫자니까요). 그런데 손이 한 일은
+            그것만이 아닙니다 - 새로 등록한 책, 책장에 없던 한 권. 안 보이면 "내가 한 일의
+            절반이 어디 갔나"가 됩니다.
+          */}
+          {(prog.createdCopies > 0 || prog.addedCopies > 0) && (
+            <p className="mt-2 flex flex-wrap items-baseline gap-x-3 gap-y-1 text-sm text-slate-600">
+              <span>그 밖에</span>
+              {prog.createdCopies > 0 && (
+                <span>
+                  새로 등록 <b className="text-gia-navy">{prog.createdCopies}권</b>
+                </span>
+              )}
+              {prog.addedCopies > 0 && (
+                <span>
+                  책장에 없던 한 권 더함 <b className="text-gia-navy">{prog.addedCopies}권</b>
+                </span>
+              )}
+              <span className="text-xs text-slate-500">
+                — 상품코드 더미에서 뺀 것이 아니라서 위 막대에는 들어가지 않습니다
+              </span>
+            </p>
+          )}
           <p className="mt-2 text-xs leading-relaxed text-slate-500">
             한 권 재등록할 때마다 남은 권수가 하나 줄어듭니다. 같은 상품코드에 여러 권이 묶여 있으면 그 줄은
             권수만 줄고 남아 있다가, 마지막 한 권까지 바꾸면 사라집니다.
@@ -883,7 +913,7 @@ export default function RelabelClient() {
               void doFind(scan);
             }
           }}
-          placeholder={busy ? "읽는 중…" : "여기에 커서를 두고 책 바코드를 찍으세요"}
+          placeholder={busy ? "읽는 중…" : "여기에 커서를 두고 책 바코드를 찍으세요 (ISBN 숫자를 쳐 넣고 Enter 도 됩니다)"}
           className={`w-full rounded-2xl border-2 border-dashed px-4 py-4 text-center text-lg outline-none focus:border-gia-gold focus:bg-white ${
             busy ? "animate-pulse border-amber-400 bg-amber-50 text-amber-700" : "border-slate-300 bg-slate-50"
           }`}
@@ -891,6 +921,109 @@ export default function RelabelClient() {
           spellCheck={false}
         />
       </div>
+
+      {/*
+        ── 찍을 바코드가 없는 책 ─────────────────────────────────────────────
+        요청: "바코드는 없고 ISBN만 숫자로 적혀 있는 게 있어서 그래. 심지어 ISBN도 없는 경우도
+        있어서, 그때는 책 표지를 찍어서 등록할 수 있도록."
+
+        이 화면은 지금까지 **찍는 것에서 시작**했습니다. 찍을 것이 없는 책은 들어올 길이
+        없었습니다. 두 갈래를 엽니다.
+          · ISBN 숫자만 적혀 있는 책 - 그 번호를 쳐 넣습니다(찍은 것과 똑같이 처리됩니다).
+          · 번호가 아예 없는 책   - 표지를 찍습니다. 후보를 고르면 ISBN 까지 붙고, 그런
+                                    후보가 없으면 제목만으로 등록하고 라벨 번호를 발급합니다.
+      */}
+      {!found && !result && (
+        <div className="mt-3 rounded-xl border border-slate-200 bg-white p-3">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-sm font-semibold text-slate-700">바코드가 없는 책</span>
+            <span className="text-xs text-slate-500">ISBN 숫자만 적혀 있거나, 번호가 아예 없는 책</span>
+            <button
+              type="button"
+              onClick={() => {
+                setBare((v) => !v);
+                setBareIsbn("");
+                setShotTitle(null);
+                setShotBooks([]);
+                setShooting(false);
+                setNewTitle("");
+              }}
+              className="ml-auto text-xs font-semibold text-gia-navy underline"
+            >
+              {bare ? "접기" : "여기서 등록하기"}
+            </button>
+          </div>
+
+          {bare && (
+            <div className="mt-3 grid gap-3 sm:grid-cols-2">
+              <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+                <div className="text-xs font-bold text-slate-600">① ISBN 숫자가 적혀 있는 책</div>
+                <p className="mt-1 text-xs leading-relaxed text-slate-500">
+                  표지나 판권면의 ISBN을 그대로 쳐 넣으세요. 바코드를 찍은 것과 똑같이 처리됩니다 — 등록된 책이면
+                  그 책이 뜨고, 아니면 책 정보를 보여주고 등록할지 묻습니다.
+                </p>
+                <div className="mt-2 flex flex-wrap gap-2">
+                  <input
+                    value={bareIsbn}
+                    onChange={(e) => setBareIsbn(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        void doFind(bareIsbn);
+                      }
+                    }}
+                    placeholder="978… 또는 10자리(끝이 X여도 됩니다)"
+                    className="flex-1 rounded-lg border border-slate-300 px-3 py-2 text-base tracking-wider outline-none focus:border-gia-gold"
+                    autoComplete="off"
+                  />
+                  <button
+                    type="button"
+                    disabled={busy || ![10, 13].includes(normalizeIsbn(bareIsbn).length)}
+                    onClick={() => void doFind(bareIsbn)}
+                    className="rounded-lg bg-gia-navy px-3 py-2 text-sm font-semibold text-white disabled:opacity-50"
+                  >
+                    이 번호로 찾기
+                  </button>
+                </div>
+              </div>
+
+              <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+                <div className="text-xs font-bold text-slate-600">② 번호가 아예 없는 책</div>
+                <p className="mt-1 text-xs leading-relaxed text-slate-500">
+                  표지를 찍으면 제목을 읽고 그 제목으로 찾은 책 후보를 보여줍니다. 후보를 고르면 <b>ISBN까지</b>{" "}
+                  붙고, 맞는 후보가 없으면 읽어낸 제목으로 등록하면서 <b>도서관 라벨 번호</b>를 발급합니다.
+                </p>
+                {coverBlock}
+                {(shotTitle || newTitle) && (
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    <input
+                      value={newTitle}
+                      onChange={(e) => setNewTitle(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          e.preventDefault();
+                          void doApply({ code: "", isbn: "", title: newTitle.trim() });
+                        }
+                      }}
+                      placeholder="표지에 적힌 제목"
+                      className="flex-1 rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-gia-gold"
+                      autoComplete="off"
+                    />
+                    <button
+                      type="button"
+                      disabled={busy || newTitle.trim().length === 0}
+                      onClick={() => void doApply({ code: "", isbn: "", title: newTitle.trim() })}
+                      className="rounded-lg bg-gia-navy px-3 py-2 text-sm font-semibold text-white disabled:opacity-50"
+                    >
+                      이 제목으로 등록 + 라벨 담기
+                    </button>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
       {note && <p className="mt-3 rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-900">{note}</p>}
 
