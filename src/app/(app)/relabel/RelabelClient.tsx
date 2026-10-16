@@ -1510,12 +1510,37 @@ export default function RelabelClient() {
                   찍어 달라고 말하고 넘깁니다 - 그래야 책장과 장서가 맞아떨어집니다.
                 */
                 const addIsRight = notCounted <= 0;
+                const where = found.place.checks.map((c) => `${c.code} ${c.copies}권`).join(" · ");
                 return addIsRight ? (
                   <>
-                    <p className="mt-1.5 text-xs leading-relaxed text-slate-600">
-                      장서 {found.counts.copies}권이 책장에서 모두 찍혔습니다 — 손에 든 이 책은 그 위에 더 있는 한
-                      권입니다. 장서를 한 권 늘리는 것이 맞습니다.
-                    </p>
+                    {/*
+                      ── 늘리기 전에 **가서 볼 자리**를 알려줍니다 ────────────────
+                      요청: "장서 보유 1권에 책장등록 1권이면 책장 위치를 알려줘야 해."
+
+                      맞습니다. 「그 한 권은 책장에서 세어졌으니 손에 든 건 또 한 권」이라는 말은
+                      **그 한 권이 지금도 거기 있을 때만** 맞습니다. 누가 빼 왔을 수도, 이미
+                      손에 든 이 책이 그 책일 수도 있습니다. 확인할 수 있는 유일한 방법은 그 칸에
+                      가 보는 것이고, 그러려면 칸 번호가 눈앞에 있어야 합니다.
+                    */}
+                    <div className="mt-2 rounded-lg border border-gia-navy/30 bg-white px-3 py-2.5">
+                      <p className="text-sm leading-relaxed text-slate-700">
+                        장서 {found.counts.copies}권이 책장에서 모두 찍혔습니다 — 손에 든 이 책은 그 위에 더 있는 한
+                        권으로 보입니다.
+                      </p>
+                      {where ? (
+                        <p className="mt-1 text-sm text-slate-700">
+                          책장에서 찍힌 그 {found.counts.shelf}권은{" "}
+                          <b className="text-base text-gia-navy">{where}</b> 에 있습니다 —{" "}
+                          <b>가서 같은 책이 꽂혀 있는지 보고</b> 눌러주세요. 거기 있으면 손에 든 이 책은 또 한 권이
+                          맞습니다.
+                        </p>
+                      ) : (
+                        <p className="mt-1 text-xs text-slate-500">
+                          찍힌 칸이 기록되어 있지 않습니다 — 칸을 확인할 수 없으니 「넘기기」로 두고 나중에 보시는
+                          편이 안전합니다.
+                        </p>
+                      )}
+                    </div>
                     <div className="mt-2.5 grid gap-2 sm:grid-cols-2">
                       <button
                         type="button"
