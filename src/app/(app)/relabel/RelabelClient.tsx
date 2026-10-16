@@ -150,6 +150,7 @@ const WHAT_KO: Record<string, string> = {
   moved: "이미 있던 ISBN 줄로 보냄",
   created: "새로 등록",
   addcopy: "장서에 한 권 더함(책장 밖에 있던 권)",
+  pending: "책장등록 대기로 적어 둠",
 };
 
 export default function RelabelClient() {
@@ -496,11 +497,24 @@ export default function RelabelClient() {
     }
   }
 
-  /** 장서에 이미 세어져 있는 그 책입니다 — 권수는 건드리지 않습니다(라벨은 고른 대로). */
-  async function doLabelOnly(book: LibBook) {
+  /**
+   * 장서에 이미 세어져 있는 그 책입니다 — 권수는 건드리지 않습니다(라벨은 고른 대로).
+   *
+   * 책장등록에 없는 책이면 **「책장등록 대기」로 한 줄 적어 둡니다.** 그러지 않으면 넘긴
+   * 순간 그 책은 어디에도 남지 않고, 라벨만 붙인 채 자리 등록을 잊으면 장서에는 있는데
+   * 책장에는 없는 책으로 영영 남습니다.
+   */
+  async function doLabelOnly(book: LibBook, pending = false) {
     if (busy) return;
     setBusy(true);
     try {
+      if (pending) {
+        await fetch("/api/books/relabel", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action: "pending", bookId: book.id, code: scanned }),
+        }).catch(() => null);
+      }
       say("ok");
       if (wantLabel) await addToPile(book.id);
       setNote(
@@ -1350,23 +1364,27 @@ export default function RelabelClient() {
                         <b> 장서 숫자는 그대로 둡니다</b>(여기서 늘리면 없는 책이 한 권 생깁니다).
                       </p>
                       <p className="mt-1.5 text-xs leading-relaxed text-slate-500">
-                        이 책은 라벨을 붙여 책장에 꽂은 뒤{" "}
+                        넘기면 <b>책장 미등록 장서</b>에 적어 둡니다. 라벨을 붙여 책장에 꽂은 뒤{" "}
+                        <Link href="/offshelf" className="font-semibold text-gia-navy underline">
+                          그 화면
+                        </Link>
+                        이나{" "}
                         <Link href="/place" className="font-semibold text-gia-navy underline">
                           자리 등록
                         </Link>
-                        에서 찍어 주세요 — 그때 비로소 책장 숫자와 장서가 맞아떨어집니다.
+                        에서 칸을 찍어 주세요 — 그때 비로소 책장 숫자와 장서가 맞아떨어집니다.
                       </p>
                     </div>
                     <div className="mt-2.5 grid gap-2 sm:grid-cols-2">
                       <button
                         type="button"
                         disabled={busy}
-                        onClick={() => void doLabelOnly(found.book)}
+                        onClick={() => void doLabelOnly(found.book, true)}
                         className="rounded-lg border-2 border-gia-navy bg-white px-3 py-2.5 text-left text-sm font-semibold text-gia-navy disabled:opacity-50"
                       >
                         {wantLabel ? "라벨 담고 넘기기" : "그대로 넘기기"}
                         <div className="mt-0.5 text-xs font-normal text-slate-600">
-                          장서 {found.counts.copies}권 그대로 — 나중에 자리 등록에서 찍기
+                          장서 {found.counts.copies}권 그대로 — <b>책장 미등록 장서</b>에 적어 둡니다
                         </div>
                       </button>
                       <button

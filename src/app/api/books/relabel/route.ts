@@ -119,7 +119,7 @@ export async function POST(request: Request) {
     if (!email) return NextResponse.json({ error: "로그인이 필요합니다." }, { status: 401 });
 
     const body = (await request.json().catch(() => null)) as {
-      action?: "find" | "apply" | "undo" | "redo" | "settitle" | "setisbn" | "addcopy";
+      action?: "find" | "apply" | "undo" | "redo" | "settitle" | "setisbn" | "addcopy" | "pending";
       code?: string;
       /** apply: 사람이 표지에서 읽어 적은 ISBN. */
       isbn?: string;
@@ -167,6 +167,27 @@ export async function POST(request: Request) {
     const bare = body?.action === "apply" && Boolean(body.title?.trim() || body.isbn?.trim());
     if (!code && !bare) return NextResponse.json({ error: "읽힌 값이 없습니다." }, { status: 400 });
 
+    /*
+      ── 책장등록 대기로 적어 두기 ──────────────────────────────────────────
+      장서에는 있는데 책장등록에 없는 책을 「라벨 담고 넘기기」로 넘길 때, 그 책이 어디에도
+      남지 않으면 라벨만 붙이고 자리 등록을 잊은 채 끝납니다. 한 줄 적어 두면 「책장 미등록
+      장서」 화면에서 그 책부터 보입니다.
+    */
+    if (body?.action === "pending") {
+      const id = body.bookId ?? "";
+      if (!id) return NextResponse.json({ error: "어느 책인지 알 수 없습니다." }, { status: 400 });
+      const { data: b } = await supabase.from("lib_books").select("isbn,item_code").eq("id", id).maybeSingle();
+      const book = b as { isbn: string | null; item_code: string | null } | null;
+      await supabase.from("lib_relabel_log").insert({
+        code: normalizeScan(body.code ?? "") || book?.item_code || book?.isbn || "(번호 없음)",
+        isbn: book?.isbn ?? null,
+        book_id: id,
+        what: "pending",
+        from_product: false,
+        created_by: email,
+      });
+      return NextResponse.json({ ok: true });
+    }
     if (body?.action === "setisbn") {
       return await setIsbn(supabase, body.bookId ?? "", body.isbn ?? "");
     }
