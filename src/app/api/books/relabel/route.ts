@@ -80,8 +80,6 @@ type ShelfCounts = {
  * 칸으로 가면 같은 책이 꽂혀 있을 가능성이 가장 큽니다.
  */
 type Place = {
-  /** 정해 둔 자리(없으면 null). */
-  final: string | null;
   /** 책장등록에서 나온 칸들 - 「2-1 1권 · 3-4 2권」. */
   checks: { code: string; copies: number }[];
 };
@@ -121,7 +119,7 @@ export async function POST(request: Request) {
     if (!email) return NextResponse.json({ error: "로그인이 필요합니다." }, { status: 401 });
 
     const body = (await request.json().catch(() => null)) as {
-      action?: "find" | "apply" | "undo" | "redo" | "settitle" | "addcopy";
+      action?: "find" | "apply" | "undo" | "redo" | "settitle" | "setisbn" | "addcopy";
       code?: string;
       /** apply: 사람이 표지에서 읽어 적은 ISBN. */
       isbn?: string;
@@ -159,6 +157,9 @@ export async function POST(request: Request) {
     const code = normalizeScan(body?.code ?? "");
     if (!code) return NextResponse.json({ error: "읽힌 값이 없습니다." }, { status: 400 });
 
+    if (body?.action === "setisbn") {
+      return await setIsbn(supabase, body.bookId ?? "", body.isbn ?? "");
+    }
     if (body?.action === "addcopy") {
       return await addCopy(supabase, email, normalizeScan(body.code ?? ""), body.bookId ?? "");
     }
@@ -336,9 +337,19 @@ async function find(supabase: Awaited<ReturnType<typeof createClient>>, code: st
     const rows = (checkRows ?? []) as { copies: number; location_id: string | null }[];
     const shelf = rows.reduce((n, r) => n + (r.copies ?? 0), 0);
 
-    // 자리 이름을 붙입니다. 사람에게 uuid 는 "가서 확인"할 수 있는 정보가 아닙니다.
+    /*
+      ── '정해 둔 자리'는 보지 않습니다 ─────────────────────────────────────
+      요청: "장서 보유할 때 정해둔 자리는 이제 무시해줘. 무조건 책장등록 기준이야."
+
+      맞습니다. 줄에 적힌 자리(location_id)는 정리 전에 적어 둔 임시 자리라, 지금 책장에
+      실제로 있는 것과는 상관이 없습니다. 지금 책장에 있는 책은 **전부 책장등록으로 찍었고**,
+      여기서 다루는 책들은 그 밖으로 빼내어 온 것입니다. 두 숫자를 섞으면 "어느 쪽이 지금
+      맞는 자리냐"를 매번 사람이 판단해야 합니다 - 그게 헷갈림입니다.
+
+      그래서 **찍힌 기록만** 봅니다.
+    */
     const locIds = Array.from(
-      new Set([book.location_id, ...rows.map((r) => r.location_id)].filter((v): v is string => Boolean(v)))
+      new Set(rows.map((r) => r.location_id).filter((v): v is string => Boolean(v)))
     );
     const codeById = new Map<string, string>();
     if (locIds.length > 0) {
@@ -351,7 +362,6 @@ async function find(supabase: Awaited<ReturnType<typeof createClient>>, code: st
       book,
       counts: { copies: book.total_copies, shelf, rows: rows.length, loansOut: outCount ?? 0 },
       place: {
-        final: book.location_id ? (codeById.get(book.location_id) ?? null) : null,
         checks: rows
           .filter((r) => r.location_id && codeById.has(r.location_id))
           .map((r) => ({ code: codeById.get(r.location_id as string) as string, copies: r.copies ?? 0 }))
@@ -894,6 +904,107 @@ async function apply(
           : what === "moved"
             ? "이미 있던 ISBN 줄에 한 권을 더했습니다"
             : "새로 등록했습니다",
+  });
+}
+
+/**
+ * **ISBN 적어 넣기** — 이미 등록된 줄에 ISBN 을 붙입니다.
+ *
+ * 요청: "ISBN 적어넣는 칸이 없어. 재등록에 바로 넣을 수 있게 만들어줘."
+ *
+ * ── 왜 필요한가 ──────────────────────────────────────────────────────────
+ * 도서관 라벨 번호(GIA-B-…)나 상품코드만 들고 있는 줄, 제목만 적어 등록한 줄에는 ISBN 이
+ * 없습니다. 그 책을 손에 들고 있을 때가 **표지의 ISBN 을 적어 넣을 수 있는 유일한 순간**인데,
+ * 지금까지 이 화면에는 그 칸이 없었습니다. 「장서 관리」로 가라고 하면 대개 안 적습니다.
+ *
+ * ISBN 이 붙으면 그 책은 조회처에서 제목·표지를 받아올 수 있고, 라벨 없이 책 뒤 바코드로도
+ * 찍힙니다.
+ */
+async function setIsbn(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  bookId: string,
+  rawIsbn: string
+) {
+  if (!bookId) return NextResponse.json({ error: "어느 책인지 알 수 없습니다." }, { status: 400 });
+  const typed = normalizeIsbn(normalizeScan(rawIsbn));
+  if (!isValidIsbn(typed)) {
+    return NextResponse.json(
+      { error: `ISBN 숫자가 맞지 않습니다(${typed}). 표지의 번호를 다시 확인해주세요.` },
+      { status: 400 }
+    );
+  }
+  const isbn = canonicalIsbn(typed);
+
+  // 다른 줄이 이미 그 ISBN 을 쓰고 있으면 두 줄이 같은 책이 됩니다 - 합치는 일은 여기서 할
+  // 일이 아니므로(권수·대출이 걸려 있습니다) 그렇다고 말하고 멈춥니다.
+  const { data: dup } = await supabase
+    .from("lib_books")
+    .select("id,title")
+    .in("isbn", isbnVariants(isbn))
+    .neq("id", bookId)
+    .limit(1);
+  const other = ((dup ?? []) as { id: string; title: string }[])[0];
+  if (other) {
+    return NextResponse.json(
+      { error: `그 ISBN은 이미 다른 줄이 쓰고 있습니다 — 「${other.title}」. 「장서 관리」에서 합쳐주세요.` },
+      { status: 400 }
+    );
+  }
+
+  const { data: row } = await supabase.from("lib_books").select("*").eq("id", bookId).maybeSingle();
+  const book = row as LibBook | null;
+  if (!book) return NextResponse.json({ error: "그 책을 찾지 못했습니다." }, { status: 400 });
+
+  const patch: Record<string, unknown> = { isbn };
+  /*
+    상품코드를 고유 번호로 쓰고 있던 줄이면, 이제 ISBN 이 그 자리를 맡습니다. 상품코드는
+    찾기용 단서로 옮겨 둡니다 - 라벨을 붙이기 전까지 그 번호로도 찍히니까요.
+  */
+  if (hasProductCodeAsId(book)) {
+    patch.product_code = book.product_code ?? book.item_code;
+    patch.item_code = null;
+  }
+
+  const { error } = await supabase.from("lib_books").update(patch).eq("id", book.id);
+  if (error) return NextResponse.json({ error: `적어 넣지 못했습니다: ${error.message}` }, { status: 400 });
+
+  // 조회처에서 책 정보를 받아 비어 있는 칸만 채웁니다(제목은 건드리지 않습니다 - 사람이 적어
+  // 둔 제목이 조회 제목보다 맞는 경우가 많습니다).
+  try {
+    const all = await lookupIsbnAll(isbn);
+    const rec = all[0] ?? null;
+    if (rec) {
+      const fill: Record<string, unknown> = {};
+      if (!book.author && rec.author) fill.author = rec.author;
+      if (!book.publisher && rec.publisher) fill.publisher = rec.publisher;
+      if (!book.pub_year && rec.pub_year) fill.pub_year = rec.pub_year;
+      if (!book.cover_url && rec.cover_url) fill.cover_url = rec.cover_url;
+      if (Object.keys(fill).length > 0) await supabase.from("lib_books").update(fill).eq("id", book.id);
+    }
+  } catch {
+    // 조회가 안 되어도 ISBN 은 들어갔습니다.
+  }
+
+  const { data: after } = await supabase.from("lib_books").select("*").eq("id", book.id).maybeSingle();
+  const now = after as LibBook | null;
+  return NextResponse.json({
+    ok: true,
+    after: now
+      ? {
+          id: now.id,
+          title: now.title,
+          isbn: now.isbn,
+          code: now.item_code,
+          productCode: now.product_code ?? null,
+          copies: now.total_copies,
+          level: now.label_level,
+          author: now.author ?? null,
+          publisher: now.publisher ?? null,
+          coverUrl: now.cover_url ?? null,
+          shelf: null,
+        }
+      : null,
+    message: `ISBN ${isbn} 을 적어 넣었습니다`,
   });
 }
 

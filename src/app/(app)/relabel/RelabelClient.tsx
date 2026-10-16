@@ -40,7 +40,7 @@ import type { LibBook } from "@/lib/types";
 type ShelfCounts = { copies: number; shelf: number; rows: number; loansOut: number };
 
 /** 이 책이 지금 어디 있는지 — 정해 둔 자리가 먼저, 없으면 책장등록에서 나온 칸. */
-type Place = { final: string | null; checks: { code: string; copies: number }[] };
+type Place = { checks: { code: string; copies: number }[] };
 
 /** 등록 전에 보여 주는 책 정보 — 사람이 보고 누릅니다. */
 type Preview = {
@@ -174,6 +174,8 @@ export default function RelabelClient() {
   const [showRecent, setShowRecent] = useState(false);
   /** 소리로 알려줄지. 책을 보는 동안 화면을 안 봐도 되게 합니다. */
   const [sound, setSound] = useState(true);
+  /** 이미 등록된 줄에 ISBN 을 적어 넣는 칸. */
+  const [isbnFix, setIsbnFix] = useState(false);
   /** 표지 사진으로 제목 찾기. */
   const [shooting, setShooting] = useState(false);
   const [shotBusy, setShotBusy] = useState(false);
@@ -246,6 +248,7 @@ export default function RelabelClient() {
     setShotTitle(null);
     setShotBooks([]);
     setShooting(false);
+    setIsbnFix(false);
     try {
       const res = await fetch("/api/books/relabel", {
         method: "POST",
@@ -550,6 +553,42 @@ export default function RelabelClient() {
       say("bad");
     } finally {
       setShotBusy(false);
+    }
+  }
+
+  /**
+   * **ISBN 적어 넣기** — 이미 등록된 줄에 표지의 ISBN 을 붙입니다.
+   *
+   * 라벨 번호나 상품코드만 들고 있던 책, 제목만 적어 등록한 책에 ISBN 이 생깁니다. 손에
+   * 책을 들고 있는 지금이 그 번호를 적을 수 있는 유일한 순간입니다.
+   */
+  async function doSetIsbn(book: LibBook, value: string) {
+    if (busy) return;
+    setBusy(true);
+    setNote(null);
+    try {
+      const res = await fetch("/api/books/relabel", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "setisbn", bookId: book.id, isbn: value }),
+      });
+      const j = (await res.json()) as { after?: After; message?: string; error?: string };
+      if (j.error || !j.after) {
+        setNote(j.error ?? "적어 넣지 못했습니다.");
+        say("bad");
+        return;
+      }
+      setNote(`${j.after.title} — ${j.message ?? "ISBN을 적어 넣었습니다"}`);
+      say("ok");
+      setIsbnFix(false);
+      setIsbn("");
+      // 바뀐 모습으로 다시 찍은 것처럼 보여줍니다(라벨을 담을지도 다시 고를 수 있게).
+      await doFind(scanned);
+    } catch (e) {
+      setNote(`보내지 못했습니다 — ${e instanceof Error ? e.message : String(e)}`);
+      say("bad");
+    } finally {
+      setBusy(false);
     }
   }
 
@@ -1139,27 +1178,76 @@ export default function RelabelClient() {
               </p>
 
               {/* ── 지금 어디 있나 ─────────────────────────────────────── */}
+              {/*
+                ── 자리는 **책장등록에서 찍힌 칸만** 봅니다 ─────────────────────
+                줄에 적어 둔 '정해 둔 자리'는 정리 전에 적은 임시 자리라 지금 책장과 상관이
+                없습니다. 지금 책장에 있는 책은 전부 책장등록으로 찍었고, 여기서 다루는 책은
+                그 밖에서 가져온 것입니다. 두 숫자를 섞으면 매번 어느 쪽이 맞는지 사람이
+                판단해야 합니다.
+              */}
               <div className="mt-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm">
-                {found.place.final ? (
+                {found.place.checks.length > 0 ? (
                   <>
-                    <span className="text-xs font-bold text-slate-500">정해 둔 자리</span>{" "}
-                    <b className="text-base text-gia-navy">{found.place.final}</b>
-                    {found.place.checks.length > 0 && (
-                      <span className="ml-2 text-xs text-slate-500">
-                        (책장등록 때는 {found.place.checks.map((c) => `${c.code} ${c.copies}권`).join(" · ")})
-                      </span>
-                    )}
-                  </>
-                ) : found.place.checks.length > 0 ? (
-                  <>
-                    <span className="text-xs font-bold text-slate-500">책장등록에서 나온 칸</span>{" "}
+                    <span className="text-xs font-bold text-slate-500">책장등록에서 찍힌 칸</span>{" "}
                     <b className="text-base text-gia-navy">
                       {found.place.checks.map((c) => `${c.code} ${c.copies}권`).join(" · ")}
                     </b>
-                    <span className="ml-2 text-xs text-slate-500">(정해 둔 자리는 아직 없습니다)</span>
+                    <span className="ml-2 text-xs text-slate-500">— 가서 같은 책이 꽂혀 있는지 보세요</span>
                   </>
                 ) : (
-                  <span className="text-slate-500">자리 기록이 없습니다 — 책장등록에도 나오지 않은 책입니다.</span>
+                  <span className="text-slate-500">책장등록에 나오지 않은 책입니다 — 책장 밖에 있던 책입니다.</span>
+                )}
+              </div>
+
+              {/* ── ISBN 적어 넣기 ─────────────────────────────────────── */}
+              <div className="mt-2 rounded-lg border border-slate-200 bg-white px-3 py-2">
+                <div className="flex flex-wrap items-center gap-2 text-sm">
+                  <span className="text-xs font-bold text-slate-500">ISBN</span>
+                  <span className={found.book.isbn ? "font-mono text-slate-800" : "text-slate-400"}>
+                    {found.book.isbn ?? "없습니다"}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsbnFix((v) => !v);
+                      setIsbn("");
+                    }}
+                    className="ml-auto text-xs font-semibold text-gia-navy underline"
+                  >
+                    {isbnFix ? "접기" : found.book.isbn ? "ISBN 고쳐 적기" : "표지의 ISBN 적어 넣기"}
+                  </button>
+                </div>
+                {isbnFix && (
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    <input
+                      value={isbn}
+                      onChange={(e) => setIsbn(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          e.preventDefault();
+                          void doSetIsbn(found.book, isbn);
+                        }
+                      }}
+                      placeholder="978… 또는 10자리(끝이 X여도 됩니다)"
+                      className="flex-1 rounded-lg border border-slate-300 px-3 py-2 text-base tracking-wider outline-none focus:border-gia-gold"
+                      autoComplete="off"
+                      autoFocus
+                    />
+                    <button
+                      type="button"
+                      disabled={busy || ![10, 13].includes(normalizeIsbn(isbn).length)}
+                      onClick={() => void doSetIsbn(found.book, isbn)}
+                      className="rounded-lg bg-gia-navy px-3 py-2 text-sm font-semibold text-white disabled:opacity-50"
+                    >
+                      적어 넣기
+                    </button>
+                  </div>
+                )}
+                {isbnFix && (
+                  <p className="mt-1.5 text-xs leading-relaxed text-slate-500">
+                    ISBN이 붙으면 조회처에서 표지·저자를 받아올 수 있고, 라벨 없이 <b>책 뒤 바코드로도</b> 찍힙니다.
+                    상품코드를 고유 번호로 쓰던 줄이면 그 번호는 찾기용 단서로 옮겨 둡니다.
+                  </p>
                 )}
               </div>
 
@@ -1255,7 +1343,7 @@ export default function RelabelClient() {
                   <Row k="번호" v={<span className="font-mono">{result.before.code ?? result.before.isbn ?? "—"}</span>} />
                   <Row k="권수" v={`${result.before.copies}권`} />
                   <Row k="등급" v={result.before.level != null ? `${result.before.level}등급` : "없음"} />
-                  <Row k="자리" v={result.before.shelf ?? "아직 없음"} />
+
                 </dl>
               ) : (
                 <p className="mt-2 text-sm text-slate-600">
@@ -1304,7 +1392,7 @@ export default function RelabelClient() {
                     v={result.after.level != null ? `${result.after.level}등급` : "없음"}
                     changed={(result.before?.level ?? null) !== (result.after.level ?? null)}
                   />
-                  <Row k="자리" v={result.after.shelf ?? "아직 없음"} />
+
                   {(result.after.author || result.after.publisher) && (
                     <Row
                       k="지은이"
@@ -1535,6 +1623,15 @@ export default function RelabelClient() {
           )}
           <Link href="/print-jobs" className="rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-600">
             모아뽑기 관리
+          </Link>
+          {/* 들고 다닐 종이 — 책장 밖에 남은 책이 무엇인지. */}
+          <Link
+            href="/print/offshelf"
+            target="_blank"
+            className="rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-600"
+            title="책장등록에 안 나온 책 목록을 종이로 뽑습니다"
+          >
+            🖨 남은 책 목록
           </Link>
         </div>
 
