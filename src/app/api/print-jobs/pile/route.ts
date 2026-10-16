@@ -78,12 +78,61 @@ export async function POST(request: Request) {
   const { data: auth } = await supabase.auth.getUser();
   if (!auth.user) return NextResponse.json({ error: "로그인이 필요합니다." }, { status: 401 });
 
-  let body: { targets?: string[]; remove?: string[] };
+  let body: { targets?: string[]; remove?: string[]; done?: boolean };
   try {
     body = (await request.json()) as typeof body;
   } catch {
     return NextResponse.json({ error: "요청을 읽지 못했습니다." }, { status: 400 });
   }
+  /*
+    ── 뽑았으면 기록으로 넘깁니다 ─────────────────────────────────────────
+    요청: "라벨 뽑았으면 뽑은 기록으로 넘기고 다시 기록할 수 있게 해줘."
+
+    모아둔 자리는 **지금 뽑을 것**을 담는 곳입니다. 뽑고 나서도 그대로 남아 있으면 다음에
+    담는 라벨이 이미 뽑은 것 위에 쌓여서, 다음 종이에는 **이미 붙인 라벨이 함께** 나옵니다.
+    그렇다고 그냥 비우면 「방금 뽑은 그 묶음」이 사라져서, 프린터가 씹었을 때 다시 뽑을
+    길이 없습니다.
+
+    그래서 **비우는 대신 넘깁니다.** 그 줄의 지문(signature)만 바꾸면 모아둔 자리에서는
+    빠지고 인쇄 기록에는 남습니다 - 같은 줄이므로 목록도 순서도 그대로입니다. 기록에서
+    언제든 다시 뽑거나 모아뽑기에 되담을 수 있습니다.
+  */
+  if (body.done) {
+    const pile = await readPile(supabase);
+    const targets = (pile?.targets ?? []) as string[];
+    if (!pile || targets.length === 0) {
+      return NextResponse.json({ error: "모아둔 라벨이 없습니다." }, { status: 400 });
+    }
+    const now = new Date();
+    const stamp = now.toLocaleString("ko-KR", {
+      timeZone: "Asia/Seoul",
+      month: "numeric",
+      day: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+    const { data, error } = await supabase
+      .from("lib_print_jobs")
+      .update({
+        // 지문은 그 줄만의 값이어야 합니다(kind+signature 가 유일키입니다).
+        signature: `printed:${pile.id}`,
+        title: `뽑은 라벨 ${targets.length}장 · ${stamp}`,
+        printed_at: now.toISOString(),
+      })
+      .eq("id", pile.id)
+      .select()
+      .single();
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json({
+      ok: true,
+      moved: targets.length,
+      job: data as LibPrintJob,
+      pile: null,
+      count: 0,
+      message: `${targets.length}장을 뽑은 기록으로 넘겼습니다`,
+    });
+  }
+
   // 같은 책이 여러 번 들어 있을 수 있습니다(복본은 권수만큼 라벨이 필요합니다).
   const adding = (body.targets ?? []).map((t) => String(t).trim()).filter(Boolean);
   /*

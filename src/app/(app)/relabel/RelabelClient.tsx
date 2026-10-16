@@ -172,6 +172,11 @@ export default function RelabelClient() {
   /** 모아뽑기에 담긴 책들(담긴 차례). 잘못 담은 것을 빼려면 보여야 합니다. */
   const [pileBooks, setPileBooks] = useState<{ id: string; title: string; code: string | null; count: number }[]>([]);
   const [showPile, setShowPile] = useState(false);
+  /** 이미 뽑은 묶음들(기록). 프린터가 씹었을 때 다시 뽑거나 되담을 수 있어야 합니다. */
+  const [printed, setPrinted] = useState<
+    { id: string; title: string; count: number; at: string | null }[]
+  >([]);
+  const [showPrinted, setShowPrinted] = useState(false);
   /** 이미 ISBN 줄인 책에 라벨을 새로 뽑을지(책에 인쇄된 바코드를 그대로 쓸지). */
   const [wantLabel, setWantLabel] = useState(true);
   const [prog, setProg] = useState<Progress | null>(null);
@@ -224,11 +229,28 @@ export default function RelabelClient() {
     }
   }, []);
 
+  const loadPrinted = useCallback(async () => {
+    try {
+      const j = (await (await fetch("/api/print-jobs", { cache: "no-store" })).json()) as {
+        jobs?: { id: string; kind: string; title: string; targets: string[]; signature: string; printed_at: string | null }[];
+      };
+      setPrinted(
+        (j.jobs ?? [])
+          .filter((x) => x.kind === "labels" && x.signature?.startsWith("printed:"))
+          .slice(0, 8)
+          .map((x) => ({ id: x.id, title: x.title, count: x.targets?.length ?? 0, at: x.printed_at }))
+      );
+    } catch {
+      // 기록을 못 읽어도 재등록은 할 수 있습니다.
+    }
+  }, []);
+
   useEffect(() => {
     void loadPile();
     void loadProgress();
+    void loadPrinted();
     setSound(soundOn());
-  }, [loadPile, loadProgress]);
+  }, [loadPile, loadProgress, loadPrinted]);
 
   /** 소리 한 번(꺼 두었으면 조용히 넘어갑니다). */
   const say = useCallback((kind: "ok" | "ask" | "bad") => beep(kind, sound), [sound]);
@@ -642,6 +664,73 @@ export default function RelabelClient() {
     } catch (e) {
       setNote(`보내지 못했습니다 — ${e instanceof Error ? e.message : String(e)}`);
       say("bad");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  /**
+   * **뽑았습니다 — 기록으로 넘기기.**
+   *
+   * 모아둔 자리는 *지금 뽑을 것*을 담는 곳입니다. 뽑고도 그대로 두면 다음에 담는 라벨이 그
+   * 위에 쌓여서, 다음 종이에 **이미 붙인 라벨이 함께** 나옵니다. 그렇다고 비워 버리면 프린터가
+   * 씹었을 때 다시 뽑을 길이 없습니다 - 그래서 비우지 않고 기록으로 넘깁니다.
+   */
+  async function doneWithPile() {
+    if (busy || !pile || pile.count === 0) return;
+    setBusy(true);
+    setNote(null);
+    try {
+      const res = await fetch("/api/print-jobs/pile", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ done: true }),
+      });
+      const j = (await res.json()) as { message?: string; error?: string };
+      if (j.error) {
+        setNote(j.error);
+        return;
+      }
+      setNote(j.message ?? "뽑은 기록으로 넘겼습니다.");
+      say("ok");
+      setShowPile(false);
+      await loadPile();
+      await loadPrinted();
+    } catch (e) {
+      setNote(`보내지 못했습니다 — ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  /** 뽑은 묶음을 다시 모아뽑기에 담습니다(프린터가 씹었을 때). */
+  async function rePile(jobId: string) {
+    if (busy) return;
+    setBusy(true);
+    setNote(null);
+    try {
+      const got = (await (await fetch(`/api/print-jobs`, { cache: "no-store" })).json()) as {
+        jobs?: { id: string; targets: string[] }[];
+      };
+      const job = (got.jobs ?? []).find((x) => x.id === jobId);
+      if (!job || job.targets.length === 0) {
+        setNote("그 기록을 찾지 못했습니다.");
+        return;
+      }
+      const res = await fetch("/api/print-jobs/pile", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ targets: job.targets }),
+      });
+      const j = (await res.json()) as { count?: number; error?: string };
+      if (j.error) {
+        setNote(`되담지 못했습니다: ${j.error}`);
+        return;
+      }
+      setNote(`${job.targets.length}장을 모아뽑기에 되담았습니다.`);
+      await loadPile();
+    } catch (e) {
+      setNote(`보내지 못했습니다 — ${e instanceof Error ? e.message : String(e)}`);
     } finally {
       setBusy(false);
     }
@@ -1813,6 +1902,16 @@ export default function RelabelClient() {
               >
                 크게 뽑기
               </Link>
+              {/* 뽑고 나면 여기서 넘깁니다 - 안 넘기면 다음 종이에 이미 붙인 라벨이 함께 나옵니다. */}
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => void doneWithPile()}
+                className="rounded-lg border-2 border-emerald-500 bg-white px-3 py-2 text-sm font-semibold text-emerald-700 disabled:opacity-50"
+                title="모아뽑기를 비우고 뽑은 기록으로 남깁니다 — 기록에서 다시 뽑을 수 있습니다"
+              >
+                ✓ 뽑았습니다 — 기록으로 넘기기
+              </button>
             </>
           )}
           <Link href="/print-jobs" className="rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-600">
@@ -1879,6 +1978,53 @@ export default function RelabelClient() {
           </div>
         )}
       </div>
+
+      {/* ── 뽑은 기록 ───────────────────────────────────────────────────── */}
+      {printed.length > 0 && (
+        <section className="mt-3">
+          <div className="flex flex-wrap items-baseline gap-2">
+            <h2 className="text-sm font-bold text-gia-navy">뽑은 기록 {printed.length}묶음</h2>
+            <button
+              type="button"
+              onClick={() => setShowPrinted((v) => !v)}
+              className="text-xs font-semibold text-gia-navy underline"
+            >
+              {showPrinted ? "접기" : "펼쳐 보기"}
+            </button>
+            <span className="ml-auto text-xs text-slate-500">
+              프린터가 씹었으면 여기서 다시 뽑거나 모아뽑기에 되담으세요
+            </span>
+          </div>
+          {showPrinted && (
+            <div className="mt-2 divide-y divide-slate-100 rounded-xl border border-slate-200 bg-white text-sm">
+              {printed.map((j) => (
+                <div key={j.id} className="flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2">
+                  <span className="font-semibold text-slate-800">{j.title}</span>
+                  <span className="text-xs text-slate-500">{j.count}장</span>
+                  <span className="ml-auto flex gap-1.5">
+                    <Link
+                      href={`/print/labels?job=${j.id}`}
+                      target="_blank"
+                      className="rounded border border-slate-300 px-2 py-0.5 text-xs font-semibold text-slate-700"
+                    >
+                      다시 뽑기
+                    </Link>
+                    <button
+                      type="button"
+                      disabled={busy}
+                      onClick={() => void rePile(j.id)}
+                      className="rounded border border-slate-300 px-2 py-0.5 text-xs font-semibold text-slate-700 disabled:opacity-50"
+                      title="이 묶음을 모아뽑기에 다시 담습니다"
+                    >
+                      모아뽑기에 되담기
+                    </button>
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+        </section>
+      )}
 
       {/* ── 지금까지 재등록한 것 ───────────────────────────────────────── */}
       {recent.length > 0 && (
