@@ -33,7 +33,43 @@ export async function GET() {
   const { data: auth } = await supabase.auth.getUser();
   if (!auth.user) return NextResponse.json({ error: "로그인이 필요합니다." }, { status: 401 });
   const pile = await readPile(supabase);
-  return NextResponse.json({ pile, count: pile?.targets?.length ?? 0 });
+  const targets = (pile?.targets ?? []) as string[];
+
+  /*
+    ── 무엇이 담겨 있는지 보여줍니다 ──────────────────────────────────────
+    요청: "모아뽑기도 책 리스트 볼 수 있게 해줘서 뺄 수 있게 해줘. 잘못 찍거나 뽑을 필요
+    없는 것들도 있으니까."
+
+    지금까지는 「4장 담겨 있습니다」라는 숫자뿐이었습니다. 숫자만 보고는 **무엇이 잘못
+    담겼는지** 알 수 없어서, 한 장을 빼려면 전부 비우고 처음부터 다시 담아야 했습니다.
+    담긴 차례대로 제목을 돌려줍니다 - 방금 잘못 담은 것이 맨 아래에 있습니다.
+  */
+  const ids = Array.from(new Set(targets));
+  const { data: rows } = ids.length
+    ? await supabase.from("lib_books").select("id,title,isbn,item_code").in("id", ids)
+    : { data: [] as { id: string; title: string; isbn: string | null; item_code: string | null }[] };
+  const byId = new Map(
+    ((rows ?? []) as { id: string; title: string; isbn: string | null; item_code: string | null }[]).map(
+      (b) => [b.id, b] as const
+    )
+  );
+
+  const seen = new Set<string>();
+  const books: { id: string; title: string; code: string | null; count: number }[] = [];
+  for (const id of targets) {
+    if (seen.has(id)) continue;
+    seen.add(id);
+    const b = byId.get(id);
+    books.push({
+      id,
+      // 책이 지워졌는데 라벨만 남아 있을 수 있습니다 - 그것도 보여야 뺄 수 있습니다.
+      title: b?.title ?? "(지워진 책)",
+      code: b?.item_code ?? b?.isbn ?? null,
+      count: targets.filter((t) => t === id).length,
+    });
+  }
+
+  return NextResponse.json({ pile, count: targets.length, books });
 }
 
 /** 지금 고른 라벨들을 모아둔 자리에 덧붙입니다. */

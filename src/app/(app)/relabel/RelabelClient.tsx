@@ -151,6 +151,11 @@ export default function RelabelClient() {
   const [byTitle, setByTitle] = useState(false);
   const [newTitle, setNewTitle] = useState("");
   const [pile, setPile] = useState<{ id: string; count: number } | null>(null);
+  /** 모아뽑기에 담긴 책들(담긴 차례). 잘못 담은 것을 빼려면 보여야 합니다. */
+  const [pileBooks, setPileBooks] = useState<{ id: string; title: string; code: string | null; count: number }[]>([]);
+  const [showPile, setShowPile] = useState(false);
+  /** 이미 ISBN 줄인 책에 라벨을 새로 뽑을지(책에 인쇄된 바코드를 그대로 쓸지). */
+  const [wantLabel, setWantLabel] = useState(true);
   const [prog, setProg] = useState<Progress | null>(null);
   const [showLeft, setShowLeft] = useState(false);
   const [showRecent, setShowRecent] = useState(false);
@@ -171,8 +176,10 @@ export default function RelabelClient() {
       const j = (await (await fetch("/api/print-jobs/pile")).json()) as {
         pile?: { id: string } | null;
         count?: number;
+        books?: { id: string; title: string; code: string | null; count: number }[];
       };
       setPile(j.pile ? { id: j.pile.id, count: j.count ?? 0 } : null);
+      setPileBooks(j.books ?? []);
     } catch {
       // 모아뽑기를 못 읽어도 재등록은 할 수 있습니다.
     }
@@ -223,6 +230,24 @@ export default function RelabelClient() {
         setScanned(code);
         setFound(j);
         /*
+          ── 라벨을 꼭 뽑아야 하는 책과 아닌 책 ─────────────────────────────
+          요청: "이미 ISBN 등록된 책들은 라벨을 모아뽑기에 등록할 건지, 아니면 지금 코드가
+          이미 ISBN 코드니까 기존 코드를 그냥 사용할 건지도 물어봐주고."
+
+          맞는 말입니다. 책 뒤에 ISBN 바코드가 인쇄되어 있고 장서도 그 번호로 들고 있으면,
+          라벨은 **같은 번호를 한 번 더 붙이는 일**입니다. 종이도 손도 아깝습니다.
+
+          그래서 기본값을 책에 따라 정합니다 - 쓸 수 있는 바코드가 이미 있으면 「그대로
+          쓰기」, 도서관 라벨 번호(GIA-B-…)로 들고 있는 책이면 「뽑기」. 어느 쪽이든 화면에서
+          바꿀 수 있습니다.
+        */
+        if (j.kind === "isbn") {
+          const usable = Boolean(j.book.isbn) && !j.book.item_code;
+          setWantLabel(!usable);
+        } else {
+          setWantLabel(true);
+        }
+        /*
           이미 등록된 책이어도 **그냥 라벨만 담지 않습니다.**
 
           지금 찍는 책들은 책장에서 빼내어 따로 모아 둔 것이라, 장서에 있다는 사실만으로는
@@ -255,6 +280,7 @@ export default function RelabelClient() {
         return;
       }
       setPile(j.pile ? { id: j.pile.id, count: j.count ?? 0 } : null);
+      void loadPile();
     } catch {
       setNote("모아뽑기에 담지 못했습니다.");
     }
@@ -399,7 +425,7 @@ export default function RelabelClient() {
         titleKept: false,
         titleChoices: [],
       });
-      await addToPile(j.after.id);
+      if (wantLabel) await addToPile(j.after.id);
       setFound(null);
       setScanned("");
       void loadProgress();
@@ -410,15 +436,41 @@ export default function RelabelClient() {
     }
   }
 
-  /** 책장등록 때 이미 센 그 책입니다 — 숫자는 건드리지 않고 라벨만 담습니다. */
+  /** 책장등록 때 이미 센 그 책입니다 — 숫자는 건드리지 않습니다(라벨은 고른 대로). */
   async function doLabelOnly(book: LibBook) {
     if (busy) return;
     setBusy(true);
     try {
-      await addToPile(book.id);
-      setNote(`${book.title} — 책장등록에서 이미 센 책으로 두고 라벨만 담았습니다.`);
+      if (wantLabel) await addToPile(book.id);
+      setNote(
+        wantLabel
+          ? `${book.title} — 이미 센 책으로 두고 라벨만 담았습니다.`
+          : `${book.title} — 이미 센 책이고 책에 있는 바코드를 그대로 씁니다. 아무것도 바꾸지 않았습니다.`
+      );
       setFound(null);
       setScanned("");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  /** 모아뽑기에서 한 장(또는 그 책 전부) 뺍니다. */
+  async function removeFromPile(bookId: string, all = false, times = 1) {
+    if (busy) return;
+    setBusy(true);
+    try {
+      const res = await fetch("/api/print-jobs/pile", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ targets: [], remove: all ? Array(times).fill(bookId) : [bookId] }),
+      });
+      const j = (await res.json()) as { count?: number; pile?: { id: string } | null; error?: string };
+      if (j.error) {
+        setNote(`빼지 못했습니다: ${j.error}`);
+        return;
+      }
+      setPile(j.pile ? { id: j.pile.id, count: j.count ?? 0 } : null);
+      void loadPile();
     } finally {
       setBusy(false);
     }
@@ -818,6 +870,36 @@ export default function RelabelClient() {
                 )}
               </div>
 
+              {/* ── 라벨을 뽑을까, 책에 있는 바코드를 그대로 쓸까 ───────── */}
+              <div className="mt-2 flex flex-wrap items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2">
+                <span className="text-xs font-bold text-slate-500">라벨</span>
+                <button
+                  type="button"
+                  onClick={() => setWantLabel(false)}
+                  className={`rounded-lg px-2.5 py-1.5 text-sm ${
+                    !wantLabel
+                      ? "bg-gia-navy font-semibold text-white"
+                      : "border border-slate-300 text-slate-600"
+                  }`}
+                >
+                  책에 있는 바코드 그대로
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setWantLabel(true)}
+                  className={`rounded-lg px-2.5 py-1.5 text-sm ${
+                    wantLabel ? "bg-gia-navy font-semibold text-white" : "border border-slate-300 text-slate-600"
+                  }`}
+                >
+                  라벨 뽑기 (모아뽑기에 담기)
+                </button>
+                <span className="text-xs text-slate-500">
+                  {found.book.item_code
+                    ? `이 책은 도서관 번호(${found.book.item_code})로 들고 있어서 라벨이 필요합니다`
+                    : "책 뒤 ISBN 바코드를 그대로 쓸 수 있습니다 — 라벨은 같은 번호를 한 번 더 붙이는 일입니다"}
+                </span>
+              </div>
+
               <div className="mt-2.5 grid gap-2 sm:grid-cols-2">
                 <button
                   type="button"
@@ -827,7 +909,8 @@ export default function RelabelClient() {
                 >
                   책장에 없던 <b>따로 한 권</b>입니다
                   <div className="mt-0.5 text-xs font-normal text-slate-600">
-                    장서를 {found.counts.copies}권 → <b>{found.counts.copies + 1}권</b>으로 하고 라벨 담기
+                    장서를 {found.counts.copies}권 → <b>{found.counts.copies + 1}권</b>으로{" "}
+                    {wantLabel ? "하고 라벨 담기" : "하기 (라벨 없음)"}
                   </div>
                 </button>
                 <button
@@ -838,7 +921,8 @@ export default function RelabelClient() {
                 >
                   책장등록 때 <b>이미 센 그 책</b>입니다
                   <div className="mt-0.5 text-xs font-normal text-slate-600">
-                    장서 {found.counts.copies}권 그대로 두고 라벨만 담기
+                    장서 {found.counts.copies}권 그대로 두고{" "}
+                    {wantLabel ? "라벨만 담기" : "넘어가기 (라벨 없음)"}
                   </div>
                 </button>
               </div>
@@ -1126,6 +1210,15 @@ export default function RelabelClient() {
       <div className="mt-6 flex flex-wrap items-center gap-3 rounded-xl border border-gia-gold/40 bg-amber-50/50 px-4 py-3">
         <div className="text-sm text-slate-700">
           모아뽑기에 <b>{pile?.count ?? 0}장</b> 담겨 있습니다
+          {(pile?.count ?? 0) > 0 && (
+            <button
+              type="button"
+              onClick={() => setShowPile((v) => !v)}
+              className="ml-2 text-xs font-semibold text-gia-navy underline"
+            >
+              {showPile ? "목록 접기" : "목록 보고 빼기"}
+            </button>
+          )}
         </div>
         <div className="ml-auto flex gap-2">
           {pile && pile.count > 0 && (
@@ -1151,6 +1244,56 @@ export default function RelabelClient() {
             모아뽑기 관리
           </Link>
         </div>
+
+        {/*
+          ── 담긴 목록 ────────────────────────────────────────────────────
+          숫자만 보고는 무엇이 잘못 담겼는지 알 수 없어서, 한 장을 빼려면 전부 비우고 처음부터
+          다시 담아야 했습니다. 담긴 차례대로 보여주고 한 장씩 뺍니다 - 방금 잘못 담은 것이
+          맨 아래에 있습니다.
+        */}
+        {showPile && pileBooks.length > 0 && (
+          <div className="w-full">
+            <div className="mt-1 max-h-80 overflow-auto rounded-xl border border-slate-200 bg-white">
+              <div className="divide-y divide-slate-100 text-sm">
+                {pileBooks.map((b) => (
+                  <div key={b.id} className="flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2">
+                    <span className="font-semibold text-slate-800">{b.title}</span>
+                    {b.code && <span className="font-mono text-xs text-slate-500">{b.code}</span>}
+                    {b.count > 1 && (
+                      <span className="rounded bg-slate-100 px-1.5 py-0.5 text-xs font-semibold text-slate-600">
+                        {b.count}장
+                      </span>
+                    )}
+                    <span className="ml-auto flex gap-1.5">
+                      <button
+                        type="button"
+                        disabled={busy}
+                        onClick={() => void removeFromPile(b.id)}
+                        className="rounded border border-slate-300 px-2 py-0.5 text-xs font-semibold text-slate-600 disabled:opacity-50"
+                      >
+                        한 장 빼기
+                      </button>
+                      {b.count > 1 && (
+                        <button
+                          type="button"
+                          disabled={busy}
+                          onClick={() => void removeFromPile(b.id, true, b.count)}
+                          className="rounded border border-rose-200 px-2 py-0.5 text-xs font-semibold text-rose-700 disabled:opacity-50"
+                        >
+                          {b.count}장 전부
+                        </button>
+                      )}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+            <p className="mt-1.5 text-xs text-slate-500">
+              잘못 담긴 것만 빼면 됩니다 — 전부 비우지 않아도 됩니다. 복본은 권수만큼 여러 장이 들어 있는 것이
+              정상입니다.
+            </p>
+          </div>
+        )}
       </div>
 
       {/* ── 지금까지 재등록한 것 ───────────────────────────────────────── */}
