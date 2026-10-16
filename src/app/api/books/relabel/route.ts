@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { lookupIsbn } from "@/lib/isbn";
 import { findBook } from "@/lib/server/library";
+import { pickTitle, type TitleCandidate } from "@/lib/titlePick";
 import { logLibError } from "@/lib/server/libLog";
 import {
   canonicalIsbn,
@@ -171,6 +172,20 @@ async function apply(
   const existing = ((sameRows ?? []) as LibBook[]).filter((b) => b.id !== source?.id);
   const target = existing[0] ?? null;
 
+  /*
+    ── 조회처 제목을 그대로 쓰지 않습니다 ───────────────────────────────────
+    실제로 돌려 보고 알았습니다. 「Tigers at Twilight」 로 제대로 적혀 있던 줄에 조회처가
+    「TIGERS AT TWILIGHT(STST00029)」 를 주었고, 그대로 덮어써 버렸습니다 - 전부 대문자에
+    유통사 재고 번호까지 붙은 글자입니다.
+
+    제목 고르는 규칙은 이미 있고 검사가 붙어 있습니다(titlePick.ts). 같은 규칙을 씁니다:
+    지금 제목을 품은 **더 자세한** 제목일 때만 바꾸고, 그렇지 않으면 **지금 제목을 지킵니다.**
+    여기는 사람이 ISBN 한 줄만 적는 자리라, 제목이 나빠지는 것을 알아챌 기회가 없습니다.
+  */
+  const candidates: TitleCandidate[] = found?.title
+    ? [{ title: found.title, source: found.source, author: found.author, publisher: found.publisher }]
+    : [];
+
   const info = {
     title: (found?.title ?? "").trim(),
     author: found?.author ?? null,
@@ -199,7 +214,9 @@ async function apply(
       product_code: source.product_code ?? source.item_code ?? code,
       item_code: null,
     };
-    if (info.title) patch.title = info.title;
+    // 더 자세해질 때만 바꿉니다(kind === "more"). 같거나 나빠지면 지금 제목을 지킵니다.
+    const pick = pickTitle(source.title ?? "", candidates);
+    if (pick.kind === "more" && pick.best) patch.title = pick.best;
     if (info.author && !source.author) patch.author = info.author;
     if (info.publisher && !source.publisher) patch.publisher = info.publisher;
     if (info.pub_year && !source.pub_year) patch.pub_year = info.pub_year;
@@ -293,7 +310,10 @@ async function apply(
     what = "moved";
   } else {
     // 아무 줄도 없습니다 - 새로 만듭니다.
-    if (!info.title) {
+    // 새로 만드는 경우에는 지킬 제목이 없으니 조회 제목을 다듬어 씁니다.
+    const made0 = pickTitle("", candidates);
+    const newTitle = (made0.best ?? "").trim();
+    if (!newTitle) {
       return NextResponse.json(
         {
           error:
@@ -307,7 +327,7 @@ async function apply(
       .insert({
         isbn,
         product_code: code !== isbn ? code : null,
-        title: info.title,
+        title: newTitle,
         author: info.author,
         publisher: info.publisher,
         pub_year: info.pub_year,
