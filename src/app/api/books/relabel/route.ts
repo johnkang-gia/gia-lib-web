@@ -366,6 +366,12 @@ async function apply(
   let leftover: { code: string | null; copies: number } | null = null;
   /** 새로 만든 '남은 권수' 줄의 id. 되돌릴 때 이 줄을 지웁니다. */
   let leftoverId: string | null = null;
+  /*
+    이미 있던 ISBN 줄로 보낼 때, 그 줄이 **원래 상품코드를 달고 있었는지**. 안 달고 있었다면
+    이번에 적어 주는 것이고, 되돌릴 때는 도로 비워야 합니다. 기억해 두지 않으면 되돌린
+    뒤에도 그 줄이 남의 상품코드를 달고 남습니다(실제로 그랬습니다).
+  */
+  let targetProductBefore: string | null | undefined;
 
   if (source && !target) {
     /*
@@ -453,11 +459,13 @@ async function apply(
       손에 든 한 권을 그 줄로 보냅니다. 상품코드 줄은 한 권 줄고, 0권이 되면 지웁니다.
       (그 줄에 자리 기록이 남아 있을 수 있으니 지우기 전에 함께 지웁니다.)
     */
+    targetProductBefore = target.product_code ?? null;
     const { error: upErr } = await supabase
       .from("lib_books")
       .update({
         total_copies: target.total_copies + 1,
         product_code: target.product_code ?? code,
+        // (이 줄이 원래 상품코드를 달고 있었는지는 아래 before_json 에 적어 둡니다.)
         ...(info.cover_url && !target.cover_url ? { cover_url: info.cover_url } : {}),
       })
       .eq("id", target.id);
@@ -548,7 +556,9 @@ async function apply(
       from_product: Boolean(source && hasProductCodeAsId(source)),
       created_by: email,
       // 되돌리기의 재료. 고친 뒤에는 전 모습이 어디에도 남지 않습니다.
-      before_json: source ? { book: source, checks: beforeChecks ?? [] } : null,
+      before_json: source
+        ? { book: source, checks: beforeChecks ?? [], targetProduct: targetProductBefore ?? null }
+        : null,
       leftover_id: leftoverId,
       target_id: target?.id ?? null,
     })
@@ -639,7 +649,12 @@ async function undo(supabase: Awaited<ReturnType<typeof createClient>>, email: s
     isbn: string | null;
     book_id: string | null;
     what: string;
-    before_json: { book: LibBook; checks: Record<string, unknown>[] } | null;
+    before_json: {
+      book: LibBook;
+      checks: Record<string, unknown>[];
+      /** 보낸 줄이 원래 달고 있던 상품코드(없었으면 null). 되돌릴 때 도로 비웁니다. */
+      targetProduct?: string | null;
+    } | null;
     leftover_id: string | null;
     target_id: string | null;
     undone_at: string | null;
@@ -691,10 +706,10 @@ async function undo(supabase: Awaited<ReturnType<typeof createClient>>, email: s
   if (log.target_id) {
     const { data: tRow } = await supabase
       .from("lib_books")
-      .select("id,total_copies")
+      .select("id,total_copies,product_code")
       .eq("id", log.target_id)
       .maybeSingle();
-    const t = tRow as { id: string; total_copies: number } | null;
+    const t = tRow as { id: string; total_copies: number; product_code: string | null } | null;
     if (t) {
       if (t.total_copies <= 1) {
         return NextResponse.json(
@@ -702,7 +717,17 @@ async function undo(supabase: Awaited<ReturnType<typeof createClient>>, email: s
           { status: 400 }
         );
       }
-      await supabase.from("lib_books").update({ total_copies: t.total_copies - 1 }).eq("id", t.id);
+      /*
+        권수를 한 권 내리고, 이번에 적어 준 상품코드도 도로 비웁니다. 되돌렸는데 그 줄이 남의
+        상품코드를 달고 남아 있으면, 그 번호를 찍었을 때 엉뚱한 책이 걸립니다.
+      */
+      await supabase
+        .from("lib_books")
+        .update({
+          total_copies: t.total_copies - 1,
+          ...(log.before_json?.targetProduct === null ? { product_code: null } : {}),
+        })
+        .eq("id", t.id);
     }
   }
 
