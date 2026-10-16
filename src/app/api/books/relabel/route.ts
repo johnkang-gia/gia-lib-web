@@ -86,10 +86,31 @@ type Place = {
   checks: { code: string; copies: number }[];
 };
 
+/**
+ * **등록 전에 보여 주는 책 정보.**
+ *
+ * 찍은 바코드가 ISBN 그 자체이면 번호를 물을 필요는 없지만, 그렇다고 **말없이 등록해서는
+ * 안 됩니다.** 잘못 찍은 번호, 남의 책, 선물 받은 책이 섞여 들어옵니다. 사람이 「이 책이
+ * 맞다」고 한 번 보고 누르는 것과 화면이 알아서 집어넣는 것은 다릅니다.
+ *
+ * 그래서 찍는 즉시 조회만 해 두고 **무엇이 등록될지 먼저 보여줍니다.** 표지 그림까지 뜨므로
+ * 손에 든 책과 맞는지 0.5초면 압니다.
+ */
+type Preview = {
+  title: string;
+  author: string | null;
+  publisher: string | null;
+  pubYear: string | null;
+  coverUrl: string | null;
+  source: string | null;
+  /** 조회처마다 다르게 답한 제목들(등록한 뒤 한 번 눌러 바꿀 수 있습니다). */
+  choices: { title: string; source: string }[];
+};
+
 type Found =
   | { kind: "product"; book: LibBook; message: string }
   | { kind: "isbn"; book: LibBook; message: string; counts: ShelfCounts; place: Place }
-  | { kind: "new"; code: string; isProduct: boolean; message: string }
+  | { kind: "new"; code: string; isProduct: boolean; message: string; preview: Preview | null }
   | { kind: "error"; message: string; detail?: string };
 
 export async function POST(request: Request) {
@@ -342,13 +363,49 @@ async function find(supabase: Awaited<ReturnType<typeof createClient>>, code: st
 
   // 아직 등록되지 않은 번호입니다.
   const isProduct = !isIsbn(code);
+
+  /*
+    찍은 것이 ISBN 이면 번호를 물을 이유가 없습니다 - 책에 인쇄된 그 번호가 답입니다. 다만
+    **등록은 사람이 누릅니다.** 여기서는 조회만 해 두고 무엇이 등록될지 보여줍니다.
+  */
+  let preview: Preview | null = null;
+  if (!isProduct && isValidIsbn(code)) {
+    try {
+      const all = await lookupIsbnAll(canonicalIsbn(code));
+      const cands: TitleCandidate[] = all.map((b) => ({
+        title: b.title,
+        source: b.source,
+        author: b.author,
+        publisher: b.publisher,
+      }));
+      const picked = pickTitle("", cands);
+      const rec = (picked.source ? all.find((b) => b.source === picked.source) : null) ?? all[0] ?? null;
+      if (picked.best) {
+        preview = {
+          title: picked.best,
+          author: rec?.author ?? null,
+          publisher: rec?.publisher ?? null,
+          pubYear: rec?.pub_year ?? null,
+          coverUrl: rec?.cover_url ?? null,
+          source: picked.source ?? null,
+          choices: all.map((b) => ({ title: b.title, source: b.source })),
+        };
+      }
+    } catch {
+      // 조회처가 안 되어도 등록은 할 수 있습니다 - 제목을 적는 자리가 따로 있습니다.
+    }
+  }
+
   return {
     kind: "new",
     code,
     isProduct,
+    preview,
     message: isProduct
       ? "등록되지 않은 번호입니다(ISBN이 아닙니다) — 표지의 ISBN을 적으면 그 정보로 등록합니다. ISBN이 없는 책이면 제목만 적어도 됩니다"
-      : "등록되지 않은 ISBN입니다 — 그대로 등록할 수 있습니다",
+      : preview
+        ? "등록되지 않은 ISBN입니다 — 이 책이 맞으면 등록하세요"
+        : "등록되지 않은 ISBN입니다 — 조회처가 이 번호를 모릅니다. 표지의 제목을 적어주세요",
   };
 }
 

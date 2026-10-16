@@ -40,10 +40,21 @@ type ShelfCounts = { copies: number; shelf: number; rows: number; loansOut: numb
 /** 이 책이 지금 어디 있는지 — 정해 둔 자리가 먼저, 없으면 책장등록에서 나온 칸. */
 type Place = { final: string | null; checks: { code: string; copies: number }[] };
 
+/** 등록 전에 보여 주는 책 정보 — 사람이 보고 누릅니다. */
+type Preview = {
+  title: string;
+  author: string | null;
+  publisher: string | null;
+  pubYear: string | null;
+  coverUrl: string | null;
+  source: string | null;
+  choices: { title: string; source: string }[];
+};
+
 type Found =
   | { kind: "product"; book: LibBook; message: string }
   | { kind: "isbn"; book: LibBook; message: string; counts: ShelfCounts; place: Place }
-  | { kind: "new"; code: string; isProduct: boolean; message: string }
+  | { kind: "new"; code: string; isProduct: boolean; message: string; preview: Preview | null }
   | { kind: "error"; message: string; detail?: string };
 
 /** 바꾸기 전 그 줄의 모습. */
@@ -195,7 +206,7 @@ export default function RelabelClient() {
     적는 중에는 빼앗아 오지 않습니다 - 사람이 숫자를 치고 있는 칸입니다.
   */
   useEffect(() => {
-    const waitingIsbn = found?.kind === "product" || found?.kind === "new";
+    const waitingIsbn = found?.kind === "product" || (found?.kind === "new" && found.isProduct);
     const id = setInterval(() => {
       if (editing) return;
       if (waitingIsbn) {
@@ -249,19 +260,11 @@ export default function RelabelClient() {
         }
 
         /*
-          ── 찍은 번호가 **ISBN 그 자체**이고 아직 등록이 안 된 책 ───────────
-          요청: "만약에 ISBN으로 등록할 수 있다면 바로 등록 가능하게 만들어줘."
-
-          맞는 말입니다. 그 경우 화면이 하던 일은 「표지의 ISBN을 적어주세요」라고 **방금 찍은
-          그 번호를 손으로 다시 치게 하는 것**이었습니다. 책에 인쇄된 바코드가 곧 ISBN인데
-          물어볼 것이 없습니다.
-
-          그래서 찍는 즉시 등록하고 라벨까지 담습니다. 잘못 찍었으면 결과 카드의 **되돌리기**가
-          그 줄을 지웁니다(새로 만든 줄은 되돌리기 = 지우기입니다).
+          ── 찍은 번호가 ISBN 그 자체이면 ─────────────────────────────────
+          번호를 다시 적게 할 이유는 없지만, **말없이 등록하지도 않습니다.** 잘못 찍은 번호,
+          남의 책, 선물 받은 책이 섞여 들어옵니다. 조회만 해 두고 무엇이 등록될지 보여준 뒤
+          사람이 누르게 합니다(아래 '등록할까요?' 카드).
         */
-        if (j.kind === "new" && !j.isProduct) {
-          await doApply({ code, isbn: code });
-        }
         /*
           이미 등록된 책이어도 **그냥 라벨만 담지 않습니다.**
 
@@ -590,7 +593,12 @@ export default function RelabelClient() {
     }
   }
 
-  const waitingIsbn = found?.kind === "product" || found?.kind === "new";
+  /*
+    ISBN 을 **물어야 하는** 경우만 입력칸을 냅니다. 찍은 것이 이미 ISBN 이면 물을 것이
+    없습니다 - 그때는 「이 책이 맞나요?」 카드를 냅니다.
+  */
+  const waitingIsbn = found?.kind === "product" || (found?.kind === "new" && found.isProduct);
+  const askRegister = found?.kind === "new" && !found.isProduct;
   const recent = prog?.recent ?? [];
   const liveRecent = recent.filter((r) => !r.undoneAt);
 
@@ -827,6 +835,113 @@ export default function RelabelClient() {
                     나면 그 책도 스캐너로 한 번에 찾힙니다. ISBN을 함께 적으면 그 번호가 라벨에 들어가고, 제목은 적으신
                     것을 씁니다(조회처 제목보다 표지가 맞습니다).
                   </p>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* ── 등록되지 않은 ISBN: 이 책이 맞나요? ───────────────────────── */}
+          {askRegister && found.kind === "new" && (
+            <div className="mt-3 rounded-xl border-2 border-emerald-300 bg-emerald-50/40 p-3">
+              {found.preview ? (
+                <>
+                  <div className="flex gap-3">
+                    {found.preview.coverUrl ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img
+                        src={found.preview.coverUrl}
+                        alt=""
+                        className="h-24 w-16 shrink-0 rounded object-cover shadow-sm"
+                      />
+                    ) : (
+                      <div className="flex h-24 w-16 shrink-0 items-center justify-center rounded bg-white text-2xl text-slate-300">
+                        📘
+                      </div>
+                    )}
+                    <div className="min-w-0">
+                      <div className="text-xs font-bold text-emerald-700">이 책으로 등록합니다 — 맞습니까?</div>
+                      <div className="mt-1 text-base font-bold text-slate-900">{found.preview.title}</div>
+                      <div className="mt-0.5 text-sm text-slate-600">
+                        {[found.preview.author, found.preview.publisher, found.preview.pubYear]
+                          .filter(Boolean)
+                          .join(" · ")}
+                      </div>
+                      <div className="mt-0.5 font-mono text-xs text-slate-500">{found.code}</div>
+                      {found.preview.source && (
+                        <div className="mt-0.5 text-xs text-slate-500">{found.preview.source}에서 가져온 정보</div>
+                      )}
+                    </div>
+                  </div>
+                  {found.preview.choices.filter((c) => c.title.trim() !== found.preview?.title).length > 0 && (
+                    <p className="mt-2 text-xs leading-relaxed text-slate-500">
+                      다른 조회처는 「
+                      {found.preview.choices
+                        .filter((c) => c.title.trim() !== found.preview?.title)
+                        .map((c) => c.title)
+                        .join("」 · 「")}
+                      」라고 답했습니다 — 등록한 뒤 한 번 눌러 바꿀 수 있습니다.
+                    </p>
+                  )}
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      disabled={busy}
+                      onClick={() => void doApply({ code: found.code, isbn: found.code })}
+                      className="rounded-lg bg-gia-navy px-3 py-2 text-sm font-semibold text-white disabled:opacity-50"
+                    >
+                      {busy ? "등록 중…" : "맞습니다 — 등록 + 라벨 담기"}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={doSkip}
+                      className="rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-600"
+                    >
+                      아닙니다 — 넘기기
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <p className="text-sm text-slate-700">
+                  조회처가 이 번호를 모릅니다. 아래에 <b>표지의 제목</b>을 적으면 그 제목으로 등록합니다.
+                </p>
+              )}
+
+              {/* 제목을 직접 적어 등록하는 자리(조회가 안 되거나 제목이 다를 때). */}
+              {found.preview && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setByTitle((v) => !v);
+                    setNewTitle(found.preview?.title ?? "");
+                  }}
+                  className="mt-2 text-xs font-semibold text-gia-navy underline"
+                >
+                  {byTitle ? "제목 적기 접기" : "제목을 직접 적어 등록하기"}
+                </button>
+              )}
+              {(byTitle || !found.preview) && (
+                <div className="mt-2 flex flex-wrap gap-2">
+                  <input
+                    value={newTitle}
+                    onChange={(e) => setNewTitle(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        void doApply({ code: found.code, isbn: found.code, title: newTitle.trim() });
+                      }
+                    }}
+                    placeholder="표지에 적힌 제목을 그대로 적어주세요"
+                    className="flex-1 rounded-lg border border-slate-300 px-3 py-2 text-base outline-none focus:border-gia-gold"
+                    autoComplete="off"
+                  />
+                  <button
+                    type="button"
+                    disabled={busy || newTitle.trim().length === 0}
+                    onClick={() => void doApply({ code: found.code, isbn: found.code, title: newTitle.trim() })}
+                    className="rounded-lg bg-gia-navy px-3 py-2 text-sm font-semibold text-white disabled:opacity-50"
+                  >
+                    이 제목으로 등록 + 라벨 담기
+                  </button>
                 </div>
               )}
             </div>
