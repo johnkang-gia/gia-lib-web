@@ -332,8 +332,15 @@ export default function RelabelClient() {
         logId: j.logId ?? null,
         scanned: result.scanned,
       });
-      // 잘못 담긴 라벨을 빼고 새 라벨을 담습니다.
-      await addToPile(j.after.id, oldLabel && oldLabel !== j.after.id ? oldLabel : undefined);
+      /*
+        잘못 담긴 라벨을 빼고 새 라벨을 담습니다.
+
+        같은 줄로 다시 들어가더라도 **빼고 담습니다.** 처음에 한 번 걸렸습니다 - 같은 줄이면
+        뺄 것이 없다고 보고 담기만 했더니 모아뽑기에 같은 라벨이 두 장이 됐습니다. 복본은
+        권수만큼 라벨이 필요하므로 같은 id 가 여러 장 들어 있는 것이 정상이고, 그래서 화면이
+        "이미 있으니 넘어가자"고 판단해서는 안 됩니다.
+      */
+      await addToPile(j.after.id, oldLabel ?? undefined);
       setEditing(false);
       setEditIsbn("");
       void loadProgress();
