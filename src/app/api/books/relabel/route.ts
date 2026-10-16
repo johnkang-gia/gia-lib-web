@@ -270,7 +270,8 @@ export async function GET() {
       what: r.what,
       at: r.created_at,
       undoneAt: r.undone_at,
-      canUndo: !r.undone_at && Boolean(r.before_json?.book),
+      // created 는 옛 모습이 없어도 되돌릴 수 있습니다 - 그 줄을 지우는 일이니까요.
+      canUndo: !r.undone_at && (Boolean(r.before_json?.book) || (r.what === "created" && Boolean(r.book_id))),
       /** 바꾸기 전 제목(스냅샷이 있는 경우에만). */
       beforeTitle: r.before_json?.book?.title ?? null,
       beforeCopies: r.before_json?.book?.total_copies ?? null,
@@ -1039,6 +1040,54 @@ async function undo(supabase: Awaited<ReturnType<typeof createClient>>, email: s
 
   if (!log) return NextResponse.json({ error: "그 기록을 찾지 못했습니다." }, { status: 400 });
   if (log.undone_at) return NextResponse.json({ error: "이미 되돌린 기록입니다." }, { status: 400 });
+  /*
+    ── 새로 만든 줄은 '전 모습'이 없습니다 ──────────────────────────────────
+    등록되지 않은 번호를 새로 등록한 경우(created)에는 되돌릴 옛 모습이 없습니다 - 되돌리기란
+    **그 줄을 없애는 것**입니다. 찍자마자 자동으로 등록되는 길이 생겼으니(ISBN 바코드를 찍으면
+    바로 등록), 잘못 찍은 것을 지울 길도 함께 있어야 합니다.
+
+    다만 그 사이에 쓰이기 시작했으면 지우지 않습니다 - 권수가 늘었거나, 자리를 찍었거나,
+    대출된 줄은 이미 '새로 만든 그 줄'이 아닙니다.
+  */
+  if (log.what === "created" && !log.before_json?.book && log.book_id) {
+    const { data: madeRow } = await supabase
+      .from("lib_books")
+      .select("id,title,total_copies")
+      .eq("id", log.book_id)
+      .maybeSingle();
+    const made = madeRow as { id: string; title: string; total_copies: number } | null;
+    if (!made) {
+      return NextResponse.json({ error: "그 줄이 이미 없습니다." }, { status: 400 });
+    }
+    const [{ count: checkCount }, { count: loanCount }] = await Promise.all([
+      supabase.from("lib_shelf_check").select("book_id", { count: "exact", head: true }).eq("book_id", made.id),
+      supabase.from("lib_loans").select("id", { count: "exact", head: true }).eq("book_id", made.id),
+    ]);
+    if (made.total_copies !== 1 || (checkCount ?? 0) > 0 || (loanCount ?? 0) > 0) {
+      return NextResponse.json(
+        {
+          error:
+            "이 줄은 등록한 뒤에 쓰이기 시작했습니다(권수·자리·대출). 지우면 그 기록까지 사라지므로 「장서 관리」에서 확인해주세요.",
+        },
+        { status: 400 }
+      );
+    }
+    if (log.code && log.code !== log.isbn) {
+      await supabase.from("lib_book_aliases").delete().eq("code", log.code).eq("book_id", made.id);
+    }
+    await supabase.from("lib_books").delete().eq("id", made.id);
+    await supabase
+      .from("lib_relabel_log")
+      .update({ undone_at: new Date().toISOString(), undone_by: email })
+      .eq("id", log.id);
+    return NextResponse.json({
+      ok: true,
+      undone: true,
+      restoredId: null,
+      message: `새로 등록했던 줄을 지웠습니다 — ${made.title}`,
+    });
+  }
+
   if (!log.before_json?.book) {
     return NextResponse.json(
       {

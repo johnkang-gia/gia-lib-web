@@ -247,6 +247,21 @@ export default function RelabelClient() {
         } else {
           setWantLabel(true);
         }
+
+        /*
+          ── 찍은 번호가 **ISBN 그 자체**이고 아직 등록이 안 된 책 ───────────
+          요청: "만약에 ISBN으로 등록할 수 있다면 바로 등록 가능하게 만들어줘."
+
+          맞는 말입니다. 그 경우 화면이 하던 일은 「표지의 ISBN을 적어주세요」라고 **방금 찍은
+          그 번호를 손으로 다시 치게 하는 것**이었습니다. 책에 인쇄된 바코드가 곧 ISBN인데
+          물어볼 것이 없습니다.
+
+          그래서 찍는 즉시 등록하고 라벨까지 담습니다. 잘못 찍었으면 결과 카드의 **되돌리기**가
+          그 줄을 지웁니다(새로 만든 줄은 되돌리기 = 지우기입니다).
+        */
+        if (j.kind === "new" && !j.isProduct) {
+          await doApply({ code, isbn: code });
+        }
         /*
           이미 등록된 책이어도 **그냥 라벨만 담지 않습니다.**
 
@@ -286,9 +301,12 @@ export default function RelabelClient() {
     }
   }
 
-  async function doApply() {
-    if (busy || !found) return;
-    const bookId = found.kind === "product" ? found.book.id : undefined;
+  async function doApply(over?: { code?: string; isbn?: string; bookId?: string; title?: string }) {
+    if (busy) return;
+    const code = over?.code ?? scanned;
+    const useIsbn = over?.isbn ?? isbn;
+    if (!over && !found) return;
+    const bookId = over ? over.bookId : found?.kind === "product" ? found.book.id : undefined;
     setBusy(true);
     setNote(null);
     try {
@@ -297,11 +315,11 @@ export default function RelabelClient() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           action: "apply",
-          code: scanned,
-          isbn,
+          code,
+          isbn: useIsbn,
           bookId,
           // 적어 둔 제목이 있으면 함께 보냅니다(ISBN 이 없거나 조회가 안 되는 책).
-          title: byTitle ? newTitle.trim() : undefined,
+          title: over?.title ?? (byTitle ? newTitle.trim() : undefined),
         }),
       });
       const j = (await res.json()) as Partial<ApplyResult> & {
@@ -324,7 +342,7 @@ export default function RelabelClient() {
         leftover: j.leftover ?? null,
         barcode: j.barcode ?? "",
         logId: j.logId ?? null,
-        scanned,
+        scanned: code,
         titleFrom: j.titleFrom ?? null,
         titleKept: Boolean(j.titleKept),
         titleChoices: j.titleChoices ?? [],
