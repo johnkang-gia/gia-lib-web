@@ -500,6 +500,22 @@ async function apply(
       if (info.publisher) patch.publisher = info.publisher;
       if (info.pub_year) patch.pub_year = info.pub_year;
       if (info.cover_url) patch.cover_url = info.cover_url;
+
+      /*
+        ── 손으로 적은 제목이면 상자의 저자·표지는 지웁니다 ───────────────────
+        조회처가 없으니(ISBN 이 없는 책) 채울 값도 없는데, 그냥 두면 **상자 대표 책의 저자와
+        표지**가 그대로 남습니다. 제목은 「아씨방 일곱 동무」인데 저자는 Mary Pope Osborne
+        이고 표지는 매직트리하우스인 줄이 생깁니다 - 비어 있는 것보다 나쁩니다.
+
+        제목을 그대로 두고 적은 경우(같은 책이라는 뜻)는 건드리지 않습니다.
+      */
+      const sameAsBox = (source.title ?? "").trim().toLowerCase() === info.title.toLowerCase();
+      if (manualTitle && !sameAsBox) {
+        if (!info.author) patch.author = null;
+        if (!info.publisher) patch.publisher = null;
+        if (!info.pub_year) patch.pub_year = null;
+        if (!info.cover_url) patch.cover_url = null;
+      }
     }
 
     if (rest > 0) patch.total_copies = 1;
