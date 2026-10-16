@@ -26,6 +26,10 @@ const PATTERNS = [
 ];
 
 const START_B = 104;
+/** 숫자 두 개를 한 기호로 담는 모드(Code 128-C)의 시작문자. */
+const START_C = 105;
+/** C 모드 중간에 B 모드로 넘어가는 전환문자. 자릿수가 홀수일 때 마지막 한 자리에 씁니다. */
+const CODE_B = 100;
 const STOP = 106;
 
 export type Code128Options = {
@@ -49,18 +53,57 @@ export function canEncodeCode128B(value: string) {
   });
 }
 
-/** 문자열 → 값 배열(시작문자 + 데이터 + 체크문자 + 정지문자). */
+/** 숫자만으로 된 번호인지. ISBN·UPC 가 여기 해당합니다. */
+export function isAllDigits(value: string) {
+  return value.length > 0 && /^[0-9]+$/.test(value);
+}
+
+/**
+ * 값 배열(시작문자 + 데이터 + 체크문자 + 정지문자).
+ *
+ * ── 숫자 번호는 두 자리씩 묶습니다(Code 128-C) ────────────────────────────
+ * 라벨이 잘 안 찍힌다는 말을 듣고 재어 봤습니다. 라벨 안쪽 폭은 59mm 이고, 13자리 ISBN 을
+ * B 모드로 그리면 **198모듈**이 들어갑니다. 59mm ÷ 198 = 막대 한 줄이 **0.298mm** 입니다.
+ *
+ * 보급형 레이저 프린터로 뽑은 라벨을 손 스캐너로 읽을 때 안전한 최소 굵기는 0.33mm 쯤
+ * (13 mil)입니다. 0.30mm 는 경계선 바로 아래입니다 - 똑바로 붙이고 가까이 대면 읽히고,
+ * 비스듬하거나 조금 멀면 놓칩니다. 딱 "잘 안 찍힌다"의 모양입니다.
+ *
+ * Code 128 에는 **숫자 두 개를 한 기호에 담는 C 모드**가 있습니다. 13자리면 198 → 143모듈로
+ * 줄고, 같은 라벨에서 막대가 **0.413mm** 가 됩니다(39% 굵어짐). 라벨 크기도 장수도 그대로
+ * 두고 막대만 굵어지는 것이라, 종이를 더 쓰지 않습니다.
+ *
+ * 홀수 자리(ISBN 13자리)는 앞 12자리를 C 로 담고 전환문자로 B 로 넘어가 마지막 한 자리를
+ * 넣습니다. 스캐너는 어느 모드로 그렸는지 상관없이 **같은 숫자**를 돌려줍니다 - 그래서 이미
+ * 붙여 둔 라벨과 섞여도 아무 문제가 없습니다.
+ */
 function encodeValues(value: string): number[] {
-  const values: number[] = [START_B];
-  for (const ch of value) {
-    const code = ch.charCodeAt(0);
-    if (code < 32 || code > 126) {
-      throw new Error(`Code128-B로 표현할 수 없는 문자입니다: ${JSON.stringify(ch)}`);
+  const values: number[] = [];
+
+  if (isAllDigits(value)) {
+    values.push(START_C);
+    let i = 0;
+    // 두 자리씩. 남는 한 자리는 아래에서 B 모드로 넘겨 처리합니다.
+    for (; i + 1 < value.length; i += 2) {
+      values.push(Number(value.slice(i, i + 2)));
     }
-    values.push(code - 32);
+    if (i < value.length) {
+      values.push(CODE_B);
+      values.push(value.charCodeAt(i) - 32);
+    }
+  } else {
+    values.push(START_B);
+    for (const ch of value) {
+      const code = ch.charCodeAt(0);
+      if (code < 32 || code > 126) {
+        throw new Error(`Code128-B로 표현할 수 없는 문자입니다: ${JSON.stringify(ch)}`);
+      }
+      values.push(code - 32);
+    }
   }
+
   // 체크문자 = (시작값 + Σ(데이터값 × 자리번호)) mod 103
-  let sum = START_B;
+  let sum = values[0];
   for (let i = 1; i < values.length; i += 1) {
     sum += values[i] * i;
   }
@@ -80,7 +123,16 @@ function encodeValues(value: string): number[] {
  * 계산: 시작문자 1 + 데이터 n + 체크문자 1 개가 각 11모듈, 정지문자 13모듈, 양옆 여백.
  */
 export function code128Modules(value: string, quietZone = 10): number {
-  return 11 * (value.length + 2) + 13 + quietZone * 2;
+  /*
+    숫자 번호는 두 자리씩 묶여 들어가므로 기호 수가 절반입니다(홀수면 전환문자와 마지막
+    한 자리가 더 붙습니다). 이 함수의 결과로 막대 굵기를 정하기 때문에, 실제 인코딩과
+    같은 셈이어야 합니다 - 어긋나면 바코드가 칸을 넘치거나 절반만 씁니다.
+  */
+  const dataSymbols = isAllDigits(value)
+    ? Math.floor(value.length / 2) + (value.length % 2 === 1 ? 2 : 0)
+    : value.length;
+  // 시작문자 1 + 데이터 + 체크문자 1 이 각 11모듈, 정지문자 13모듈, 양옆 여백.
+  return 11 * (dataSymbols + 2) + 13 + quietZone * 2;
 }
 
 /** Code 128-B 바코드를 SVG 문자열로 만듭니다. */

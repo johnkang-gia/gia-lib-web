@@ -33,7 +33,21 @@ export const dynamic = "force-dynamic";
  *   여유 있는 쪽이 낫습니다 - 프린터나 글꼴이 조금만 달라져도 28mm는 바코드 밑단이 잘립니다.
  *   32mm로 키우면 8줄 24장으로 줄어듭니다.
  */
-const LABEL_W = 63;
+/** A4 에서 좌우 여백 10mm 씩을 뺀 인쇄 가능 폭(mm). */
+const SHEET_W = 189;
+/**
+ * 한 줄에 몇 장을 깔지.
+ *
+ * ── 왜 고를 수 있게 두는가 ────────────────────────────────────────────────
+ * 라벨이 잘 안 찍힌다는 말을 듣고 재어 봤습니다. 3장/줄(63mm)에서 13자리 ISBN 의 막대 한 줄은
+ * **0.30mm** 였습니다. 보급형 레이저 프린터로 뽑아 손 스캐너로 읽을 때 안전한 최소는 0.33mm
+ * 쯤이라, 경계선 바로 아래였습니다 - 똑바로 가까이 대면 읽히고 비스듬하면 놓치는 굵기입니다.
+ *
+ * 숫자를 두 자리씩 묶는 인코딩(Code 128-C)으로 바꿔 같은 3장/줄에서 **0.41mm** 가 됐습니다.
+ * 대부분 이걸로 충분합니다. 그래도 안 읽히는 스캐너가 있으면 2장/줄로 뽑으면 **0.63mm** 가
+ * 됩니다 - 한 장에 18장(3장/줄은 27장)이니 종이를 더 쓰는 대신 확실해집니다.
+ */
+const PER_ROW_DEFAULT = 3;
 const LABEL_H = 30;
 /** 라벨 안쪽 여백(mm). */
 const LABEL_PAD = 2;
@@ -47,10 +61,15 @@ const MM = 96 / 25.4;
  * 가늘면(0.19mm 아래) 보급형 레이저 프린터에서 막대가 뭉개져 안 읽히고, 너무 굵으면
  * 짧은 번호가 우스꽝스럽게 퍼집니다. 그 사이로 묶어 둡니다.
  */
-function moduleWidthFor(value: string): number {
-  const usableMm = LABEL_W - LABEL_PAD * 2;
+function moduleWidthFor(value: string, labelW: number): number {
+  const usableMm = labelW - LABEL_PAD * 2;
   const ideal = (usableMm * MM) / code128Modules(value);
-  return Math.min(Math.max(ideal, 0.72), 1.3);
+  /*
+    아래쪽 0.72px(0.19mm)는 프린터가 막대를 뭉개기 시작하는 굵기입니다. 위쪽은 2장/줄에서
+    필요한 2.4px 까지 열어 둡니다 - 예전에는 1.3 으로 막혀 있어서, 라벨을 넓혀도 바코드가
+    칸의 절반만 쓰고 남았습니다.
+  */
+  return Math.min(Math.max(ideal, 0.72), 2.5);
 }
 
 /**
@@ -76,9 +95,11 @@ function moduleWidthFor(value: string): number {
 export default async function PrintLabelsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ ids?: string; job?: string }>;
+  searchParams: Promise<{ ids?: string; job?: string; per?: string }>;
 }) {
-  const { ids, job } = await searchParams;
+  const { ids, job, per } = await searchParams;
+  const perRow = Number(per) === 2 ? 2 : PER_ROW_DEFAULT;
+  const LABEL_W = SHEET_W / perRow;
 
   const supabase = await createClient();
 
@@ -148,7 +169,23 @@ export default async function PrintLabelsPage({
               <b> 고른 순서 그대로</b> 나오니, 책을 빼 놓은 순서와 맞춰 붙이시면 됩니다.
             </p>
           </div>
-          <PrintButton />
+          <div className="flex shrink-0 flex-col items-end gap-2">
+            <PrintButton />
+            {/*
+              안 읽히는 스캐너를 위한 길. 주소만 바꾸면 되므로 버튼 하나로 둡니다.
+              (인쇄 창을 닫고 다시 고르게 하면 모아뽑기 목록을 또 찾아야 합니다.)
+            */}
+            <a
+              href={`?${new URLSearchParams({
+                ...(ids ? { ids } : {}),
+                ...(job ? { job } : {}),
+                ...(perRow === 2 ? {} : { per: "2" }),
+              }).toString()}`}
+              className="whitespace-nowrap rounded-lg border border-slate-300 px-2.5 py-1 text-xs text-slate-600"
+            >
+              {perRow === 2 ? "작게(한 줄 3장)" : "크게(한 줄 2장) — 막대 0.63mm"}
+            </a>
+          </div>
         </div>
       </div>
 
@@ -157,7 +194,7 @@ export default async function PrintLabelsPage({
         <div
           style={{
             display: "grid",
-            gridTemplateColumns: `repeat(3, ${LABEL_W}mm)`,
+            gridTemplateColumns: `repeat(${perRow}, ${LABEL_W}mm)`,
             gridAutoRows: `${LABEL_H}mm`,
             borderTop: "0.25mm solid #94a3b8",
             borderLeft: "0.25mm solid #94a3b8",
@@ -276,9 +313,14 @@ export default async function PrintLabelsPage({
                   */}
                   <Barcode
                     value={book.item_code ?? book.isbn ?? ""}
-                    moduleWidth={moduleWidthFor(book.item_code ?? book.isbn ?? "")}
-                    height={46}
-                    fontSize={9}
+                    moduleWidth={moduleWidthFor(book.item_code ?? book.isbn ?? "", LABEL_W)}
+                    /*
+                      막대 높이도 읽히는 데 영향을 줍니다 - 스캐너가 비스듬히 지나가도 막대를
+                      끝까지 가로지를 수 있어야 하니까요. 라벨이 넓어지면 바코드도 길어지므로
+                      그만큼 높여 줍니다(권장: 길이의 15% 이상).
+                    */
+                    height={perRow === 2 ? 62 : 50}
+                    fontSize={perRow === 2 ? 11 : 9}
                   />
                 </div>
           ))}
