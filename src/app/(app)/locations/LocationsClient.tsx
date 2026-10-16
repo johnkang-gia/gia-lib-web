@@ -22,10 +22,13 @@ export default function LocationsClient({
   map,
   locations,
   counts,
+  levels,
 }: {
   map: LibMap;
   locations: LibLocation[];
   counts: Record<string, number>;
+  /** 이 도서관이 실제로 쓰는 라벨 등급(lib_label_levels). 화면마다 손으로 적지 않습니다. */
+  levels: number[];
 }) {
   const router = useRouter();
   const supabase = createClient();
@@ -114,7 +117,10 @@ export default function LocationsClient({
     for (const l of rows) {
       if (l.label_level != null) continue;
       const m = /^(\d+)\s*-/.exec(l.code.trim());
-      if (m) targets.push({ id: l.id, code: l.code, label_level: Number(m[1]) });
+      // 번호 앞자리가 우리 등급 목록에 있을 때만 채웁니다(7-1 같은 칸이 생겨도 멋대로 7등급으로 적지 않게).
+      if (m && levels.includes(Number(m[1]))) {
+        targets.push({ id: l.id, code: l.code, label_level: Number(m[1]) });
+      }
     }
     if (targets.length === 0) {
       setError("등급이 비어 있는 칸이 없거나, 번호에서 등급을 읽을 수 없습니다.");
@@ -552,7 +558,7 @@ export default function LocationsClient({
               <option value="" className="text-slate-900">
                 등급 정하기
               </option>
-              {[1, 2, 3, 4, 5, 6, 7].map((lv) => (
+              {levels.map((lv) => (
                 <option key={lv} value={lv} className="text-slate-900">
                   {lv}등급 칸으로
                 </option>
@@ -572,7 +578,7 @@ export default function LocationsClient({
             */}
             <span className="flex items-center gap-1.5 text-sm">
               라벨색
-              {[2, 3, 4, 5, 6].map((lv) => (
+              {levels.map((lv) => (
                 <button
                   key={`lv-${lv}`}
                   type="button"
@@ -783,7 +789,7 @@ export default function LocationsClient({
                   title="이 칸에 꽂는 라벨 등급"
                 >
                   <option value="">등급 —</option>
-                  {[2, 3, 4, 5, 6].map((lv) => (
+                  {levels.map((lv) => (
                     <option key={lv} value={lv}>
                       {lv}등급
                     </option>
