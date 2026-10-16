@@ -140,6 +140,9 @@ export default function RelabelClient() {
   const [editIsbn, setEditIsbn] = useState("");
   const [titleEditing, setTitleEditing] = useState(false);
   const [titleDraft, setTitleDraft] = useState("");
+  /** ISBN 이 없거나 조회가 안 되는 책을 제목으로 등록하는 자리. */
+  const [byTitle, setByTitle] = useState(false);
+  const [newTitle, setNewTitle] = useState("");
   const [pile, setPile] = useState<{ id: string; count: number } | null>(null);
   const [prog, setProg] = useState<Progress | null>(null);
   const [showLeft, setShowLeft] = useState(false);
@@ -198,6 +201,8 @@ export default function RelabelClient() {
     setNote(null);
     setFound(null);
     setIsbn("");
+    setByTitle(false);
+    setNewTitle("");
     try {
       const res = await fetch("/api/books/relabel", {
         method: "POST",
@@ -257,11 +262,24 @@ export default function RelabelClient() {
       const res = await fetch("/api/books/relabel", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "apply", code: scanned, isbn, bookId }),
+        body: JSON.stringify({
+          action: "apply",
+          code: scanned,
+          isbn,
+          bookId,
+          // 적어 둔 제목이 있으면 함께 보냅니다(ISBN 이 없거나 조회가 안 되는 책).
+          title: byTitle ? newTitle.trim() : undefined,
+        }),
       });
-      const j = (await res.json()) as Partial<ApplyResult> & { book?: LibBook | null; error?: string };
+      const j = (await res.json()) as Partial<ApplyResult> & {
+        book?: LibBook | null;
+        error?: string;
+        /** 조회처가 이 번호를 모릅니다 - 제목을 적을 자리를 바로 열어 줍니다. */
+        needTitle?: boolean;
+      };
       if (j.error || !j.after) {
         setNote(j.error ?? "바꾸지 못했습니다.");
+        if (j.needTitle) setByTitle(true);
         return;
       }
       setResult({
@@ -284,6 +302,8 @@ export default function RelabelClient() {
       setScanned("");
       setIsbn("");
       setEditing(false);
+      setByTitle(false);
+      setNewTitle("");
     } catch (e) {
       setNote(`보내지 못했습니다 — ${e instanceof Error ? e.message : String(e)}`);
     } finally {
@@ -577,7 +597,11 @@ export default function RelabelClient() {
                     서버는 이 값을 제대로 받습니다(067988338X → 9780679883388). 막고 있던 것은
                     화면뿐이었습니다.
                   */
-                  disabled={busy || ![10, 13].includes(normalizeIsbn(isbn).length)}
+                  disabled={
+                    busy ||
+                    (![10, 13].includes(normalizeIsbn(isbn).length) &&
+                      !(byTitle && newTitle.trim().length > 0))
+                  }
                   onClick={() => void doApply()}
                   className="rounded-lg bg-gia-navy px-3 py-2 text-sm font-semibold text-white disabled:opacity-50"
                 >
@@ -588,6 +612,61 @@ export default function RelabelClient() {
                 ISBN 바코드가 아니라 <b>숫자</b>를 보고 적으세요. 체크숫자가 맞지 않으면 받지 않습니다 — 한 자리 잘못 적힌 책은
                 나중에 바코드로도 제목으로도 찾히지 않습니다.
               </p>
+
+              {/*
+                ── ISBN 이 없는 책 ────────────────────────────────────────────
+                오래된 책, 교구에 딸려 온 책, 바코드 자리가 뜯긴 책에는 ISBN 이 없습니다.
+                조회처가 그 번호를 모르는 경우도 있습니다. 예전에는 둘 다 「여러 권 등록
+                화면으로 가세요」로 돌려보냈는데, 손에 책을 들고 선 사람에게 다른 화면으로
+                가라고 하면 그 책은 대개 그냥 책장으로 돌아갑니다. 그래서 여기서 끝냅니다.
+              */}
+              <button
+                type="button"
+                onClick={() => {
+                  setByTitle((v) => !v);
+                  setNewTitle("");
+                }}
+                className="mt-2 text-xs font-semibold text-gia-navy underline"
+              >
+                {byTitle ? "제목으로 등록 접기" : "ISBN이 없거나 조회가 안 되나요? — 제목으로 등록"}
+              </button>
+
+              {byTitle && (
+                <div className="mt-2 rounded-xl border border-slate-200 bg-slate-50 p-3">
+                  <label className="text-xs font-semibold text-slate-600">
+                    표지에 적힌 제목을 그대로 적어주세요
+                  </label>
+                  <div className="mt-1 flex flex-wrap gap-2">
+                    <input
+                      value={newTitle}
+                      onChange={(e) => setNewTitle(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          e.preventDefault();
+                          void doApply();
+                        }
+                      }}
+                      placeholder="예) 아씨방 일곱 동무"
+                      className="flex-1 rounded-lg border border-slate-300 px-3 py-2 text-base outline-none focus:border-gia-gold"
+                      autoComplete="off"
+                      autoFocus
+                    />
+                    <button
+                      type="button"
+                      disabled={busy || newTitle.trim().length === 0}
+                      onClick={() => void doApply()}
+                      className="rounded-lg bg-gia-navy px-3 py-2 text-sm font-semibold text-white disabled:opacity-50"
+                    >
+                      {busy ? "등록 중…" : "제목으로 등록 + 라벨 담기"}
+                    </button>
+                  </div>
+                  <p className="mt-1.5 text-xs leading-relaxed text-slate-500">
+                    ISBN 칸을 비워 두면 <b>도서관 라벨 번호(GIA-B-…)</b>를 새로 발급해 그 번호로 바코드를 만듭니다 — 붙이고
+                    나면 그 책도 스캐너로 한 번에 찾힙니다. ISBN을 함께 적으면 그 번호가 라벨에 들어가고, 제목은 적으신
+                    것을 씁니다(조회처 제목보다 표지가 맞습니다).
+                  </p>
+                </div>
+              )}
             </div>
           )}
         </div>

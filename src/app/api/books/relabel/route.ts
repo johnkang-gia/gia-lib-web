@@ -100,7 +100,9 @@ export async function POST(request: Request) {
     const code = normalizeScan(body?.code ?? "");
     if (!code) return NextResponse.json({ error: "읽힌 값이 없습니다." }, { status: 400 });
 
-    if (body?.action === "apply") return await apply(supabase, email, code, body.isbn ?? "", body.bookId);
+    if (body?.action === "apply") {
+      return await apply(supabase, email, code, body.isbn ?? "", body.bookId, body.title);
+    }
     return NextResponse.json(await find(supabase, code));
   } catch (e) {
     await logLibError(supabase, "api/books/relabel", e);
@@ -276,32 +278,68 @@ async function find(supabase: Awaited<ReturnType<typeof createClient>>, code: st
     code,
     isProduct,
     message: isProduct
-      ? "등록되지 않은 번호입니다(ISBN이 아닙니다) — 표지의 ISBN을 적으면 그 정보로 등록합니다"
+      ? "등록되지 않은 번호입니다(ISBN이 아닙니다) — 표지의 ISBN을 적으면 그 정보로 등록합니다. ISBN이 없는 책이면 제목만 적어도 됩니다"
       : "등록되지 않은 ISBN입니다 — 그대로 등록할 수 있습니다",
   };
 }
 
-/** ISBN 을 받아 교체등록(또는 신규 등록)하고, 그 줄을 돌려줍니다. */
+/**
+ * ISBN(또는 사람이 적은 제목)을 받아 교체등록(또는 신규 등록)하고, 그 줄을 돌려줍니다.
+ *
+ * ── ISBN 이 없는 책도 받습니다 ───────────────────────────────────────────
+ * 요청: "재등록·라벨 뽑기에서 ISBN만 입력하거나 없을 경우 책 제목 등록하고 라벨 뽑을 수 있게
+ * 만들어줘."
+ *
+ * 학교 책장에는 ISBN 이 아예 없는 책이 있습니다 - 오래된 책, 교구 세트에 딸려 온 책, 바코드
+ * 자리가 뜯긴 책. 조회처가 그 ISBN 을 모르는 경우도 있습니다. 지금까지는 둘 다 "「여러 권
+ * 등록」에서 손으로 적으세요"로 돌려보냈는데, 그 말은 **지금 손에 책을 들고 줄 서 있는 사람**
+ * 에게 다른 화면으로 가라는 뜻입니다. 그러면 그 책은 대개 그냥 책장으로 돌아갑니다.
+ *
+ * 그래서 제목만 적어도 등록되게 합니다. ISBN 이 없으면 바코드로 쓸 번호가 없으므로 **도서관
+ * 라벨 번호(GIA-B-00001)를 발급**합니다 - 그 번호가 곧 라벨에 찍히는 바코드이고, 붙이고 나면
+ * 그 책도 스캐너로 한 번에 찾힙니다.
+ */
 async function apply(
   supabase: Awaited<ReturnType<typeof createClient>>,
   email: string,
   code: string,
   rawIsbn: string,
-  bookId?: string
+  bookId?: string,
+  rawTitle?: string
 ) {
   const typed = normalizeIsbn(normalizeScan(rawIsbn));
-  if (!typed) return NextResponse.json({ error: "ISBN을 적어주세요." }, { status: 400 });
+  /** 사람이 표지를 보고 적은 제목. ISBN 이 없거나 조회가 안 될 때의 유일한 단서입니다. */
+  const manualTitle = (rawTitle ?? "").trim();
+
+  if (!typed && !manualTitle) {
+    return NextResponse.json(
+      { error: "ISBN을 적어주세요. ISBN이 없는 책이면 제목을 적어주세요." },
+      { status: 400 }
+    );
+  }
   /*
     체크숫자를 봅니다. 한 자리를 잘못 읽어 적으면 있지도 않은 ISBN 으로 등록되고, 그 책은
     다음에 바코드로도 제목으로도 찾히지 않습니다. 눈으로 베껴 적는 자리라 반드시 걸러야 합니다.
   */
-  if (!isValidIsbn(typed)) {
+  if (typed && !isValidIsbn(typed)) {
     return NextResponse.json(
       { error: `ISBN 숫자가 맞지 않습니다(${typed}). 표지의 13자리를 다시 확인해주세요.` },
       { status: 400 }
     );
   }
-  const isbn = canonicalIsbn(typed);
+  /*
+    찍은 바코드 자체가 ISBN 이면 그것이 이 책의 번호입니다. 제목만 적고 ISBN 칸을 비워 둬도
+    굳이 라벨 번호를 새로 발급할 이유가 없습니다 - 책에 이미 쓸 수 있는 번호가 인쇄되어
+    있으니까요.
+  */
+  const scannedIsbn = isIsbn(code) && isValidIsbn(code) ? canonicalIsbn(code) : "";
+  const isbn = typed ? canonicalIsbn(typed) : scannedIsbn;
+
+  /** 라벨 번호를 한 개 발급받습니다(ISBN 이 없는 책에만). */
+  async function nextItemCode(): Promise<string | null> {
+    const { data } = await supabase.rpc("lib_next_item_code");
+    return data ? String(data) : null;
+  }
 
   /*
     ── 조회처를 **모두** 봅니다 ─────────────────────────────────────────────
@@ -315,7 +353,8 @@ async function apply(
   */
   let all: Awaited<ReturnType<typeof lookupIsbnAll>> = [];
   try {
-    all = await lookupIsbnAll(isbn);
+    // ISBN 이 없으면 물어볼 것이 없습니다 - 제목은 사람이 적은 것을 씁니다.
+    all = isbn ? await lookupIsbnAll(isbn) : [];
   } catch (e) {
     await logLibError(supabase, "api/books/relabel:lookup", e, { email, detail: `isbn=${isbn}` });
   }
@@ -330,11 +369,9 @@ async function apply(
     이 ISBN 으로 된 줄이 이미 있는지 봅니다. 있으면 **새로 만들지 않습니다** - 같은 책이 두
     줄이 되면 검색에 두 번 뜨고 권수도 두 군데로 갈라집니다.
   */
-  const { data: sameRows } = await supabase
-    .from("lib_books")
-    .select("*")
-    .in("isbn", isbnVariants(isbn))
-    .limit(20);
+  const { data: sameRows } = isbn
+    ? await supabase.from("lib_books").select("*").in("isbn", isbnVariants(isbn)).limit(20)
+    : { data: [] as LibBook[] };
   const existing = ((sameRows ?? []) as LibBook[]).filter((b) => b.id !== source?.id);
   const target = existing[0] ?? null;
 
@@ -364,8 +401,12 @@ async function apply(
   /** 고른 제목을 준 조회처의 기록. 저자·출판사·표지도 **그 책의 것**이어야 합니다. */
   const rec = (picked.source ? all.find((b) => b.source === picked.source) : null) ?? found;
 
+  /*
+    사람이 적은 제목이 있으면 그것이 우선입니다. 그 사람은 책을 손에 들고 표지를 보고
+    있습니다 - 조회처보다 나은 근거입니다.
+  */
   const info = {
-    title: (picked.best ?? "").trim(),
+    title: manualTitle || (picked.best ?? "").trim(),
     author: rec?.author ?? null,
     publisher: rec?.publisher ?? null,
     pub_year: rec?.pub_year ?? null,
@@ -424,11 +465,24 @@ async function apply(
       다음에 같은 상품코드를 찍었을 때 또 한 권을 뗄 수 있습니다.
     */
     const rest = source.total_copies - 1;
+    /*
+      ── 바코드로 쓸 번호가 반드시 하나 있어야 합니다 ───────────────────────
+      ISBN 이 있으면 그것이 그 책의 번호입니다. 없으면 **도서관 라벨 번호를 발급**합니다 -
+      라벨에 찍을 숫자가 없으면 "등록은 됐는데 라벨은 못 뽑는 책"이 되고, 그건 이 화면이
+      하려던 일의 절반이 빠진 것입니다.
+    */
+    let ownCode: string | null = null;
+    if (!isbn) {
+      ownCode = await nextItemCode();
+      if (!ownCode) {
+        return NextResponse.json({ error: "라벨 번호를 발급하지 못했습니다." }, { status: 500 });
+      }
+    }
     const patch: Record<string, unknown> = {
-      isbn,
+      isbn: isbn || null,
       // 상품코드는 버리지 않고 찾기용 단서로 옮깁니다.
       product_code: source.product_code ?? source.item_code ?? code,
-      item_code: null,
+      item_code: ownCode,
     };
     /*
       조회된 제목이 있으면 **그것으로 바꿉니다**(상자 제목은 권위가 없습니다). 저자·출판사·
@@ -548,18 +602,30 @@ async function apply(
     // 새로 만드는 경우에도 같은 제목을 씁니다(위에서 이미 골랐습니다).
     const newTitle = info.title;
     if (!newTitle) {
+      /*
+        조회처가 이 번호를 모릅니다. 예전에는 여기서 「여러 권 등록 화면으로 가세요」라고
+        돌려보냈는데, 그 말은 손에 책을 들고 선 사람에게 다른 화면으로 가라는 뜻이고 그러면
+        그 책은 대개 책장으로 그냥 돌아갑니다. 이제는 제목을 적을 자리를 내주고, 적으면
+        그대로 등록합니다.
+      */
       return NextResponse.json(
         {
-          error:
-            "조회처에서 이 ISBN의 책 정보를 찾지 못했습니다. 「여러 권 등록」에서 제목을 손으로 적어 등록해주세요.",
+          error: "조회처에서 이 ISBN의 책 정보를 찾지 못했습니다 — 표지의 제목을 적어주세요.",
+          needTitle: true,
         },
         { status: 400 }
       );
     }
+    // ISBN 이 없는 책에는 라벨에 찍을 번호를 발급합니다.
+    const ownCode = isbn ? null : await nextItemCode();
+    if (!isbn && !ownCode) {
+      return NextResponse.json({ error: "라벨 번호를 발급하지 못했습니다." }, { status: 500 });
+    }
     const { data: made, error } = await supabase
       .from("lib_books")
       .insert({
-        isbn,
+        isbn: isbn || null,
+        item_code: ownCode,
         product_code: code !== isbn ? code : null,
         title: newTitle,
         author: info.author,
