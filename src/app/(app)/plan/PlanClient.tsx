@@ -101,6 +101,26 @@ export default function PlanClient({
     [locations]
   );
 
+  /**
+   * **칸에 몇 권이 들어가는지** — 적어 둔 정원이 없으면 *지금 꽂혀 있는 권수*로 봅니다.
+   *
+   * 정원(capacity)은 칸을 재어 적어 두는 값인데 아직 비어 있습니다. 비어 있으면 계획은 그
+   * 칸을 「얼마든지 들어감」으로 보고 **첫 칸에 전부** 밀어 넣습니다 - 실제로 1,116권이 6-1
+   * 한 칸에 들어가는 계획이 나왔습니다. 쓸 수 없는 계획입니다.
+   *
+   * 지금 그 칸에 꽂혀 있는 권수는 **실제로 들어간다는 증거**입니다(책장등록으로 한 권씩 세어
+   * 둔 숫자니까요). 그래서 정원이 비어 있으면 그 수를 씁니다. 구역 관리에서 정원을 적어
+   * 두면 그때부터는 그 값이 우선입니다.
+   */
+  const nowInZone = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const b of books) {
+      if (!b.location_id) continue;
+      m.set(b.location_id, (m.get(b.location_id) ?? 0) + 1);
+    }
+    return m;
+  }, [books]);
+
   const targetZones = useMemo<PlanZone[]>(
     () =>
       locations
@@ -113,10 +133,13 @@ export default function PlanClient({
           name: l.name,
           color: l.color,
           sort_order: l.sort_order,
-          capacity: l.capacity,
+          capacity: l.capacity ?? (nowInZone.get(l.id) || null),
         })),
-    [locations, useTempZones, onlyLevel]
+    [locations, useTempZones, onlyLevel, nowInZone]
   );
+
+  /** 정원을 적어 둔 칸이 하나도 없으면 사람에게 말해 줍니다(숫자의 뜻이 달라지니까요). */
+  const measuredZones = locations.filter((l) => l.capacity != null).length;
 
   const tempZones = locations.filter((l) => l.kind === "임시");
 
@@ -440,6 +463,14 @@ export default function PlanClient({
               새 책이 들어올 자리와 손이 들어갈 틈을 남깁니다
             </span>
           </label>
+
+          {measuredZones === 0 && (
+            <p className="w-full rounded-lg bg-slate-50 px-3 py-2 text-xs leading-relaxed text-slate-600">
+              칸 정원이 아직 적혀 있지 않아서, <b>지금 그 칸에 꽂혀 있는 권수</b>를 정원 대신 씁니다 — 실제로 그만큼
+              들어간다는 증거니까요(책장등록으로 한 권씩 센 숫자입니다). 구역 관리에서 정원을 적어 두면 그때부터는 그
+              값으로 계산합니다.
+            </p>
+          )}
 
           {/*
             ── 같은 묶음 안에서 무엇을 먼저 꽂을까 ───────────────────────────
