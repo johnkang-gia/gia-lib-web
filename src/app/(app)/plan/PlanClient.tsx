@@ -464,13 +464,33 @@ export default function PlanClient({
             </span>
           </label>
 
-          {measuredZones === 0 && (
-            <p className="w-full rounded-lg bg-slate-50 px-3 py-2 text-xs leading-relaxed text-slate-600">
-              칸 정원이 아직 적혀 있지 않아서, <b>지금 그 칸에 꽂혀 있는 권수</b>를 정원 대신 씁니다 — 실제로 그만큼
-              들어간다는 증거니까요(책장등록으로 한 권씩 센 숫자입니다). 구역 관리에서 정원을 적어 두면 그때부터는 그
-              값으로 계산합니다.
-            </p>
-          )}
+          {/*
+            ── 한 칸에 몇 권씩 가는지 미리 말해 줍니다 ──────────────────────
+            「책 N권 ÷ 칸 M개 = 한 칸 약 K권」은 계획을 보기 전에 사람이 가늠할 수 있는 유일한
+            숫자입니다. 이 숫자가 지금 그 칸에 꽂혀 있는 권수보다 훨씬 크면, 계획대로 꽂다가
+            중간에 자리가 모자란 것을 알게 됩니다 - 그 전에 말해야 합니다.
+          */}
+          <p className="w-full rounded-lg bg-slate-50 px-3 py-2 text-xs leading-relaxed text-slate-600">
+            {targetZones.length > 0 ? (
+              <>
+                {onlyLevel != null ? `${onlyLevel}등급 ` : ""}책 <b>{targetBooks.length}권</b> ÷ 칸{" "}
+                <b>{targetZones.length}개</b> ={" "}
+                <b className="text-gia-navy">
+                  한 칸 약 {Math.ceil(targetBooks.length / targetZones.length)}권
+                </b>
+                씩 고르게 나눕니다. <b>시리즈는 한 칸에 통째로</b> 넣고, 남은 자리를 낱권으로 채웁니다 — 어느 칸이든
+                같은 만큼 여유가 남습니다.
+              </>
+            ) : (
+              <>이 등급에 쓸 칸이 없습니다 — 구역 관리에서 칸을 만들거나 등급을 확인해주세요.</>
+            )}
+            {measuredZones === 0 && (
+              <>
+                {" "}칸 정원은 아직 적혀 있지 않아서 <b>지금 그 칸에 꽂혀 있는 권수</b>를 한계로 봅니다(책장등록으로 한
+                권씩 센 숫자라 실제로 그만큼 들어간다는 증거입니다). 구역 관리에서 정원을 적어 두면 그 값이 우선입니다.
+              </>
+            )}
+          </p>
 
           {/*
             ── 같은 묶음 안에서 무엇을 먼저 꽂을까 ───────────────────────────

@@ -302,37 +302,132 @@ export function buildPlan(
     fill: null,
   }));
 
-  let zi = 0;
   const leftover: PlanBook[] = [];
 
+  /*
+    ── 칸에 나눠 담기 ──────────────────────────────────────────────────────
+    요청: "칸 정원의 경우 각 등급 권수와 각 등급의 책장을 계산해서 한 책장에 얼마나 들어갈지를
+    대략 계산하고 여유가 있도록 조정해줘. 시리즈는 우선적으로 한 시리즈가 한 책장에 넣어지도록
+    조정하고, 시리즈가 아닌 책들을 나머지 공간에 넣는 느낌으로 만들어줘."
+
+    예전에는 **앞 칸부터 꽉꽉** 채웠습니다. 정원을 적어 두지 않은 칸은 「얼마든지 들어감」이라
+    첫 칸에 1,116권이 들어가는 계획이 나왔고, 정원을 적어 두어도 앞 칸은 꽉 차고 뒷 칸은 비는
+    모양이 됩니다. 책장은 그렇게 쓰지 않습니다.
+
+    그래서 두 가지를 바꿉니다.
+
+    ① **고르게 나눕니다.** 이 등급 책이 몇 권이고 이 등급 칸이 몇 개인지로 한 칸 몫을
+       계산합니다(권수 ÷ 칸 수). 그 몫을 '여유 있는 선'으로 삼아 칸마다 비슷하게 담습니다 -
+       어느 칸이든 같은 만큼 여유가 남습니다.
+
+    ② **시리즈를 쪼개지 않습니다.** 시리즈 한 묶음을 먼저, 들어갈 수 있는 칸에 통째로
+       넣습니다. 1권과 7권이 다른 칸에 있으면 아이는 그 시리즈를 못 찾습니다. 그러고 **남은
+       자리에 낱권을 채웁니다.** 묶음이 한 칸 몫보다 크면 그때만 나눠 담습니다(열두 권짜리
+       전집은 어느 칸에도 통째로 안 들어갈 수 있습니다).
+  */
+  const totalBooks = groups.reduce((n, g) => n + g.books.length, 0);
+  /** 한 칸 몫 - 이 등급 책을 이 등급 칸에 고르게 나눈 수. */
+  const evenShare = zonePlans.length > 0 ? Math.ceil(totalBooks / zonePlans.length) : 0;
+
+  /** 꽉 채웠을 때의 한계(정원을 적어 둔 칸만). 넘기면 책이 안 들어갑니다. */
+  const hardLimit = (zone: PlanZone) =>
+    zone.capacity === null ? Number.POSITIVE_INFINITY : Math.max(1, zone.capacity);
+
   /**
-   * 이 칸에 몇 권 더 들어갈 수 있는지.
+   * 여유를 둔 선. 고르게 나눈 몫과, 정원의 fillTarget 중 **큰 쪽**입니다.
    *
-   * 수용량을 그대로 쓰지 않고 fillTarget 만큼만 씁니다 - 새 책이 들어올 자리와 손이 들어갈
-   * 틈을 남겨 둡니다. 적어도 한 권은 들어가게 해서, 여유율을 낮게 잡아도 칸이 통째로 비어
-   * 버리지는 않게 합니다.
+   * 큰 쪽인 이유: 고르게 나눈 몫이 정원의 80%보다 크면 어차피 그만큼 넣어야 책이 다 들어갑니다.
+   * 그때 80%를 고집하면 갈 곳 없는 책만 늘어납니다 - 여유는 '남는 자리가 있을 때' 두는 것이지,
+   * 책을 버릴 이유가 아닙니다.
    */
-  const usable = (zone: PlanZone) =>
-    zone.capacity === null
-      ? Number.POSITIVE_INFINITY
-      : Math.max(1, Math.floor(zone.capacity * fillTarget));
+  const softLimit = (zone: PlanZone) => {
+    const byCap =
+      zone.capacity === null ? 0 : Math.max(1, Math.floor(zone.capacity * fillTarget));
+    return Math.max(evenShare, byCap);
+  };
 
-  const roomLeft = (zp: ZonePlan) => usable(zp.zone) - zp.books.length;
+  const room = (zp: ZonePlan, limit: (z: PlanZone) => number) => limit(zp.zone) - zp.books.length;
 
-  for (const group of groups) {
-    // 분류마다 새 칸에서 시작하기: 지금 칸에 이미 다른 분류가 들어 있으면 다음 칸으로 넘깁니다.
-    if (freshShelf && zi < zonePlans.length && zonePlans[zi].books.length > 0) zi += 1;
+  const put = (zp: ZonePlan, book: PlanBook, label: string) => {
+    zp.books.push(book);
+    if (!zp.groupLabels.includes(label)) zp.groupLabels.push(label);
+  };
 
-    for (const book of group.books) {
-      while (zi < zonePlans.length && roomLeft(zonePlans[zi]) <= 0) zi += 1;
-      if (zi >= zonePlans.length) {
-        leftover.push(book);
+  /** 한 묶음(시리즈 또는 낱권)을 칸에 넣습니다. from 부터 뒤쪽 칸만 봅니다(차례가 흐트러지지 않게). */
+  const place = (books: PlanBook[], label: string, from: number): number => {
+    // ① 여유 있는 선 안에서 통째로 들어가는 칸
+    for (let i = from; i < zonePlans.length; i += 1) {
+      if (room(zonePlans[i], softLimit) >= books.length) {
+        for (const b of books) put(zonePlans[i], b, label);
+        return i;
+      }
+    }
+    // ② 꽉 채워서라도 통째로 들어가는 칸(정원을 적어 둔 칸이 작을 때)
+    for (let i = from; i < zonePlans.length; i += 1) {
+      if (room(zonePlans[i], hardLimit) >= books.length) {
+        for (const b of books) put(zonePlans[i], b, label);
+        return i;
+      }
+    }
+    // ③ 어느 칸에도 통째로 안 들어갑니다 - 그때만 나눠 담습니다.
+    let at = from;
+    for (const b of books) {
+      while (at < zonePlans.length && room(zonePlans[at], hardLimit) <= 0) at += 1;
+      if (at >= zonePlans.length) {
+        leftover.push(b);
         continue;
       }
-      const zp = zonePlans[zi];
-      zp.books.push(book);
-      if (!zp.groupLabels.includes(group.label)) zp.groupLabels.push(group.label);
+      put(zonePlans[at], b, label);
     }
+    return Math.min(at, Math.max(0, zonePlans.length - 1));
+  };
+
+  for (const group of groups) {
+    /*
+      묶음으로 가릅니다 - 같은 시리즈는 한 덩어리, 시리즈 아닌 책은 한 권씩.
+      group.books 는 이미 줄 세워져 있으므로 차례는 그대로 따릅니다.
+    */
+    const bundles: PlanBook[][] = [];
+    const singles: PlanBook[] = [];
+    let cur: PlanBook[] = [];
+    let curName = "";
+    for (const b of group.books) {
+      const name = (b.series ?? "").trim();
+      if (!name) {
+        singles.push(b);
+        continue;
+      }
+      if (name !== curName) {
+        if (cur.length > 0) bundles.push(cur);
+        cur = [];
+        curName = name;
+      }
+      cur.push(b);
+    }
+    if (cur.length > 0) bundles.push(cur);
+
+    // 분류마다 새 칸에서 시작하기: 지금 칸에 이미 다른 분류가 들어 있으면 다음 칸부터 봅니다.
+    let from = 0;
+    if (freshShelf) {
+      while (from < zonePlans.length && zonePlans[from].books.length > 0) from += 1;
+      if (from >= zonePlans.length) from = Math.max(0, zonePlans.length - 1);
+    }
+
+    // ① 시리즈 묶음 먼저 - 통째로 들어갈 자리를 찾습니다.
+    for (const bundle of bundles) place(bundle, group.label, from);
+    // ② 남은 자리에 낱권을 채웁니다.
+    for (const single of singles) place([single], group.label, from);
+  }
+
+  /*
+    칸 안에서 다시 줄을 세웁니다. 낱권을 나중에 채워 넣었으므로, 그대로 두면 꽂는 차례가
+    뒤섞입니다 - 꽂을 사람은 위에서 아래로 읽으며 꽂습니다.
+  */
+  const orderIndex = new Map<string, number>();
+  let seq = 0;
+  for (const group of groups) for (const b of group.books) orderIndex.set(b.id, seq++);
+  for (const zp of zonePlans) {
+    zp.books.sort((a, b) => (orderIndex.get(a.id) ?? 0) - (orderIndex.get(b.id) ?? 0));
   }
 
   // ── ④ 칸마다 대표 이름 정하기(가장 많이 든 덩어리 기준) ────────────────
