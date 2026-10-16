@@ -27,6 +27,19 @@ export const maxDuration = 45;
  * 옆에 그 등급의 칸을 모두 내주고 고를 수 있게 합니다.
  */
 
+/**
+ * 칸의 등급. **칸 번호 앞자리가 곧 등급입니다**(2-1 은 2등급 첫째 칸).
+ *
+ * label_level 칸이 채워져 있으면 그것을 쓰고, 비어 있으면 번호에서 읽습니다 - 실제로 6등급
+ * 칸에만 값이 들어 있고 2~5등급 칸은 비어 있었습니다. 번호를 그렇게 붙여 쓰고 있으니 그
+ * 규칙을 따르는 편이 맞습니다("2등급이면 2-1부터 2-5까지").
+ */
+function levelOf(loc: { code: string; label_level: number | null }): number | null {
+  if (loc.label_level != null) return loc.label_level;
+  const m = /^(\d+)\s*-/.exec(loc.code.trim());
+  return m ? Number(m[1]) : null;
+}
+
 type Suggestion = {
   locationId: string;
   code: string;
@@ -64,14 +77,14 @@ export async function GET() {
       code: l.code,
       name: l.name,
       kind: l.kind,
-      level: l.label_level,
+      level: levelOf(l),
       capacity: l.capacity,
       /** 지금 이 칸에서 찍힌 권수(책장등록 기준). */
       copies: have.get(l.id) ?? 0,
     })),
     /** 칸에 적힌 등급들 - 화면에서 「몇 등급부터 고를까」를 만들 때 씁니다. */
     levels: Array.from(
-      new Set(locs.map((l) => l.label_level).filter((v): v is number => v != null))
+      new Set(locs.map((l) => levelOf(l)).filter((v): v is number => v != null))
     ).sort((a, b) => a - b),
   });
 }
@@ -118,9 +131,7 @@ export async function POST(request: Request) {
   const byId = new Map(locs.map((l) => [l.id, l]));
 
   /** 고를 수 있는 칸 - 고른 등급의 칸(그 등급 칸이 없으면 등급을 안 가리는 칸까지). */
-  const pickable = locs.filter((l) =>
-    level == null ? true : l.label_level === level || l.label_level == null
-  );
+  const pickable = locs.filter((l) => (level == null ? true : levelOf(l) === level));
   const pickableIds = new Set(pickable.map((l) => l.id));
 
   /** 어떤 책들이 어느 칸에 있는지 세는 도우미. */
@@ -205,7 +216,6 @@ export async function POST(request: Request) {
   })();
 
   const roomy = pickable
-    .filter((l) => l.kind === "정식" || level != null)
     .map((l) => {
       const now = allCounts.get(l.id) ?? 0;
       return { loc: l, now, room: l.capacity != null ? l.capacity - now : Number.POSITIVE_INFINITY };
