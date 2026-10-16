@@ -205,11 +205,27 @@ async function apply(
     if (info.pub_year && !source.pub_year) patch.pub_year = info.pub_year;
     if (info.cover_url && !source.cover_url) patch.cover_url = info.cover_url;
 
+    if (rest > 0) patch.total_copies = 1;
+
+    /*
+      ── 순서가 중요합니다 ──────────────────────────────────────────────────
+      item_code 는 **유일키**입니다. 남은 권수 줄이 상품코드를 들고 있어야 하는데(다음에 또
+      찍으면 또 한 권을 떼어내야 하니까요), 이 줄이 아직 그 번호를 쥐고 있는 동안 새 줄을
+      만들면 부딪혀 거절됩니다. 실제로 거절됐습니다:
+
+        duplicate key value violates unique constraint "lib_books_item_code_idx"
+
+      그래서 **이 줄에서 번호를 먼저 놓고** 새 줄을 만듭니다. 그 사이에 새 줄 만들기가
+      실패하면 이 줄은 번호도 권수도 잃은 채 남으므로, 실패하면 원래대로 되돌립니다.
+    */
+    const { error } = await supabase.from("lib_books").update(patch).eq("id", source.id);
+    if (error) return NextResponse.json({ error: error.message }, { status: 400 });
+
     if (rest > 0) {
-      patch.total_copies = 1;
       const { error: restErr } = await supabase.from("lib_books").insert({
         title: source.title,
         author: source.author,
+        // 상품코드는 남은 권수 줄이 들고 갑니다 - 그 번호로 찍으면 거기서 또 한 권이 떨어집니다.
         item_code: source.item_code,
         product_code: source.product_code,
         label_level: source.label_level,
@@ -219,15 +235,23 @@ async function apply(
         total_copies: rest,
       });
       if (restErr) {
+        // 되돌립니다. 반쪽만 바뀐 상태로 두면 권수가 조용히 사라집니다.
+        await supabase
+          .from("lib_books")
+          .update({
+            isbn: source.isbn,
+            item_code: source.item_code,
+            product_code: source.product_code,
+            total_copies: source.total_copies,
+            title: source.title,
+          })
+          .eq("id", source.id);
         return NextResponse.json(
-          { error: `남은 ${rest}권을 따로 두지 못했습니다: ${restErr.message}` },
+          { error: `남은 ${rest}권을 따로 두지 못했습니다(되돌렸습니다): ${restErr.message}` },
           { status: 400 }
         );
       }
     }
-
-    const { error } = await supabase.from("lib_books").update(patch).eq("id", source.id);
-    if (error) return NextResponse.json({ error: error.message }, { status: 400 });
     resultId = source.id;
     what = rest > 0 ? "split" : "replaced";
   } else if (source && target) {
