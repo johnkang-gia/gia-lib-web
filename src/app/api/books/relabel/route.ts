@@ -66,9 +66,29 @@ type ShelfCounts = {
   loansOut: number;
 };
 
+/**
+ * **이 책이 지금 어디 있는지.**
+ *
+ * 요청: "이미 등록된 책이라면 지금 위치가 어디인지도, 우선은 최종 책장 위치가 우선이고 그
+ * 기록이 없다면 책장등록 위치로 알려줘. 가서 확인해보게."
+ *
+ * 두 가지가 다릅니다.
+ *   · **최종 자리**(lib_books.location_id) - 정리하며 "이 책은 여기" 하고 정해 둔 자리.
+ *   · **책장등록 자리**(lib_shelf_check) - 칸을 비워 가며 찍었을 때 그 책이 있던 칸.
+ *
+ * 정해 둔 자리가 있으면 그게 답입니다. 없으면 찍힐 때 있던 칸이 유일한 단서입니다 - 그
+ * 칸으로 가면 같은 책이 꽂혀 있을 가능성이 가장 큽니다.
+ */
+type Place = {
+  /** 정해 둔 자리(없으면 null). */
+  final: string | null;
+  /** 책장등록에서 나온 칸들 - 「2-1 1권 · 3-4 2권」. */
+  checks: { code: string; copies: number }[];
+};
+
 type Found =
   | { kind: "product"; book: LibBook; message: string }
-  | { kind: "isbn"; book: LibBook; message: string; counts: ShelfCounts }
+  | { kind: "isbn"; book: LibBook; message: string; counts: ShelfCounts; place: Place }
   | { kind: "new"; code: string; isProduct: boolean; message: string }
   | { kind: "error"; message: string; detail?: string };
 
@@ -284,20 +304,37 @@ async function find(supabase: Awaited<ReturnType<typeof createClient>>, code: st
       };
     }
     const [{ data: checkRows }, { count: outCount }] = await Promise.all([
-      supabase.from("lib_shelf_check").select("copies").eq("book_id", book.id),
+      supabase.from("lib_shelf_check").select("copies,location_id").eq("book_id", book.id),
       supabase
         .from("lib_loans")
         .select("id", { count: "exact", head: true })
         .eq("book_id", book.id)
         .is("returned_at", null),
     ]);
-    const rows = (checkRows ?? []) as { copies: number }[];
+    const rows = (checkRows ?? []) as { copies: number; location_id: string | null }[];
     const shelf = rows.reduce((n, r) => n + (r.copies ?? 0), 0);
+
+    // 자리 이름을 붙입니다. 사람에게 uuid 는 "가서 확인"할 수 있는 정보가 아닙니다.
+    const locIds = Array.from(
+      new Set([book.location_id, ...rows.map((r) => r.location_id)].filter((v): v is string => Boolean(v)))
+    );
+    const codeById = new Map<string, string>();
+    if (locIds.length > 0) {
+      const { data: locs } = await supabase.from("lib_locations").select("id,code").in("id", locIds);
+      for (const l of (locs ?? []) as { id: string; code: string }[]) codeById.set(l.id, l.code);
+    }
 
     return {
       kind: "isbn",
       book,
       counts: { copies: book.total_copies, shelf, rows: rows.length, loansOut: outCount ?? 0 },
+      place: {
+        final: book.location_id ? (codeById.get(book.location_id) ?? null) : null,
+        checks: rows
+          .filter((r) => r.location_id && codeById.has(r.location_id))
+          .map((r) => ({ code: codeById.get(r.location_id as string) as string, copies: r.copies ?? 0 }))
+          .sort((a, b) => a.code.localeCompare(b.code)),
+      },
       message: "이미 등록된 책입니다 — 손에 든 이 한 권이 어느 쪽인지 알려주세요",
     };
   }

@@ -37,9 +37,12 @@ import type { LibBook } from "@/lib/types";
 /** 이 책이 책장등록에서 몇 권 나왔는지. 「한 권 더인지」를 묻는 근거입니다. */
 type ShelfCounts = { copies: number; shelf: number; rows: number; loansOut: number };
 
+/** 이 책이 지금 어디 있는지 — 정해 둔 자리가 먼저, 없으면 책장등록에서 나온 칸. */
+type Place = { final: string | null; checks: { code: string; copies: number }[] };
+
 type Found =
   | { kind: "product"; book: LibBook; message: string }
-  | { kind: "isbn"; book: LibBook; message: string; counts: ShelfCounts }
+  | { kind: "isbn"; book: LibBook; message: string; counts: ShelfCounts; place: Place }
   | { kind: "new"; code: string; isProduct: boolean; message: string }
   | { kind: "error"; message: string; detail?: string };
 
@@ -349,6 +352,23 @@ export default function RelabelClient() {
     }
   }
 
+  /**
+   * **넘기기** — 방금 찍은 것을 아무 일도 없던 것으로 하고 다음 책으로 갑니다.
+   *
+   * 잘못 찍거나, 자리를 확인하러 갔다가 다시 찍는 일이 생깁니다. 그때 빠져나갈 길이 없으면
+   * 사람은 둘 중 하나를 **아무거나 누릅니다** - 그 순간 권수가 틀어집니다. 아무것도 바꾸지
+   * 않는 버튼이 눈에 보이는 자리에 있어야 합니다.
+   */
+  function doSkip() {
+    setFound(null);
+    setScanned("");
+    setIsbn("");
+    setByTitle(false);
+    setNewTitle("");
+    setNote("넘겼습니다 — 아무것도 바꾸지 않았습니다.");
+    scanRef.current?.focus();
+  }
+
   /** 책장등록에 없던 한 권을 장서에 더하고 라벨을 담습니다. */
   async function doAddCopy(book: LibBook) {
     if (busy) return;
@@ -602,8 +622,21 @@ export default function RelabelClient() {
       {/* ── 찍은 결과 ───────────────────────────────────────────────────── */}
       {found && found.kind !== "error" && (
         <div className="mt-4 rounded-xl border border-slate-200 bg-white p-4">
-          <div className="text-xs text-slate-500">찍힌 번호 {scanned}</div>
-          <p className="mt-1 text-sm font-semibold text-gia-navy">{found.message}</p>
+          <div className="flex items-start gap-3">
+            <div className="min-w-0">
+              <div className="text-xs text-slate-500">찍힌 번호 {scanned}</div>
+              <p className="mt-1 text-sm font-semibold text-gia-navy">{found.message}</p>
+            </div>
+            {/* 잘못 찍었거나 확인하고 다시 찍을 때 빠져나가는 길. */}
+            <button
+              type="button"
+              onClick={doSkip}
+              className="ml-auto shrink-0 rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-600"
+              title="아무것도 바꾸지 않고 다음 책으로"
+            >
+              ✕ 넘기기
+            </button>
+          </div>
 
           {"book" in found && (
             <div className="mt-2 text-sm text-slate-700">
@@ -760,6 +793,31 @@ export default function RelabelClient() {
                     : "책장등록에서 장서 권수만큼 다 찍혔습니다 — 손에 든 이 책이 그때 못 센 또 한 권이라면 왼쪽입니다."}
               </p>
 
+              {/* ── 지금 어디 있나 ─────────────────────────────────────── */}
+              <div className="mt-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm">
+                {found.place.final ? (
+                  <>
+                    <span className="text-xs font-bold text-slate-500">정해 둔 자리</span>{" "}
+                    <b className="text-base text-gia-navy">{found.place.final}</b>
+                    {found.place.checks.length > 0 && (
+                      <span className="ml-2 text-xs text-slate-500">
+                        (책장등록 때는 {found.place.checks.map((c) => `${c.code} ${c.copies}권`).join(" · ")})
+                      </span>
+                    )}
+                  </>
+                ) : found.place.checks.length > 0 ? (
+                  <>
+                    <span className="text-xs font-bold text-slate-500">책장등록에서 나온 칸</span>{" "}
+                    <b className="text-base text-gia-navy">
+                      {found.place.checks.map((c) => `${c.code} ${c.copies}권`).join(" · ")}
+                    </b>
+                    <span className="ml-2 text-xs text-slate-500">(정해 둔 자리는 아직 없습니다)</span>
+                  </>
+                ) : (
+                  <span className="text-slate-500">자리 기록이 없습니다 — 책장등록에도 나오지 않은 책입니다.</span>
+                )}
+              </div>
+
               <div className="mt-2.5 grid gap-2 sm:grid-cols-2">
                 <button
                   type="button"
@@ -784,6 +842,14 @@ export default function RelabelClient() {
                   </div>
                 </button>
               </div>
+
+              <button
+                type="button"
+                onClick={doSkip}
+                className="mt-2 w-full rounded-lg border border-dashed border-slate-300 px-3 py-2 text-sm text-slate-600"
+              >
+                아직 모르겠습니다 — <b>넘기기</b> (자리에 가서 확인하고 다시 찍으면 됩니다)
+              </button>
             </div>
           )}
         </div>
