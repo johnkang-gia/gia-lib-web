@@ -12,6 +12,7 @@ import {
   type PlanRule,
   type PlanZone,
 } from "@/lib/plan";
+import { orderMoves, type Hop, type MoveStep } from "@/lib/moveOrder";
 import type { LibLocation, LibMap, LibSettings } from "@/lib/types";
 
 /**
@@ -165,6 +166,8 @@ export default function PlanClient({
   const [pagesBusy, setPagesBusy] = useState(false);
   /** 펼쳐 놓은 칸 — 그 칸에 무슨 책을 넣어야 하고 그 책이 지금 어디 있는지. */
   const [openZone, setOpenZone] = useState<string | null>(null);
+  /** 정리 순서를 전부 펼쳤는지(처음에는 앞의 40단계만 보여 줍니다). */
+  const [allSteps, setAllSteps] = useState(false);
 
   /** 칸 이름 찾기(책이 지금 어디 있는지 말해 줄 때 씁니다). */
 
@@ -286,7 +289,7 @@ export default function PlanClient({
    * 적은 것부터 하는 이유: 한 칸을 끝내면 그 칸은 더 건드릴 일이 없고, 빼낸 자리가 다음 칸의
    * 숨통이 됩니다. 큰 칸부터 들면 책을 바닥에 쌓아 두고 시작해야 합니다.
    */
-  const steps = useMemo(() => {
+  const zoneSteps = useMemo(() => {
     const goTo = new Map<string, string>();
     for (const zp of plan.zones) for (const b of zp.books) goTo.set(b.id, zp.zone.id);
 
@@ -306,6 +309,91 @@ export default function PlanClient({
       })
       .sort((a, b) => (a.moves !== b.moves ? a.moves - b.moves : a.zone.sort_order - b.zone.sort_order));
   }, [plan.zones, books, zoneName]);
+
+  /** 칸 색(순서 목록에 칸 이름을 색으로 보여 줄 때 씁니다). */
+  const zoneColor = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const l of locations) m.set(l.id, l.color);
+    return m;
+  }, [locations]);
+
+  /**
+   * **옮기는 순서** — 책이 바닥에 쌓이지 않게.
+   *
+   * 요청: "6-1에서 한 권을 빼서 6-2로 가져가고 6-2에서도 한 권 빼서 6-1로 가져오는, 서로 한 권씩
+   * 빠지는 것을 우선 순서로 정리하도록 해주고(그래야 책을 다 빼고 나중에 이거 어디서 뺐는지 헷갈리지
+   * 않아) ... 6-3에서 6-1로 가져오는 건 6-3에서 어느 한 권이 빠지는 거니까, 6-1에서 한 권이 빠져서
+   * 결국에는 6-3에 한 권을 채워 넣을 수 있도록 순서를 짜줘. 그래서 책을 빼서 뒤죽박죽 되지 않게."
+   *
+   * 칸마다 **빈 자리가 몇 개인지**를 같이 넘깁니다. 정원을 재어 둔 칸이 없으면 「지금 꽂혀 있는
+   * 만큼이 정원」이라고 보기 때문에 처음에는 어느 칸에도 빈 자리가 없습니다 - 실제로 꽉 찬 책장이
+   * 그렇습니다. 그래서 순서는 맞교환에서 시작해 한 권이 빠질 때마다 생기는 자리를 따라갑니다.
+   */
+  const moveSteps = useMemo<MoveStep[]>(() => {
+    const hops: Hop[] = [];
+    for (const zp of plan.zones) {
+      for (const b of zp.books) {
+        if (b.location_id === zp.zone.id) continue;
+        hops.push({
+          from: b.location_id,
+          to: zp.zone.id,
+          book: {
+            id: b.id,
+            title: b.title,
+            author: b.author,
+            series: b.series ?? null,
+            series_no: b.series_no ?? null,
+            pages: b.pages ?? null,
+          },
+        });
+      }
+    }
+    const room = new Map<string, number>();
+    for (const z of targetZones) {
+      const now = nowInZone.get(z.id) ?? 0;
+      room.set(z.id, Math.max(0, (z.capacity ?? now) - now));
+    }
+    return orderMoves(hops, room, (id) => zoneName.get(id) ?? "?");
+  }, [plan.zones, targetZones, nowInZone, zoneName]);
+
+  /** 같은 짝이 연달아 나오면 한 줄로 묶습니다 - 「6-1 ↔ 6-2」를 다섯 번 쓰지 않게. */
+  const mergedSteps = useMemo(() => {
+    const out: { kind: MoveStep["kind"]; zones: string[]; why: string; blocked: boolean; hops: Hop[] }[] = [];
+    for (const st of moveSteps) {
+      const blocked = "blocked" in st ? Boolean(st.blocked) : false;
+      const last = out[out.length - 1];
+      if (last && last.kind === st.kind && last.blocked === blocked && last.zones.join(">") === st.zones.join(">")) {
+        last.hops.push(...st.hops);
+        continue;
+      }
+      out.push({ kind: st.kind, zones: st.zones, why: st.why, blocked, hops: [...st.hops] });
+    }
+    return out;
+  }, [moveSteps]);
+
+  const shownSteps = allSteps ? mergedSteps : mergedSteps.slice(0, 40);
+  const stepCount = {
+    books: mergedSteps.reduce((n, st) => n + st.hops.length, 0),
+    swap: mergedSteps.filter((st) => st.kind === "swap").length,
+    move: mergedSteps.filter((st) => st.kind === "move" && !st.blocked).length,
+    cycle: mergedSteps.filter((st) => st.kind === "cycle").length,
+    find: mergedSteps.filter((st) => st.kind === "find" && !st.blocked).length,
+    blocked: mergedSteps.filter((st) => st.blocked).length,
+  };
+
+  /** 칸 이름표 한 개. */
+  function chip(id: string) {
+    const color = zoneColor.get(id) ?? "#475569";
+    return (
+      <span
+        key={id}
+        className="rounded-lg px-2 py-0.5 text-sm font-black"
+        style={{ background: `${color}1f`, color }}
+      >
+        {zoneName.get(id) ?? "?"}
+      </span>
+    );
+  }
 
 
   const noCapacity = targetZones.filter((z) => z.capacity === null).length;
@@ -679,14 +767,135 @@ export default function PlanClient({
 
       {/* ── ③ 정리 순서 ──────────────────────────────────────────────── */}
       <section className={card}>
-        <h2 className="text-sm font-bold text-slate-500">③ 어느 칸부터 정리할까요</h2>
+        <h2 className="text-sm font-bold text-slate-500">③ 어떤 순서로 옮길까요</h2>
         <p className="mt-1 text-xs leading-relaxed text-slate-500">
-          <b>책이 가장 덜 움직이는 칸부터</b> 세워 두었습니다. 한 칸을 끝낼 때마다 그 칸은 더 건드리지 않아도 되고,
-          빼낸 자리가 다음 칸의 숨통이 됩니다. 위에서부터 한 칸씩 해 나가시면 됩니다.
+          책장은 꽉 차 있습니다. 빈 자리가 없는 칸에 꽂으려면 먼저 한 권을 빼야 하고, 그 책을 또 어딘가에 꽂으려면
+          거기서 또 한 권을 빼야 합니다 — 세 번만 하면 바닥에 더미가 생기고 「이거 어디서 뺐지」가 됩니다. 그래서{" "}
+          <b>서로 한 권씩 맞바꾸는 것부터</b>, 그다음 <b>방금 자리가 생긴 칸으로</b>, 꼭 필요할 때만{" "}
+          <b>한 권만 들고 빙 도는</b> 순서로 세웠습니다 — <b>손에 드는 책은 언제나 한 권뿐입니다.</b>
         </p>
 
+        {mergedSteps.length === 0 ? (
+          <p className="mt-3 rounded-lg bg-emerald-50 px-3 py-2 text-sm font-semibold text-emerald-800">
+            옮길 책이 없습니다 — 이미 전부 제자리입니다.
+          </p>
+        ) : (
+          <>
+            <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-xs text-slate-500">
+              <span>
+                모두 <b className="text-gia-navy">{stepCount.books}권</b> · {mergedSteps.length}단계
+              </span>
+              {stepCount.swap > 0 && <span>↔ 맞교환 {stepCount.swap}</span>}
+              {stepCount.move > 0 && <span>→ 생긴 자리로 {stepCount.move}</span>}
+              {stepCount.cycle > 0 && <span>↻ 빙 도는 고리 {stepCount.cycle}</span>}
+              {stepCount.find > 0 && <span>? 자리 모름 {stepCount.find}</span>}
+              {stepCount.blocked > 0 && (
+                <span className="font-semibold text-amber-700">자리를 먼저 만들어야 하는 {stepCount.blocked}</span>
+              )}
+            </div>
+
+            <ol className="mt-3 space-y-2">
+              {shownSteps.map((st, i) => (
+                <li
+                  key={`${st.kind}-${st.zones.join("-")}-${i}`}
+                  className={`rounded-xl px-3 py-2.5 ring-1 ${
+                    st.blocked ? "bg-amber-50/60 ring-amber-200" : "ring-slate-100"
+                  }`}
+                >
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-slate-900 text-xs font-bold text-white">
+                      {i + 1}
+                    </span>
+                    {st.kind === "swap" ? (
+                      <span className="flex flex-wrap items-center gap-1.5">
+                        {chip(st.zones[0])}
+                        <span className="text-sm font-bold text-slate-400">↔</span>
+                        {chip(st.zones[1])}
+                        <span className="rounded bg-emerald-100 px-1.5 text-[11px] font-bold text-emerald-800">맞교환</span>
+                      </span>
+                    ) : st.kind === "cycle" ? (
+                      <span className="flex flex-wrap items-center gap-1.5">
+                        {st.zones.map((z, n) => (
+                          <span key={`${z}-${n}`} className="flex items-center gap-1.5">
+                            {n > 0 && <span className="text-sm font-bold text-slate-400">→</span>}
+                            {chip(z)}
+                          </span>
+                        ))}
+                        <span className="text-sm font-bold text-slate-400">↻</span>
+                        <span className="rounded bg-violet-100 px-1.5 text-[11px] font-bold text-violet-800">
+                          한 권 들고 시작
+                        </span>
+                      </span>
+                    ) : (
+                      <span className="flex flex-wrap items-center gap-1.5">
+                        {st.kind === "find" ? (
+                          <span className="rounded-lg bg-slate-100 px-2 py-0.5 text-xs font-bold text-slate-500">
+                            자리 모름
+                          </span>
+                        ) : (
+                          chip(st.zones[0])
+                        )}
+                        <span className="text-sm font-bold text-slate-400">→</span>
+                        {chip(st.zones[st.zones.length - 1])}
+                      </span>
+                    )}
+                    <span className="ml-auto text-sm font-semibold text-slate-700">{st.hops.length}권</span>
+                  </div>
+                  <p className={`mt-1 text-xs leading-relaxed ${st.blocked ? "text-amber-800" : "text-slate-500"}`}>
+                    {st.why}
+                  </p>
+                  <ul className="mt-1.5 space-y-0.5 text-sm">
+                    {st.hops.slice(0, 8).map((h, n) => (
+                      <li key={`${h.book.id}-${n}`} className="flex flex-wrap items-baseline gap-x-2">
+                        <span className="text-slate-800">{h.book.title}</span>
+                        {h.book.series && (
+                          <span className="rounded bg-violet-100 px-1 text-[10px] font-bold text-violet-800">
+                            {h.book.series}
+                            {h.book.series_no != null ? ` ${h.book.series_no}` : ""}
+                          </span>
+                        )}
+                        <span className="ml-auto text-xs font-semibold text-slate-600">
+                          {h.from ? (zoneName.get(h.from) ?? "?") : "자리 모름"} → {zoneName.get(h.to) ?? "?"}
+                        </span>
+                      </li>
+                    ))}
+                    {st.hops.length > 8 && (
+                      <li className="text-xs text-slate-400">…그리고 {st.hops.length - 8}권 더</li>
+                    )}
+                  </ul>
+                </li>
+              ))}
+            </ol>
+
+            {mergedSteps.length > shownSteps.length && (
+              <button
+                type="button"
+                onClick={() => setAllSteps(true)}
+                className="mt-2 rounded-xl border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+              >
+                남은 {mergedSteps.length - shownSteps.length}단계 더 보기
+              </button>
+            )}
+          </>
+        )}
+
+        {plan.leftover.length > 0 && (
+          <p className="mt-3 rounded-lg bg-amber-50 px-3 py-2 text-xs leading-relaxed text-amber-900">
+            자리를 못 받은 책 {plan.leftover.length}권이 있습니다 — 칸 정원을 올리거나(구역 관리) 채움 정도를
+            높이면 들어갑니다.
+          </p>
+        )}
+
+        <details className="mt-4 rounded-xl bg-slate-50 px-3 py-2">
+          <summary className="cursor-pointer text-xs font-bold text-slate-600">
+            칸별로도 보기 — 어느 칸이 가장 덜 움직이는지, 그 칸에 무엇이 오고 무엇이 빠지는지
+          </summary>
+          <p className="mt-1 text-xs leading-relaxed text-slate-500">
+            <b>책이 가장 덜 움직이는 칸부터</b> 세워 두었습니다. 한 칸만 골라 끝내고 싶을 때 보세요.
+          </p>
+
         <ol className="mt-3 space-y-2">
-          {steps.map((st, i) => (
+          {zoneSteps.map((st, i) => (
             <li key={st.zone.id} className="rounded-xl ring-1 ring-slate-100">
               <div className="flex flex-wrap items-center gap-2 px-3 py-2.5">
                 <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-slate-900 text-xs font-bold text-white">
@@ -785,13 +994,7 @@ export default function PlanClient({
             </li>
           ))}
         </ol>
-
-        {plan.leftover.length > 0 && (
-          <p className="mt-3 rounded-lg bg-amber-50 px-3 py-2 text-xs leading-relaxed text-amber-900">
-            자리를 못 받은 책 {plan.leftover.length}권이 있습니다 — 칸 정원을 올리거나(구역 관리) 채움 정도를
-            높이면 들어갑니다.
-          </p>
-        )}
+        </details>
       </section>
 
       {/* ── ④ 확정 ────────────────────────────────────────────────────── */}
@@ -821,8 +1024,9 @@ export default function PlanClient({
             </li>
           </ul>
           <p className="mt-2 text-xs leading-relaxed text-slate-500">
-            <b>정리하는 법:</b> 위 ③의 ①번 칸부터 한 칸씩 — 빼낼 책을 먼저 빼고, 가져올 책을 적힌 차례대로 꽂습니다.
-            꽂은 뒤 <b>「자리 등록」에서 그 칸을 찍으면</b> 그때 자리가 바뀝니다.
+            <b>정리하는 법:</b> 위 ③의 ①번부터 차례대로 — <b>↔</b> 는 두 칸 사이에서 한 권씩 맞바꾸고,{" "}
+            <b>→</b> 는 방금 자리가 생긴 칸에 그냥 꽂으면 됩니다. 꽂은 뒤 <b>「자리 등록」에서 그 칸을 찍으면</b>{" "}
+            그때 자리가 바뀝니다.
           </p>
         </div>
         <div className="ml-auto flex flex-wrap gap-2">
