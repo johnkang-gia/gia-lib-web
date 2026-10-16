@@ -102,6 +102,41 @@ export default function LocationsClient({
     setRows(ordered);
   }
 
+  /**
+   * **번호로 등급 채우기** — 등급이 비어 있는 칸만, 칸 번호 앞자리로 채웁니다(2-1 → 2등급).
+   *
+   * 칸 등급은 자리 등록이 「이 칸 등급과 다른 책」을 가려낼 때와 칸 추천이 쓰는 값인데,
+   * 실제로는 6등급 칸에만 들어 있었습니다 - 한 줄씩 고르게 두면 서른 번이 넘어서 아무도
+   * 안 채웁니다. 이미 적어 둔 등급은 건드리지 않습니다.
+   */
+  async function fillLevelsFromCode() {
+    const targets = rows
+      .filter((l) => l.label_level == null)
+      .map((l) => {
+        const m = /^(\d+)\s*-/.exec(l.code.trim());
+        return m ? { ...l, label_level: Number(m[1]) } : null;
+      })
+      .filter((v): v is LibLocation => v != null);
+    if (targets.length === 0) {
+      setError("등급이 비어 있는 칸이 없거나, 번호에서 등급을 읽을 수 없습니다.");
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    const { error: err } = await supabase
+      .from("lib_locations")
+      .upsert(targets.map((l) => ({ id: l.id, code: l.code, label_level: l.label_level })));
+    setBusy(false);
+    if (err) {
+      setError(err.message);
+      return;
+    }
+    const byId = new Map(targets.map((l) => [l.id, l.label_level]));
+    setRows((prev) =>
+      prev.map((l) => (byId.has(l.id) ? { ...l, label_level: byId.get(l.id) ?? null } : l))
+    );
+  }
+
   /** 한 칸 위/아래로 — 번호로는 안 되는 차례(치우침·특별 칸)를 사람이 직접 맞춥니다. */
   async function move(id: string, dir: -1 | 1) {
     const at = rows.findIndex((l) => l.id === id);
@@ -417,6 +452,15 @@ export default function LocationsClient({
             >
               ⇅ 등급·번호순으로 정리
             </button>
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => void fillLevelsFromCode()}
+              className="ml-1 rounded-lg border border-slate-300 px-2.5 py-1 text-xs font-semibold text-slate-700 disabled:opacity-50"
+              title="등급이 비어 있는 칸만 — 2-1 은 2등급, 3-9 는 3등급으로"
+            >
+              # 번호로 등급 채우기
+            </button>
           </h2>
           <div className="ml-auto flex flex-wrap gap-2">
             <input
@@ -487,6 +531,37 @@ export default function LocationsClient({
               </option>
               <option value="정식" className="text-slate-900">
                 정식으로
+              </option>
+            </select>
+
+            {/*
+              ── 등급도 한꺼번에 ────────────────────────────────────────────
+              요청: "다중선택을 하면 종류랑 색을 바꿀 수 있는데 등급 설정도 할 수 있게 해줘."
+
+              칸에 적힌 등급은 자리 등록이 「이 칸 등급과 다른 책」을 가려낼 때와, 칸 추천이
+              「2등급이면 2-1~2-5」를 고를 때 씁니다. 한 줄씩 고치면 서른 번이 넘어서 아무도
+              안 채웁니다 - 실제로 6등급 칸에만 들어 있었습니다.
+            */}
+            <select
+              defaultValue=""
+              onChange={(e) => {
+                if (!e.target.value) return;
+                const v = e.target.value;
+                void savePicked({ label_level: v === "none" ? null : Number(v) });
+                e.target.value = "";
+              }}
+              className="rounded-lg bg-white/10 px-3 py-1.5 text-sm text-white"
+            >
+              <option value="" className="text-slate-900">
+                등급 정하기
+              </option>
+              {[1, 2, 3, 4, 5, 6, 7].map((lv) => (
+                <option key={lv} value={lv} className="text-slate-900">
+                  {lv}등급 칸으로
+                </option>
+              ))}
+              <option value="none" className="text-slate-900">
+                등급 없음(가리지 않음)
               </option>
             </select>
 
