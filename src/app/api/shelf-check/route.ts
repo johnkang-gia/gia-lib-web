@@ -81,7 +81,9 @@ async function handlePost(request: Request) {
      * 앞의 셋을 가르는 것은 "지금 손에 든 책이 아까 그 책이냐, 다른 책이냐"뿐이고, 그건
      * 사람만 압니다. 그래서 묻습니다.
      */
-    confirm?: "move" | "add" | "home" | "recount" | "relocate" | "level";
+    confirm?: "move" | "add" | "home" | "came" | "recount" | "relocate" | "level";
+    /** confirm:"came" 에서 **그 책이 있던 칸**. 거기서 한 권을 빼고 이 칸에 적습니다. */
+    cameFrom?: string;
     /** level 일 때 매길 등급. */
     level?: number | null;
     /**
@@ -227,6 +229,11 @@ async function handlePost(request: Request) {
     .slice()
     .sort((a, b) => (a.location!.sort_order ?? 0) - (b.location!.sort_order ?? 0))
     .map((r) => ({ code: r.location!.code, copies: r.copies }));
+  /** 같은 목록에 칸 id 까지 - 「그 칸에서 옮겨 왔습니다」를 칸마다 고르게 하려고 씁니다. */
+  const elsewhere = otherRows
+    .slice()
+    .sort((a, b) => (a.location!.sort_order ?? 0) - (b.location!.sort_order ?? 0))
+    .map((r) => ({ id: r.location_id, code: r.location!.code, copies: r.copies }));
   const otherTotal = otherShelves.reduce((n, s) => n + s.copies, 0);
 
   /** 이 책이 세어져 있는 다른 칸 중 가장 많은 쪽. '원래 칸'으로 씁니다. 이제 질의가 없습니다. */
@@ -274,9 +281,83 @@ async function handlePost(request: Request) {
       foundTotal: repeat.foundSoFar,
       locationCode: here.code,
       homeCode: findHome()?.code ?? null,
+      elsewhere,
       message: existing
         ? `기록상 ${book.total_copies}권인데 ${repeat.foundAfter}권째입니다`
         : `다른 칸에 이미 ${otherTotal}권 세어 둔 책입니다`,
+    });
+  }
+
+  /*
+    ── 그 칸에서 여기로 옮겨 왔습니다 ──────────────────────────────────────
+    요청: "그 칸에서 여기로 옮겨 왔습니다도 만들어줘."
+
+    실제로 있었던 일(Sea of Monsters): 10/14 에 3-1 에서 찍고, 그 책이 5-2 로 옮겨진 뒤
+    5-2 에서 다시 찍혔습니다. 그때 물음에 고를 수 있는 것은 「원래 칸으로 보내기」(=이 책을
+    3-1 로 가져가라)와 「장서추가」뿐이었습니다. **3-1 에 가 보니 없다**는 답이 없어서
+    장서추가가 눌렸고, 3-1 의 유령 한 권과 부풀어 오른 장서 권수가 남았습니다.
+
+    그 답을 넣습니다 - 그 칸 기록에서 한 권을 빼고 이 칸에 적습니다. 같은 한 권이 자리를
+    옮긴 것이므로 **장서 권수는 그대로**입니다. 아이들이 책을 빼서 아무 데나 끼워 놓는
+    도서관에서는 이것이 가장 흔한 경우입니다.
+  */
+  if (body.confirm === "came") {
+    const src = elsewhere.find((e) => e.id === body.cameFrom) ?? elsewhere[0] ?? null;
+    if (!src) {
+      return NextResponse.json<ShelfCheckResult>({
+        kind: "error",
+        message: "그 책이 있던 칸이 없습니다.",
+        detail: "이 책이 세어져 있는 다른 칸이 없어서 옮겨 올 곳이 없습니다.",
+      });
+    }
+    if (src.copies <= 1) {
+      await supabase.from("lib_shelf_check").delete().eq("book_id", book.id).eq("location_id", src.id);
+    } else {
+      await supabase
+        .from("lib_shelf_check")
+        .update({ copies: src.copies - 1 })
+        .eq("book_id", book.id)
+        .eq("location_id", src.id);
+    }
+    if (existing) {
+      await supabase
+        .from("lib_shelf_check")
+        .update({ copies: existing.copies + 1, checked_at: new Date().toISOString(), checked_by: email })
+        .eq("id", existing.id);
+    } else {
+      await supabase
+        .from("lib_shelf_check")
+        .insert({ book_id: book.id, location_id: here.id, copies: 1, checked_by: email });
+    }
+    const { data: moved } = await supabase
+      .from("lib_books")
+      .update({ location_id: here.id })
+      .eq("id", book.id)
+      .select("*, shelf:lib_locations!location_id(*)")
+      .maybeSingle();
+
+    const restElsewhere = elsewhere
+      .map((e) => (e.id === src.id ? { code: e.code, copies: e.copies - 1 } : { code: e.code, copies: e.copies }))
+      .filter((e) => e.copies > 0);
+
+    return NextResponse.json<ShelfCheckResult>({
+      kind: "placed",
+      book: (moved as unknown as LibBookWithShelf | null) ?? book,
+      from: here,
+      copiesHere: (existing?.copies ?? 0) + 1,
+      // 자리만 옮겼으니 찾은 권수의 합은 그대로입니다(그 칸 -1, 이 칸 +1).
+      foundTotal: (existing?.copies ?? 0) + otherTotal,
+      recordedCopies: book.total_copies,
+      otherShelves: restElsewhere,
+      notices: [
+        {
+          tone: "info",
+          title: `${src.code} 기록에서 한 권을 빼고 ${here.code} 에 적었습니다`,
+          detail:
+            "같은 한 권이 자리를 옮긴 것으로 적었습니다 — 장서 권수는 그대로입니다. 그 칸에 유령 한 권이 남지 않습니다.",
+        },
+      ],
+      message: here.code,
     });
   }
 

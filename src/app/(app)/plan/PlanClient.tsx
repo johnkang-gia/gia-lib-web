@@ -1,8 +1,9 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { levelColor } from "@/lib/bookLevels";
+import { levelOfCode } from "@/lib/levelOfCode";
 import {
   buildPlan,
   PLAN_RULES,
@@ -68,7 +69,15 @@ export default function PlanClient({
     그래서 등급을 고르면 **그 등급 책만, 그 등급 칸에만** 담습니다. 다른 등급은 건드리지
     않으므로 이미 정리해 둔 칸이 흐트러지지 않습니다.
   */
-  const [onlyLevel, setOnlyLevel] = useState<number | null>(null);
+  /*
+    주소로 등급을 받습니다 - 「등급별 책장 정리」에서 `/plan?level=6` 으로 넘어오면 그 등급이
+    이미 골라진 채로 열립니다. 찍고 나서 바로 그 등급 계획을 보는 것이 한 흐름이니까요.
+  */
+  const params = useSearchParams();
+  const askedLevel = Number(params.get("level"));
+  const [onlyLevel, setOnlyLevel] = useState<number | null>(
+    Number.isFinite(askedLevel) && askedLevel > 0 ? askedLevel : null
+  );
 
   /**
    * 칸의 등급 — **칸 번호 앞자리가 곧 등급입니다**(2-1 은 2등급 첫째 칸).
@@ -76,11 +85,7 @@ export default function PlanClient({
    * 칸에 적어 둔 등급(label_level)이 있으면 그것을 쓰고, 비어 있으면 번호에서 읽습니다.
    * 실제로 6등급 칸에만 값이 들어 있어서, 2등급을 골라도 「칸이 없습니다」가 떴습니다.
    */
-  const zoneLevel = (l: LibLocation): number | null => {
-    if (l.label_level != null) return l.label_level;
-    const m = /^(\d+)\s*-/.exec(l.code.trim());
-    return m ? Number(m[1]) : null;
-  };
+  const zoneLevel = (l: LibLocation): number | null => l.label_level ?? levelOfCode(l.code);
 
   /** 이 등급에 쓰는 칸들과, 그 칸들이 '다 찍음'인지. */
   const levelZones = useMemo(

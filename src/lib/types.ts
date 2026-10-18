@@ -399,6 +399,14 @@ export type ShelfCheckResult =
       locationCode: string;
       /** 이 책이 이미 세어져 있는 **다른** 칸(가장 많은 쪽). 없으면 null 입니다. */
       homeCode: string | null;
+      /**
+       * 이 책이 세어져 있는 다른 칸 전부.
+       *
+       * 「그 칸에 가 보니 없어요 — 여기로 옮겨 왔습니다」를 **칸마다** 고를 수 있어야 합니다.
+       * 예전에는 가장 많은 칸 하나만 보냈고, 그래서 다른 칸에서 옮겨 온 책은 고를 길이
+       * 없어 「장서추가」로 눌리고 유령 한 권이 생겼습니다.
+       */
+      elsewhere: { id: string; code: string; copies: number }[];
       message: string;
     }
   | {

@@ -349,7 +349,9 @@ export default function PlaceClient({
     async (payload: {
       code?: string;
       bookId?: string;
-      confirm?: "move" | "add" | "home" | "recount" | "relocate" | "level";
+      confirm?: "move" | "add" | "home" | "came" | "recount" | "relocate" | "level";
+      /** confirm:"came" — 그 책이 있던 칸(거기서 한 권을 뺍니다). */
+      cameFrom?: string;
       targetBookId?: string;
       targetLocationId?: string;
       level?: number;
@@ -1154,6 +1156,7 @@ export default function PlaceClient({
           onMove={(bookId) => void send({ bookId, confirm: "move" })}
           onAdd={(bookId) => void send({ bookId, confirm: "add" })}
           onHome={(bookId) => void send({ bookId, confirm: "home" })}
+          onCame={(bookId, cameFrom) => void send({ bookId, confirm: "came", cameFrom })}
           onFixCount={(bookId) => void send({ bookId, confirm: "recount" })}
           onRelocate={(bookId, targetBookId, targetLocationId) =>
             void send({ bookId, confirm: "relocate", targetBookId, targetLocationId })
@@ -1268,6 +1271,7 @@ function ResultBody({
   onMove,
   onAdd,
   onHome,
+  onCame,
   onFixCount,
   onRelocate,
   onLevel,
@@ -1283,6 +1287,8 @@ function ResultBody({
   onMove: (bookId: string) => void;
   onAdd: (bookId: string) => void;
   onHome: (bookId: string) => void;
+  /** 「그 칸에 가 보니 없어요 — 여기로 옮겨 왔습니다」. cameFrom 은 그 칸 id. */
+  onCame: (bookId: string, cameFrom: string) => void;
   /** 장서에 적힌 권수를 찍어서 센 만큼으로 그 자리에서 맞춥니다. */
   onFixCount: (bookId: string) => void;
   /** 이 한 권을 같은 제목의 다른 줄·칸으로 넘깁니다. */
@@ -1590,10 +1596,14 @@ function ResultBody({
           뒤의 경우는 "그 칸 책이 옮겨 온 거냐, 거기 것과 별개의 한 권이냐"입니다.
         */}
         <p className="mt-3 text-sm text-amber-900">
-          {result.copiesHere === 0 && result.homeCode ? (
+          {result.elsewhere.length > 0 ? (
             <>
-              <b>{result.homeCode}</b> 칸에 세어 둔 책입니다. 지금 손에 든 이 책이{" "}
-              <b>거기 있던 그 책</b>인가요, <b>기록에 없던 또 한 권</b>인가요?
+              <b>{result.elsewhere.map((e) => e.code).join(" · ")}</b> 에 세어 둔 책입니다. 지금 손에 든 이 책이{" "}
+              <b>거기서 옮겨 온 그 책</b>인가요, <b>기록에 없던 또 한 권</b>인가요?
+              <span className="mt-1 block text-xs text-amber-800">
+                그 칸에 가 보니 없다면 「여기로 옮겨 왔습니다」입니다 — 그 칸 기록에서 한 권을 빼고 이 칸에
+                적습니다(장서 권수는 그대로).
+              </span>
             </>
           ) : (
             <>
@@ -1606,19 +1616,49 @@ function ResultBody({
           {/*
             ① 자리이동 — 같은 책 한 권입니다. 센 권수를 올리면 없는 책이 한 권 생깁니다.
           */}
-          <button
-            type="button"
-            disabled={busy}
-            onClick={() => onMove(result.book.id)}
-            className="rounded-xl border border-amber-400 bg-white px-4 py-2.5 text-left text-sm font-bold text-amber-900 disabled:opacity-50"
-          >
-            📍 자리이동
-            <span className="block text-[11px] font-medium opacity-75">
-              {result.copiesHere === 0 && result.homeCode
-                ? `${result.homeCode}에서 가져온 그 책 · 거기서 한 권 뺍니다`
-                : "같은 책입니다 · 권수는 그대로"}
-            </span>
-          </button>
+          {/*
+            ①-ㄱ 「그 칸에서 여기로 옮겨 왔습니다」 — 칸마다 한 개씩.
+            그 칸에 가 보니 없으면 이것입니다. 그 칸 기록 −1, 이 칸 +1, 장서는 그대로.
+          */}
+          {result.elsewhere.map((e) => (
+            <button
+              key={e.id}
+              type="button"
+              disabled={busy}
+              onClick={() => onCame(result.book.id, e.id)}
+              className="rounded-xl border border-amber-400 bg-white px-4 py-2.5 text-left text-sm font-bold text-amber-900 disabled:opacity-50"
+            >
+              📍 {e.code} 에서 여기로 옮겨 왔습니다
+              <span className="block text-[11px] font-medium opacity-75">
+                {e.code} 기록에서 한 권 빼고 이 칸에 적습니다 · 장서 권수는 그대로
+              </span>
+            </button>
+          ))}
+          {/*
+            ①-ㄴ 같은 칸에서 또 찍힌 경우 - 아까 센 그 책입니다. 올리면 없는 책이 생깁니다.
+          */}
+          {result.copiesHere > 0 && (
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => onMove(result.book.id)}
+              className="rounded-xl border border-amber-400 bg-white px-4 py-2.5 text-left text-sm font-bold text-amber-900 disabled:opacity-50"
+            >
+              📍 아까 찍은 그 책입니다
+              <span className="block text-[11px] font-medium opacity-75">같은 책입니다 · 권수는 그대로</span>
+            </button>
+          )}
+          {result.copiesHere === 0 && result.elsewhere.length === 0 && (
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => onMove(result.book.id)}
+              className="rounded-xl border border-amber-400 bg-white px-4 py-2.5 text-left text-sm font-bold text-amber-900 disabled:opacity-50"
+            >
+              📍 자리이동
+              <span className="block text-[11px] font-medium opacity-75">같은 책입니다 · 권수는 그대로</span>
+            </button>
+          )}
           {/*
             ② 장서추가 — 장서에 적힌 권수가 실제보다 적었던 경우입니다. 손에 들고 확인한
             사람이 올리는 것이므로 그 자리에서 반영합니다.
