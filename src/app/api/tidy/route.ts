@@ -79,6 +79,13 @@ export type TidyAudit = {
   }[];
   /** 이 등급 칸에 꽂혀 있지만 등급이 다른 책 — 아이들이 끼워 놓은 것. */
   strangers: { id: string; title: string; level: number | null; at: { code: string; copies: number }[] }[];
+  /**
+   * 그 남의 등급 책이 **몇 권**인지.
+   *
+   * 칸 줄에는 「지금 기록 151권」(그 칸에 꽂힌 전부)이 뜨고 대조 줄에는 「찍힘 134권」(이 등급
+   * 책만)이 뜹니다. 두 숫자가 다른 이유를 적어 두지 않으면 어느 쪽이 틀린 줄 알게 됩니다.
+   */
+  strangerCopies: number;
   /** 찍힌 권수가 장서보다 많은 줄 — 장서 숫자가 모자랍니다. */
   overCounted: { id: string; title: string; copies: number; onLevel: number; gap: number }[];
 };
@@ -204,6 +211,7 @@ async function audit(
   /** 이 등급 칸에 꽂혀 있는데 이 등급 줄이 아닌 책들 - 제목을 알아야 하니 따로 가져옵니다. */
   const strangerIds = [...hereBy.keys()].filter((id) => !levelBookIds.has(id));
   const strangers: TidyAudit["strangers"] = [];
+  let strangerCopies = 0;
   for (let i = 0; i < strangerIds.length; i += 200) {
     const slice = strangerIds.slice(i, i + 200);
     const { data } = await supabase
@@ -216,6 +224,7 @@ async function audit(
         copies: n,
       }));
       strangers.push({ id: r.id, title: r.title, level: r.label_level, at });
+      strangerCopies += at.reduce((n, a) => n + a.copies, 0);
     }
   }
 
@@ -239,6 +248,7 @@ async function audit(
     loansOut,
     notFound: notFound.slice(0, 300),
     strangers: strangers.slice(0, 300),
+    strangerCopies,
     overCounted: overCounted.slice(0, 300),
   };
 }

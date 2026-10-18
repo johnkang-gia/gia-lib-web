@@ -514,6 +514,12 @@ export default function TidyClient({ levels }: { levels: LibLabelLevel[] }) {
                     장서 {audit.catalog.copies}권 · 이 등급 칸에서 찍힘 {audit.onLevel.copies}권
                     {audit.loansOut > 0 && ` · 대출 중 ${audit.loansOut}권`}
                     {diff === 0 ? " → 다 맞습니다" : ` → ${Math.abs(diff)}권 ${diff > 0 ? "모자랍니다" : "더 나왔습니다"}`}
+                    {audit.strangerCopies > 0 && (
+                      <span className="mt-1 block text-xs font-medium opacity-80">
+                        이 등급 칸에는 <b>남의 등급 책 {audit.strangerCopies}권</b>도 함께 꽂혀 있습니다 — 위의 칸
+                        목록에 보이는 권수에는 그것까지 들어 있습니다.
+                      </span>
+                    )}
                   </p>
                 );
               })()}
