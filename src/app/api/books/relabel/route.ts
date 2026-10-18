@@ -105,9 +105,50 @@ type Preview = {
   choices: { title: string; source: string }[];
 };
 
+/**
+ * 한 줄에 붙어 있는 번호들.
+ *
+ * ── 왜 이걸 따로 보내는가 ────────────────────────────────────────────────
+ * 책에 0448427052 라고 적혀 있는데 화면에는 9780448427058 이 떠서 「다른 번호 아니냐」는
+ * 물음이 나왔습니다. 같은 번호의 10자리·13자리 모습입니다(ISBN-10 → 앞에 978 을 붙이고 검사
+ * 숫자를 다시 계산합니다). 그 말을 화면이 해 주지 않으면 매번 사람이 의심해야 합니다.
+ *
+ * 그리고 더 중요한 것 - 이 줄이 **상품코드를 아직 달고 있는지**입니다. 번호 판정은
+ * item_code 한 칸만 보기 때문에(hasProductCodeAsId), 상품코드가 product_code 칸으로 옮겨진
+ * 뒤에는 「이미 등록된 책」으로만 보이고 상품코드 이야기가 화면에서 사라졌습니다. 그래서
+ * 이미 재등록이 끝난 책인데도 왜 상품코드라고 안 나오는지 알 수가 없었습니다.
+ */
+type RowCodes = {
+  /** 사람이 찍은 번호 그대로. */
+  scanned: string;
+  /** 이 줄의 ISBN. */
+  isbn: string | null;
+  /** 찍은 번호가 이 ISBN 의 다른 모습(10자리↔13자리)인지. */
+  sameIsbn: boolean;
+  /** 도서관 라벨 번호(GIA-B-…). 있으면 **라벨에 이 번호가 찍힙니다**. */
+  itemCode: string | null;
+  /**
+   * 아직 이 줄에 남아 있는 상품코드.
+   *
+   * 일부러 남깁니다 - 라벨을 실제로 책에 붙이기 전까지 그 책은 여전히 상품코드로 찍히고,
+   * 그때 이 줄이 걸려야 합니다. 라벨을 붙인 뒤에 떼면 됩니다(「상품코드 떼기」).
+   */
+  productCode: string | null;
+  /** 라벨을 뽑으면 바코드에 찍히는 번호(모아뽑기와 같은 규칙: 라벨 번호 → 없으면 ISBN). */
+  labelPrints: string | null;
+};
+
 type Found =
   | { kind: "product"; book: LibBook; message: string }
-  | { kind: "isbn"; book: LibBook; message: string; counts: ShelfCounts; place: Place }
+  | {
+      kind: "isbn";
+      book: LibBook;
+      message: string;
+      counts: ShelfCounts;
+      place: Place;
+      /** 이 줄에 붙어 있는 번호들 — 무엇이 이 책의 번호이고 라벨에 무엇이 찍히는지. */
+      codes: RowCodes;
+    }
   | { kind: "new"; code: string; isProduct: boolean; message: string; preview: Preview | null }
   | { kind: "error"; message: string; detail?: string };
 
@@ -119,7 +160,16 @@ export async function POST(request: Request) {
     if (!email) return NextResponse.json({ error: "로그인이 필요합니다." }, { status: 401 });
 
     const body = (await request.json().catch(() => null)) as {
-      action?: "find" | "apply" | "undo" | "redo" | "settitle" | "setisbn" | "addcopy" | "pending";
+      action?:
+        | "find"
+        | "apply"
+        | "undo"
+        | "redo"
+        | "settitle"
+        | "setisbn"
+        | "addcopy"
+        | "pending"
+        | "dropproduct";
       code?: string;
       /** apply: 사람이 표지에서 읽어 적은 ISBN. */
       isbn?: string;
@@ -143,6 +193,13 @@ export async function POST(request: Request) {
       제목 고치기도 찍은 번호가 아니라 **줄 하나**를 가리킵니다. 손에 책을 들고 있는 사람이
       화면의 제목이 틀린 것을 본 그 자리에서 고칠 수 있어야 합니다.
     */
+    /*
+      상품코드 떼기도 줄 하나를 가리킵니다 - 라벨을 책에 붙인 그 순간에 누르는 버튼입니다.
+    */
+    if (body?.action === "dropproduct") {
+      return await dropProduct(supabase, body.bookId ?? "", email);
+    }
+
     if (body?.action === "settitle") {
       return await setTitle(supabase, body.bookId ?? "", body.title ?? "", {
         author: body.author,
@@ -416,6 +473,14 @@ async function find(supabase: Awaited<ReturnType<typeof createClient>>, code: st
     return {
       kind: "isbn",
       book,
+      codes: {
+        scanned: code,
+        isbn: book.isbn ?? null,
+        sameIsbn: Boolean(book.isbn) && isbnVariants(code).includes(book.isbn as string),
+        itemCode: book.item_code ?? null,
+        productCode: book.product_code ?? null,
+        labelPrints: book.item_code ?? book.isbn ?? null,
+      },
       counts: { copies: book.total_copies, shelf, rows: rows.length, loansOut: outCount ?? 0 },
       place: {
         checks: rows
@@ -965,6 +1030,60 @@ async function apply(
 }
 
 /**
+ * **상품코드 떼기** — 라벨을 실제로 책에 붙인 뒤.
+ *
+ * ── 왜 바로 떼지 않는가 ──────────────────────────────────────────────────
+ * 재등록으로 ISBN 을 적어 넣을 때 상품코드는 지우지 않고 product_code 칸으로 옮겨 둡니다.
+ * 책에는 아직 상품코드 바코드가 붙어 있으니까요 - 그 번호를 찍었을 때 이 줄이 걸려야 합니다.
+ * 라벨을 뽑아 책에 붙이고 나면 그 번호는 더 쓰이지 않습니다. 그때 떼면 번호가 하나로 정리되고,
+ * 「상품코드가 남아 있는 줄」 목록에서도 사라집니다.
+ *
+ * 되돌릴 수 있습니다 - 지우기 전 줄 전체를 기록에 남깁니다.
+ */
+async function dropProduct(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  bookId: string,
+  email: string
+) {
+  if (!bookId) return NextResponse.json({ error: "어느 책인지 알 수 없습니다." }, { status: 400 });
+  const { data: row } = await supabase.from("lib_books").select("*").eq("id", bookId).maybeSingle();
+  const book = row as LibBook | null;
+  if (!book) return NextResponse.json({ error: "그 책을 찾지 못했습니다." }, { status: 400 });
+  const product = (book.product_code ?? "").trim();
+  if (!product) {
+    return NextResponse.json({ error: "이 줄에는 뗄 상품코드가 없습니다." }, { status: 400 });
+  }
+  if (!book.isbn && !book.item_code) {
+    return NextResponse.json(
+      {
+        error:
+          "이 줄에는 상품코드 말고 다른 번호가 없습니다 — 떼면 이 책을 찍을 방법이 없어집니다. ISBN 을 적어 넣거나 라벨을 먼저 발급해주세요.",
+      },
+      { status: 400 }
+    );
+  }
+
+  const { data: checks } = await supabase.from("lib_shelf_check").select("*").eq("book_id", book.id);
+  await supabase.from("lib_relabel_log").insert({
+    code: product,
+    isbn: book.isbn,
+    what: "dropproduct",
+    book_id: book.id,
+    before_json: { book, checks: checks ?? [] },
+    from_product: false,
+    created_by: email,
+  });
+
+  const { error } = await supabase.from("lib_books").update({ product_code: null }).eq("id", book.id);
+  if (error) return NextResponse.json({ error: `떼지 못했습니다: ${error.message}` }, { status: 400 });
+
+  return NextResponse.json({
+    ok: true,
+    message: `상품코드 ${product} 을 뗐습니다 — 이제 ${book.item_code ?? book.isbn} 하나로 찍습니다`,
+  });
+}
+
+/**
  * **ISBN 적어 넣기** — 이미 등록된 줄에 ISBN 을 붙입니다.
  *
  * 요청: "ISBN 적어넣는 칸이 없어. 재등록에 바로 넣을 수 있게 만들어줘."
@@ -1442,7 +1561,7 @@ async function undo(supabase: Awaited<ReturnType<typeof createClient>>, email: s
     「장서에 한 권 더하기」는 번호를 적은 적이 없습니다 - 그 책이 전에 재등록되며 생긴
     옛 번호가 남아 있을 뿐이라, 여기서 지우면 멀쩡한 단서를 지우게 됩니다.
   */
-  if (log.what !== "addcopy" && log.code && log.code !== log.isbn) {
+  if (log.what !== "addcopy" && log.what !== "dropproduct" && log.code && log.code !== log.isbn) {
     await supabase.from("lib_book_aliases").delete().eq("code", log.code).eq("book_id", log.book_id ?? "");
   }
 

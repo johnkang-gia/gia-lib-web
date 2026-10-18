@@ -53,9 +53,26 @@ type Preview = {
   choices: { title: string; source: string }[];
 };
 
+/** 이 줄에 붙어 있는 번호들(서버의 RowCodes 와 같습니다). */
+type RowCodes = {
+  scanned: string;
+  isbn: string | null;
+  sameIsbn: boolean;
+  itemCode: string | null;
+  productCode: string | null;
+  labelPrints: string | null;
+};
+
 type Found =
   | { kind: "product"; book: LibBook; message: string }
-  | { kind: "isbn"; book: LibBook; message: string; counts: ShelfCounts; place: Place }
+  | {
+      kind: "isbn";
+      book: LibBook;
+      message: string;
+      counts: ShelfCounts;
+      place: Place;
+      codes: RowCodes;
+    }
   | { kind: "new"; code: string; isProduct: boolean; message: string; preview: Preview | null }
   | { kind: "error"; message: string; detail?: string };
 
@@ -209,7 +226,14 @@ export default function RelabelClient() {
   const loadProgress = useCallback(async () => {
     try {
       const j = (await (await fetch("/api/books/relabel")).json()) as Progress & { error?: string };
-      if (!j.error) setProg(j);
+      if (!j.error) {
+        setProg(j);
+        /*
+          남은 줄이 몇 개뿐이면 **접어 두지 않습니다.** 그게 남은 일의 전부인데 접혀 있으면,
+          이미 끝난 책을 들고 와서 찍고 「이미 등록된 책입니다」를 다시 보게 됩니다.
+        */
+        if (j.leftRows > 0 && j.leftRows <= 10) setShowLeft(true);
+      }
     } catch {
       // 진행 숫자를 못 읽어도 재등록은 할 수 있습니다.
     }
@@ -560,6 +584,37 @@ export default function RelabelClient() {
    * 순간 그 책은 어디에도 남지 않고, 라벨만 붙인 채 자리 등록을 잊으면 장서에는 있는데
    * 책장에는 없는 책으로 영영 남습니다.
    */
+  /**
+   * **상품코드 떼기** — 라벨을 책에 실제로 붙인 뒤.
+   *
+   * 재등록은 상품코드를 지우지 않고 옮겨 둡니다 - 라벨을 붙이기 전까지 책은 아직 상품코드로
+   * 찍히니까요. 붙인 그 순간에 이 버튼을 누르면 번호가 하나로 정리됩니다.
+   */
+  async function dropProduct(book: LibBook) {
+    if (busy) return;
+    setBusy(true);
+    try {
+      const res = await fetch("/api/books/relabel", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "dropproduct", bookId: book.id }),
+      });
+      const j = (await res.json()) as { ok?: boolean; message?: string; error?: string };
+      if (j.error) {
+        setNote(j.error);
+        say("bad");
+        return;
+      }
+      setNote(`${book.title} — ${j.message ?? "상품코드를 뗐습니다"}`);
+      say("ok");
+      setFound(null);
+      setScanned("");
+      void loadProgress();
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function doLabelOnly(book: LibBook, pending = false) {
     if (busy) return;
     setBusy(true);
@@ -1469,6 +1524,57 @@ export default function RelabelClient() {
                 이 수가 남아 있으면 손에 든 책은 그중 하나입니다(숫자 그대로). 0이면 장서에
                 없던 한 권입니다(+1). 숫자를 보고 추천은 하되, 정하는 것은 사람입니다.
               */}
+              {/*
+                ── 이 줄에 붙어 있는 번호를 그대로 보여줍니다 ────────────────
+                책에 0448427052 라고 적혀 있는데 화면에 9780448427058 이 뜨면 「다른 번호
+                아니냐」가 됩니다. 같은 번호의 10자리·13자리 모습입니다. 그리고 이 줄이
+                상품코드를 아직 달고 있는지는 지금까지 화면에 전혀 나오지 않았습니다 - 번호
+                판정이 item_code 한 칸만 보기 때문에, 상품코드가 옮겨진 뒤에는 「이미 등록된
+                책」으로만 보였습니다.
+              */}
+              <div className="mt-2 space-y-1 rounded-lg bg-white px-3 py-2 text-xs leading-relaxed">
+                <p className="text-slate-700">
+                  <span className="font-bold text-slate-500">이 책의 번호 </span>
+                  ISBN <b className="text-sm text-gia-navy">{found.codes.isbn ?? "없음"}</b>
+                  {found.codes.sameIsbn && found.codes.scanned !== found.codes.isbn && (
+                    <span className="text-slate-500">
+                      {" "}
+                      — 찍은 <b>{found.codes.scanned}</b> 과 <b>같은 번호</b>입니다(ISBN 10자리 ↔ 13자리: 앞에
+                      978 을 붙이고 맨 끝 검사 숫자를 다시 계산합니다)
+                    </span>
+                  )}
+                </p>
+                {found.codes.itemCode && (
+                  <p className="text-slate-700">
+                    <span className="font-bold text-slate-500">도서관 라벨 </span>
+                    <b className="text-sm text-gia-navy">{found.codes.itemCode}</b>
+                    <span className="text-slate-500"> — 이미 발급되어 있습니다</span>
+                  </p>
+                )}
+                {found.codes.productCode ? (
+                  <div className="rounded-md bg-amber-50 px-2 py-1.5">
+                    <p className="text-amber-900">
+                      <span className="font-bold">상품코드 </span>
+                      <b className="text-sm">{found.codes.productCode}</b> 가 아직 이 줄에 남아 있습니다 —{" "}
+                      <b>일부러 남겨 둔 것</b>입니다. 책에는 아직 상품코드 바코드가 붙어 있으니 그 번호를 찍어도
+                      이 줄이 걸려야 합니다. <b>라벨을 책에 붙인 뒤</b>에 떼면 번호가 하나로 정리됩니다.
+                    </p>
+                    <button
+                      type="button"
+                      disabled={busy}
+                      onClick={() => void dropProduct(found.book)}
+                      className="mt-1.5 rounded-lg border border-amber-500 bg-white px-2.5 py-1.5 text-xs font-bold text-amber-900 disabled:opacity-50"
+                    >
+                      🏷 라벨 붙였습니다 — 상품코드 떼기
+                    </button>
+                  </div>
+                ) : (
+                  <p className="text-slate-500">
+                    상품코드는 남아 있지 않습니다 — 이 줄은 번호가 하나로 정리되어 있습니다.
+                  </p>
+                )}
+              </div>
+
               {/* ── 라벨을 뽑을까, 책에 있는 바코드를 그대로 쓸까 ───────────── */}
               <div className="mt-2 flex flex-wrap items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2">
                 <span className="text-xs font-bold text-slate-500">라벨</span>
@@ -1491,9 +1597,17 @@ export default function RelabelClient() {
                   라벨 뽑기 (모아뽑기에 담기)
                 </button>
                 <span className="text-xs text-slate-500">
-                  {wantLabel
-                    ? "찍은 번호가 이 책 한 권을 가리키지 않습니다(상품코드이거나 손으로 친 번호) — 라벨이 있어야 합니다"
-                    : "찍은 그 바코드가 이 책의 번호입니다 — 라벨은 같은 번호를 한 번 더 붙이는 일입니다"}
+                  {wantLabel ? (
+                    <>
+                      라벨에 찍히는 번호는 <b className="text-gia-navy">{found.codes.labelPrints ?? "없음"}</b>{" "}
+                      입니다
+                      {found.codes.itemCode
+                        ? " (도서관 라벨 번호). 뽑아서 붙이는 일이고, 기록은 바뀌지 않습니다 — ISBN 은 이미 적혀 있습니다."
+                        : " (ISBN). 뽑아서 붙이는 일이고, 기록은 바뀌지 않습니다."}
+                    </>
+                  ) : (
+                    "찍은 그 바코드가 이 책의 번호입니다 — 라벨은 같은 번호를 한 번 더 붙이는 일입니다"
+                  )}
                 </span>
               </div>
 
