@@ -1168,6 +1168,60 @@ export default function PlanClient({
         const zp = ordered[at];
         const setsFirst = zp.books.filter((b) => (b.series ?? "").trim() || (b.publisher ?? "").trim());
         const mm = totalMm(zp.books, cal.factor) / 10;
+
+        /*
+          ── 한 칸을 정리하는 차례 ─────────────────────────────────────────
+          요청: "6-1을 정리한다고 하면 6-1에 남을 책 먼저 알려주고, 그다음에 다른 책장에서
+          가져와서 채우고, 6-2로 넘어갈 때는 6-2에 남아 있는 책을 알려주고, 그다음에 6-1에서
+          빼낸 책들 중 어떤 책이 6-2에 들어가는지부터 체크해 준 뒤에 다른 책장에서 빼오도록,
+          상호교환이 가능하다면 교환 가능하도록."
+
+          손이 움직이는 차례 그대로 다섯 덩어리입니다.
+
+            ① 그대로 둘 책 - 건드리지 않습니다. 먼저 알아야 뺄 책과 섞이지 않습니다.
+            ② 빼낼 책      - 이 칸에 있지만 다른 칸으로 갈 책. 어디로 가는지 적습니다.
+            ③ 빼 둔 책     - **앞 칸에서 이미 뺀 책 중 이 칸으로 오는 것.** 바닥의 더미를 먼저
+                             없앱니다 - 그래야 더미가 자라지 않습니다.
+            ④ 맞교환       - 저쪽도 이 칸으로 보낼 책이 있는 칸. 한 권 꽂고 한 권 빼 오면 양쪽
+                             다 자리가 맞습니다.
+            ⑤ 가져올 책    - 그래도 모자란 만큼만, 아직 손대지 않은 칸에서.
+        */
+        const doneIds = new Set(ordered.slice(0, at).map((z) => z.zone.id));
+        const goTo = new Map<string, string>();
+        for (const z of planZones) for (const b of z.books) goTo.set(b.id, z.zone.id);
+        const stay = zp.books.filter((b) => b.location_id === zp.zone.id);
+        const out = books
+          .filter((b) => b.location_id === zp.zone.id)
+          .map((b) => ({ b, to: goTo.get(b.id) ?? null }))
+          .filter((x) => x.to && x.to !== zp.zone.id);
+        const outTo = new Set(out.map((x) => x.to as string));
+        const incoming = zp.books.filter((b) => b.location_id !== zp.zone.id);
+        const inHand = incoming.filter((b) => b.location_id && doneIds.has(b.location_id));
+        const swap = incoming.filter(
+          (b) => b.location_id && !doneIds.has(b.location_id) && outTo.has(b.location_id)
+        );
+        const bring = incoming.filter(
+          (b) => !b.location_id || (!doneIds.has(b.location_id) && !outTo.has(b.location_id))
+        );
+        const row = (b: PlanBook, right: string) => {
+          const set = (b.series ?? "").trim();
+          return (
+            <li key={b.id} className="flex flex-wrap items-baseline gap-x-2">
+              <span className="text-slate-800">{b.title}</span>
+              {set && (
+                <span className="rounded bg-violet-100 px-1 text-[10px] font-bold text-violet-800">
+                  {set}
+                  {b.series_no != null ? ` ${b.series_no}` : ""}
+                </span>
+              )}
+              {!set && b.publisher && (
+                <span className="rounded bg-slate-100 px-1 text-[10px] text-slate-500">{b.publisher}</span>
+              )}
+              <span className="ml-auto text-xs font-semibold text-slate-600">{right}</span>
+            </li>
+          );
+        };
+
         return (
           <section className={card}>
             <div className="flex flex-wrap items-center gap-2">
@@ -1195,56 +1249,101 @@ export default function PlanClient({
               </div>
             </div>
             <p className="mt-1 text-xs leading-relaxed text-slate-500">
-              이 칸에 <b>위에서부터 차례대로</b> 꽂으세요. <b>시리즈·세트가 먼저</b>, 낱권이 그 뒤입니다 — 책등
-              모양이 같은 책이 나란히 서야 책장이 정돈되어 보입니다. 다 꽂으면 아래에서{" "}
-              <b>「딱 맞음 · 더 남음 · 꽉 참」</b>을 눌러 주세요. 그 답이 이 칸의 <b>실측값</b>이 되어 남은 칸들의
+              <b>1번 칸부터</b> 한 칸씩 합니다. ①그대로 둘 책 → ②빼낼 책 → ③빼 둔 책부터 꽂기 → ④맞교환 →
+              ⑤가져오기 차례로 하시면 바닥에 책이 쌓이지 않습니다. 다 꽂으면 아래에서{" "}
+              <b>「딱 맞음 · 더 남음 · 꽉 참」</b>을 눌러 주세요 — 그 답이 이 칸의 <b>실측값</b>이 되어 남은 칸들의
               몫이 다시 계산됩니다.
             </p>
 
             <div className="mt-2 flex flex-wrap items-center gap-2">
               {chip(zp.zone.id)}
               <span className="text-sm text-slate-700">
-                넣을 책 <b className="text-gia-navy">{zp.books.length}권</b>
+                다 하면 <b className="text-gia-navy">{zp.books.length}권</b>
                 {widthZones > 0 && <span className="ml-1 text-xs text-slate-500">(약 {mm.toFixed(0)}cm)</span>}
               </span>
-              {setsFirst.length > 0 && (
-                <span className="text-xs text-violet-700">세트로 묶인 책 {setsFirst.length}권</span>
-              )}
+              <span className="text-xs text-slate-500">
+                그대로 {stay.length} · 빼낼 {out.length} · 채울 {incoming.length}
+              </span>
+              {setsFirst.length > 0 && <span className="text-xs text-violet-700">세트 {setsFirst.length}권</span>}
               {(zp.zone.capacity_mm ?? 0) > 0 && (
                 <span className="text-xs text-slate-400">칸 폭 {((zp.zone.capacity_mm ?? 0) / 10).toFixed(0)}cm</span>
               )}
             </div>
 
-            <ol className="mt-2 max-h-96 space-y-0.5 overflow-auto text-sm">
-              {zp.books.map((b, i) => {
-                const set = (b.series ?? "").trim();
-                return (
-                  <li key={b.id} className="flex flex-wrap items-baseline gap-x-2">
-                    <span className="w-7 shrink-0 text-right text-xs text-slate-400">{i + 1}.</span>
-                    <span className="text-slate-800">{b.title}</span>
-                    {set && (
-                      <span className="rounded bg-violet-100 px-1 text-[10px] font-bold text-violet-800">
-                        {set}
-                        {b.series_no != null ? ` ${b.series_no}` : ""}
-                      </span>
+            <div className="mt-2 space-y-2 text-sm">
+              <details open className="rounded-xl bg-emerald-50/60 px-3 py-2">
+                <summary className="cursor-pointer text-xs font-bold text-emerald-800">
+                  ① 그대로 둘 책 {stay.length}권 — 건드리지 마세요
+                </summary>
+                {stay.length > 0 ? (
+                  <ul className="mt-1 max-h-48 space-y-0.5 overflow-auto">{stay.map((b) => row(b, "제자리"))}</ul>
+                ) : (
+                  <p className="mt-1 text-xs text-emerald-800">이 칸은 통째로 바뀝니다 — 남는 책이 없습니다.</p>
+                )}
+              </details>
+
+              {out.length > 0 && (
+                <details open className="rounded-xl bg-amber-50/70 px-3 py-2">
+                  <summary className="cursor-pointer text-xs font-bold text-amber-800">
+                    ② 먼저 빼냅니다 {out.length}권 — 어디로 갈지 적어 두었습니다
+                  </summary>
+                  <ul className="mt-1 max-h-48 space-y-0.5 overflow-auto">
+                    {out.map((x) => row(x.b, `→ ${zoneName.get(x.to as string) ?? "?"} 로`))}
+                  </ul>
+                  <p className="mt-1 text-[11px] text-amber-800">
+                    뺀 책은 <b>가는 칸끼리 모아</b> 두세요. 그 칸 차례가 오면 ③에 「빼 둔 책」으로 다시 나옵니다.
+                  </p>
+                </details>
+              )}
+
+              {inHand.length > 0 && (
+                <details open className="rounded-xl bg-gia-navy/5 px-3 py-2 ring-1 ring-gia-navy/20">
+                  <summary className="cursor-pointer text-xs font-bold text-gia-navy">
+                    ③ 빼 둔 책부터 꽂습니다 {inHand.length}권 — 앞 칸에서 이미 뺀 책입니다
+                  </summary>
+                  <ul className="mt-1 max-h-48 space-y-0.5 overflow-auto">
+                    {inHand.map((b) =>
+                      row(b, `${b.location_id ? (zoneName.get(b.location_id) ?? "?") : "?"} 에서 뺀 책`)
                     )}
-                    {!set && b.publisher && (
-                      <span className="rounded bg-slate-100 px-1 text-[10px] text-slate-500">{b.publisher}</span>
+                  </ul>
+                  <p className="mt-1 text-[11px] text-gia-navy">
+                    바닥에 쌓인 책을 먼저 없앱니다 — 그래야 더미가 자라지 않습니다.
+                  </p>
+                </details>
+              )}
+
+              {swap.length > 0 && (
+                <details open className="rounded-xl bg-violet-50 px-3 py-2">
+                  <summary className="cursor-pointer text-xs font-bold text-violet-800">
+                    ④ 맞교환 {swap.length}권 — 저쪽도 이 칸으로 보낼 책이 있습니다
+                  </summary>
+                  <ul className="mt-1 max-h-48 space-y-0.5 overflow-auto">
+                    {swap.map((b) => row(b, `${b.location_id ? (zoneName.get(b.location_id) ?? "?") : "?"} ↔ 맞바꿈`))}
+                  </ul>
+                  <p className="mt-1 text-[11px] text-violet-800">
+                    그 칸으로 갈 책(②)을 들고 가서 <b>한 권 꽂고 한 권 빼 오면</b> 양쪽 다 자리가 맞습니다.
+                  </p>
+                </details>
+              )}
+
+              {bring.length > 0 && (
+                <details open className="rounded-xl bg-slate-50 px-3 py-2">
+                  <summary className="cursor-pointer text-xs font-bold text-slate-600">
+                    ⑤ 가져옵니다 {bring.length}권 — 아직 손대지 않은 칸에서
+                  </summary>
+                  <ul className="mt-1 max-h-72 space-y-0.5 overflow-auto">
+                    {bring.map((b) =>
+                      row(b, b.location_id ? `${zoneName.get(b.location_id) ?? "?"} 에서` : "자리 모름 — 찾아야 합니다")
                     )}
-                    <span className="ml-auto text-xs text-slate-500">
-                      {b.location_id === zp.zone.id
-                        ? "그대로"
-                        : `${b.location_id ? (zoneName.get(b.location_id) ?? "?") : "자리 모름"} 에서`}
-                      {(b.pages ?? 0) > 0 && (
-                        <span className="ml-1 text-[11px] text-slate-400">
-                          {Math.round(thicknessMm(b, cal.factor))}mm
-                        </span>
-                      )}
-                    </span>
-                  </li>
-                );
-              })}
-            </ol>
+                  </ul>
+                </details>
+              )}
+
+              <p className="text-[11px] leading-relaxed text-slate-500">
+                꽂는 차례는 <b>세트 먼저, 낱권 나중</b>입니다 — 같은 시리즈·같은 출판사 책이 나란히 서야 책장이
+                정돈되어 보입니다.
+              </p>
+            </div>
 
             <div className="mt-3 grid gap-2 sm:grid-cols-3">
               <button
