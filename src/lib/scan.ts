@@ -34,6 +34,29 @@ export function hasProductCodeAsId(book: { item_code: string | null; isbn?: stri
   return !ITEM_CODE_RE.test(code);
 }
 
+/**
+ * **라벨에 찍을 번호** — ISBN 이 있으면 ISBN 이 먼저입니다.
+ *
+ * ── 왜 ISBN 이 먼저인가 ──────────────────────────────────────────────────
+ * 상품코드 책에 라벨을 새로 뽑아 붙였더니 바코드가 도서관 고유번호(GIA-B-…)로 찍혀 있었습니다.
+ * 그 책에는 ISBN 이 멀쩡히 있습니다(예: Akiko on the Planet Smoo — ISBN 9780440416487,
+ * 상품코드 071009004993). ISBN 은 **그 책의 세계 공통 번호**입니다. 라벨에 ISBN 을 찍으면
+ * 조회처에서 제목·표지를 받을 수 있고, 다른 도서관·서점 자료와도 같은 번호로 맞물리고,
+ * 라벨이 떨어져도 책 뒤에 같은 번호가 인쇄되어 있습니다. 도서관 고유번호는 우리 안에서만
+ * 뜻이 있는 번호라, ISBN 이 있는 책에 그것을 찍는 것은 쓸 수 있는 번호를 버리는 일입니다.
+ *
+ * 그래서 고유번호는 **ISBN 이 없는 책에만** 뜻이 있습니다(그 책에는 다른 번호가 없으니까요).
+ *
+ * 이미 고유번호 라벨을 붙여 둔 책은 그 번호를 지우지 않습니다 - 붙어 있는 라벨이 계속 찍혀야
+ * 하니까요. 두 번호 다 그 줄을 가리키므로 어느 쪽을 찍어도 같은 책이 나옵니다.
+ */
+export function labelCode(book: { isbn?: string | null; item_code?: string | null }) {
+  const isbn = (book.isbn ?? "").trim();
+  if (isbn) return isbn;
+  const own = (book.item_code ?? "").trim();
+  return own || "";
+}
+
 /** 이 책이 라벨을 붙여야 하는 책인지(자체 번호가 발급된 책). */
 export function needsLabel(book: { item_code: string | null }) {
   return Boolean(book.item_code && ITEM_CODE_RE.test(book.item_code));

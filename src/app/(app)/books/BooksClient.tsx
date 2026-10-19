@@ -159,11 +159,23 @@ export default function BooksClient({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ bookIds: targets.map((b) => b.id) }),
       });
-      const json = (await res.json()) as { issued?: number; skipped?: number; error?: string };
+      const json = (await res.json()) as {
+        issued?: number;
+        skipped?: number;
+        haveIsbn?: number;
+        error?: string;
+      };
       if (!res.ok) throw new Error(json.error ?? "발급하지 못했습니다.");
       setSplitMsg(
         `${json.issued}권에 라벨 번호를 발급했습니다. 이제 '라벨 인쇄'로 뽑아 붙여주세요.` +
-          ((json.skipped ?? 0) > 0 ? ` (${json.skipped}권은 이미 있어 그대로 둠)` : "")
+          ((json.skipped ?? 0) > 0 ? ` (${json.skipped}권은 이미 있어 그대로 둠)` : "") +
+          /*
+            ISBN 이 있는 책은 번호를 만들지 않습니다 - 라벨이 ISBN 을 먼저 찍으니 바로
+            인쇄하면 됩니다. 말해 주지 않으면 「발급 0권」만 보고 안 됐다고 생각합니다.
+          */
+          ((json.haveIsbn ?? 0) > 0
+            ? ` ${json.haveIsbn}권은 ISBN이 있어 번호를 만들지 않았습니다 — 라벨에 ISBN 바코드가 찍히니 바로 '라벨 인쇄'로 뽑으시면 됩니다.`
+            : "")
       );
       router.refresh();
     } catch (e) {

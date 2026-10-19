@@ -2,7 +2,7 @@ import { createClient } from "@/lib/supabase/server";
 import PrintButton from "@/components/PrintButton";
 import { getLocations } from "@/lib/server/library";
 import { todayKst } from "@/lib/dates";
-import { hasProductCodeAsId } from "@/lib/scan";
+import { hasProductCodeAsId, labelCode } from "@/lib/scan";
 import { fetchAll } from "@/lib/server/fetchAll";
 import type { LibBook, LibLocation } from "@/lib/types";
 
@@ -143,7 +143,7 @@ export default async function OffShelfListPage() {
               )}
               {book.author && <div className="text-[11px] text-slate-500">{book.author}</div>}
             </td>
-            <td className="py-2 font-mono text-[11px]">{book.item_code ?? book.isbn ?? "—"}</td>
+            <td className="py-2 font-mono text-[11px]">{labelCode(book) || book.product_code || "—"}</td>
             <td className="py-2 text-center">{copies}권</td>
             <td className="py-2 text-center font-bold">{missing}권</td>
             <td className="py-2 text-[11px]">{where || "책장에서 한 번도 안 나옴"}</td>

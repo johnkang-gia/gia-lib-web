@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { labelCode } from "@/lib/scan";
 import { createClient } from "@/lib/supabase/server";
 import { PILE_SIGNATURE } from "@/lib/printJob";
 import type { LibPrintJob } from "@/lib/types";
@@ -64,7 +65,8 @@ export async function GET() {
       id,
       // 책이 지워졌는데 라벨만 남아 있을 수 있습니다 - 그것도 보여야 뺄 수 있습니다.
       title: b?.title ?? "(지워진 책)",
-      code: b?.item_code ?? b?.isbn ?? null,
+      // 라벨에 찍히는 번호와 **같은 규칙**이어야 합니다(ISBN 먼저).
+      code: b ? labelCode(b) || null : null,
       count: targets.filter((t) => t === id).length,
     });
   }

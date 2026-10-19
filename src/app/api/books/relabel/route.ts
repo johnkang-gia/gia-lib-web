@@ -12,6 +12,7 @@ import {
   isValidIsbn,
   normalizeIsbn,
   normalizeScan,
+  labelCode,
 } from "@/lib/scan";
 import { APP_VERSION } from "@/lib/version";
 import type { LibBook } from "@/lib/types";
@@ -479,7 +480,7 @@ async function find(supabase: Awaited<ReturnType<typeof createClient>>, code: st
         sameIsbn: Boolean(book.isbn) && isbnVariants(code).includes(book.isbn as string),
         itemCode: book.item_code ?? null,
         productCode: book.product_code ?? null,
-        labelPrints: book.item_code ?? book.isbn ?? null,
+        labelPrints: labelCode(book) || null,
       },
       counts: { copies: book.total_copies, shelf, rows: rows.length, loansOut: outCount ?? 0 },
       place: {
@@ -1266,7 +1267,7 @@ async function addCopy(
     before: { ...side(book.total_copies), locationId: book.location_id ?? null },
     after: side(book.total_copies + 1),
     leftover: null,
-    barcode: book.item_code ?? book.isbn ?? "",
+    barcode: labelCode(book),
     logId: (logRow as { id: string } | null)?.id ?? null,
     titleFrom: null,
     titleKept: false,

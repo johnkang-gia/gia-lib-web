@@ -1,3 +1,4 @@
+import { labelCode } from "@/lib/scan";
 import Barcode from "@/components/Barcode";
 import { code128Modules } from "@/lib/code128";
 import PrintButton from "@/components/PrintButton";
@@ -312,8 +313,8 @@ export default async function PrintLabelsPage({
                     멀리서 못 읽고, 라벨을 비스듬히 붙이면 더 못 읽습니다.
                   */}
                   <Barcode
-                    value={book.item_code ?? book.isbn ?? ""}
-                    moduleWidth={moduleWidthFor(book.item_code ?? book.isbn ?? "", LABEL_W)}
+                    value={labelCode(book)}
+                    moduleWidth={moduleWidthFor(labelCode(book), LABEL_W)}
                     /*
                       막대 높이도 읽히는 데 영향을 줍니다 - 스캐너가 비스듬히 지나가도 막대를
                       끝까지 가로지를 수 있어야 하니까요. 라벨이 넓어지면 바코드도 길어지므로
