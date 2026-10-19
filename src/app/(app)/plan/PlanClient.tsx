@@ -270,6 +270,10 @@ export default function PlanClient({
   const [editWidth, setEditWidth] = useState(false);
   /** 한 칸씩 채우기 — 지금 몇 번째 칸을 하고 있는지. */
   const [fillAt, setFillAt] = useState(0);
+  /** 시리즈 이름을 적어 줄 책들(고른 것)과 적을 이름. */
+  const [tagPick, setTagPick] = useState<Set<string>>(new Set());
+  const [tagName, setTagName] = useState("");
+  const [tagBusy, setTagBusy] = useState(false);
   /** 「꽉 찼습니다」를 누르고 적는 '실제로 넣은 권수'. */
   const [placedInput, setPlacedInput] = useState("");
   /** 「공간 더 남음」에 적는 '더 들어갈 권수'. */
@@ -709,6 +713,36 @@ export default function PlanClient({
     }
     setPlacedInput("");
     setMoreInput("");
+  }
+
+  /**
+   * **고른 책들에 시리즈 이름을 적습니다.**
+   *
+   * 묶는 단서가 하나도 없는 책은 계산으로 어쩔 수 없습니다 - Brisingr 에는 시리즈도 작가도
+   * 출판사도 비어 있어서, Eldest 와 같은 시리즈라는 것을 알 길이 없습니다. 아는 사람은 책을
+   * 손에 든 사람뿐입니다. 그래서 이 자리에서 바로 적게 합니다 - 「장서 관리로 가서 한 권씩
+   * 고치세요」라고 하면 대개 안 하게 됩니다.
+   *
+   * 한 번 적어 두면 다음 계획부터 그 책들은 늘 같은 칸으로 묶입니다.
+   */
+  async function tagSeries() {
+    const name = tagName.trim();
+    const ids = [...tagPick];
+    if (!name || ids.length === 0 || tagBusy) return;
+    setTagBusy(true);
+    try {
+      const { error: err } = await supabase.from("lib_books").update({ series: name }).in("id", ids);
+      if (err) {
+        setError(`시리즈를 적지 못했습니다: ${err.message}`);
+        return;
+      }
+      setMessage(`${ids.length}권에 시리즈 「${name}」을 적었습니다 — 이제 같은 칸으로 묶입니다`);
+      setTagPick(new Set());
+      setTagName("");
+      router.refresh();
+    } finally {
+      setTagBusy(false);
+    }
   }
 
   /** 칸 이름표 한 개. */
@@ -1225,6 +1259,111 @@ export default function PlanClient({
           </p>
         )}
       </section>
+
+      {/* ── 묶을 단서가 없는 책 ──────────────────────────────────────── */}
+      {(() => {
+        /*
+          시리즈가 비어 있는 책들입니다. 작가나 출판사가 있으면 그것으로라도 묶이지만, 셋 다
+          비어 있는 책은 어디에도 붙지 못해 낱권으로 흩어집니다. 그 책들을 앞에 세웁니다.
+        */
+        const loose = targetBooks
+          .filter((b) => !(b.series ?? "").trim())
+          .map((b) => ({
+            b,
+            none: !(b.author ?? "").trim() && !(b.publisher ?? "").trim(),
+          }))
+          .sort((x, y) => (x.none === y.none ? 0 : x.none ? -1 : 1));
+        const noneCount = loose.filter((x) => x.none).length;
+        if (loose.length === 0) return null;
+        return (
+          <section className={card}>
+            <h2 className="text-sm font-bold text-slate-500">세트로 묶을 단서가 없는 책</h2>
+            <p className="mt-1 text-xs leading-relaxed text-slate-500">
+              계획은 <b>시리즈 → 같은 제목 → 같은 작가(2권 이상) → 같은 출판사(3권 이상)</b> 순으로 책을 묶어
+              한 칸에 넣습니다. 그런데 <b>시리즈가 적힌 줄은 전체 1,230줄 중 37줄</b>뿐입니다. 셋 다 비어 있는
+              책은 어디에도 붙지 못해 낱권으로 흩어집니다 — 이 등급에 <b className="text-amber-700">{noneCount}권</b>{" "}
+              있습니다(예: Brisingr 는 시리즈·작가·출판사가 모두 비어 있어서 Eldest 와 같은 시리즈라는 것을 알
+              길이 없습니다).
+            </p>
+            <p className="mt-1 text-xs leading-relaxed text-slate-500">
+              아는 사람은 책을 손에 든 분뿐입니다. <b>고르고 시리즈 이름을 적어 주세요</b> — 한 번 적으면 다음
+              계획부터 늘 같은 칸으로 묶입니다.
+            </p>
+
+            <div className="mt-2 flex flex-wrap items-center gap-2">
+              <input
+                value={tagName}
+                onChange={(e) => setTagName(e.target.value)}
+                placeholder="예: Inheritance"
+                className="min-w-0 flex-1 rounded-lg border border-slate-300 px-3 py-1.5 text-sm"
+              />
+              <button
+                type="button"
+                onClick={() => void tagSeries()}
+                disabled={tagBusy || tagPick.size === 0 || !tagName.trim()}
+                className="rounded-lg bg-gia-navy px-3 py-1.5 text-xs font-bold text-white disabled:opacity-40"
+              >
+                고른 {tagPick.size}권에 적기
+              </button>
+              {tagPick.size > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setTagPick(new Set())}
+                  className="text-xs font-semibold text-slate-500 underline"
+                >
+                  선택 지우기
+                </button>
+              )}
+            </div>
+
+            <ul className="mt-2 max-h-72 space-y-0.5 overflow-auto text-sm">
+              {loose.slice(0, 200).map(({ b, none }) => (
+                <li key={b.id} className="flex flex-wrap items-baseline gap-x-2">
+                  <label className="flex min-w-0 flex-1 cursor-pointer items-baseline gap-2">
+                    <input
+                      type="checkbox"
+                      checked={tagPick.has(b.id)}
+                      onChange={(e) =>
+                        setTagPick((prev) => {
+                          const next = new Set(prev);
+                          if (e.target.checked) next.add(b.id);
+                          else next.delete(b.id);
+                          return next;
+                        })
+                      }
+                      className="mt-0.5"
+                    />
+                    <span className="min-w-0 text-slate-800">{b.title}</span>
+                  </label>
+                  {(b.total_copies ?? 1) > 1 && (
+                    <span className="rounded bg-rose-100 px-1 text-[11px] font-bold text-rose-800">
+                      {b.total_copies}권
+                    </span>
+                  )}
+                  <span className="ml-auto text-xs text-slate-500">
+                    {none ? (
+                      <span className="font-semibold text-amber-700">단서 없음</span>
+                    ) : (
+                      [b.author, b.publisher].filter(Boolean).join(" · ")
+                    )}
+                  </span>
+                </li>
+              ))}
+            </ul>
+            {loose.length > 200 && (
+              <p className="mt-1 text-xs text-slate-400">…그리고 {loose.length - 200}권 더</p>
+            )}
+            <p className="mt-2 text-[11px] leading-relaxed text-slate-500">
+              같은 책이 <b>두 줄로 등록</b>되어 있으면(전체 68종) 이제 같은 칸으로 묶이기는 하지만, 권수가 갈라져
+              있어 셈이 어긋납니다 —{" "}
+              <a href="/duplicates" className="underline">
+                겹치는 책 합치기
+              </a>{" "}
+              에서 한 줄로 합치시면 깔끔해집니다.
+            </p>
+          </section>
+        );
+      })()}
 
       {/* ── ③-0 한 칸씩 채우기 ───────────────────────────────────────── */}
       {(() => {

@@ -354,8 +354,9 @@ export function buildPlan(
   }));
 
   const leftover: PlanBook[] = [];
-  /** 세트로 인정한 출판사 이름 — 칸 안에서 세트를 앞쪽에 몰아 놓을 때 씁니다. */
+  /** 세트로 인정한 출판사·작가 — 칸 안에서 세트를 앞쪽에 몰아 놓을 때 씁니다. */
   const publisherSets = new Set<string>();
+  const authorSets = new Set<string>();
 
   /*
     ── 칸에 나눠 담기 ──────────────────────────────────────────────────────
@@ -508,42 +509,76 @@ export function buildPlan(
       묶음으로 가릅니다 - 같은 시리즈는 한 덩어리, 시리즈 아닌 책은 한 권씩.
       group.books 는 이미 줄 세워져 있으므로 차례는 그대로 따릅니다.
     */
-    const bundles: PlanBook[][] = [];
-    const loose: PlanBook[] = [];
-    let cur: PlanBook[] = [];
-    let curName = "";
-    for (const b of group.books) {
-      const name = (b.series ?? "").trim();
-      if (!name) {
-        loose.push(b);
-        continue;
-      }
-      if (name !== curName) {
-        if (cur.length > 0) bundles.push(cur);
-        cur = [];
-        curName = name;
-      }
-      cur.push(b);
-    }
-    if (cur.length > 0) bundles.push(cur);
-
     /*
-      ── 같은 출판사 세 권 이상은 **시리즈로 봅니다** ────────────────────────
-      시리즈 이름이 적혀 있지 않아도, 한 분류 안에 같은 출판사 책이 여러 권이면 그것은 대개
-      한 세트입니다(판형·책등 디자인이 같습니다). 나란히 세우면 책장이 눈에 띄게 정돈되어
-      보입니다. 두 권 이하는 세트라고 하기 어려우니 낱권으로 둡니다.
+      ── 무엇을 한 묶음으로 보는가 ───────────────────────────────────────────
+      시리즈 이름이 적힌 줄은 **1,230줄 중 37줄**뿐입니다(3%). 그 하나만 보고 묶으면 「누가 봐도
+      같은 종류」인 책들이 갈라집니다 - 실제로 Eldest(파올리니·Random House)와 Brisingr(작가·
+      출판사·시리즈 모두 비어 있음)이 한 칸에서 갈라졌고, 같은 제목으로 두 줄 등록된 Flowers
+      for Algernon 도 각자 다른 칸에 남았습니다.
+
+      그래서 묶는 단서를 넓힙니다. 위에서부터 **먼저 걸리는 것 하나**로 묶습니다.
+
+        ① 시리즈 이름        - 적혀 있으면 가장 확실합니다
+        ② 같은 제목          - 같은 책이 두 줄로 등록된 경우(68종). 한 칸에 모여야 합니다
+        ③ 같은 작가 2권 이상 - 도서관이 작가순으로 꽂는 이유와 같습니다
+        ④ 같은 출판사 3권 이상 - 판형·책등이 같아 나란히 서면 세트로 보입니다
+
+      ③④ 는 「확실한 세트」가 아니라 **흩어지지 않게 붙여 두는** 장치입니다. 두 권·세 권을
+      문턱으로 둔 이유는, 한 권짜리를 묶어 봐야 뜻이 없고 문턱을 낮추면 모든 책이 묶음이 되어
+      칸을 고르는 여지가 사라지기 때문입니다.
+
+      그래도 단서가 하나도 없는 책은 남습니다(6등급 118줄 중 40줄). 그건 계산이 아니라 **사람이
+      적어 줘야 하는 일**이라, 화면이 그 목록을 따로 보여주고 거기서 시리즈를 적게 합니다.
     */
-    const byPublisher = new Map<string, PlanBook[]>();
+    const norm = (v: string | null | undefined) => (v ?? "").trim().toLowerCase();
+    const bundles: PlanBook[][] = [];
     const singles: PlanBook[] = [];
-    for (const b of loose) {
-      const pub = (b.publisher ?? "").trim();
-      if (!pub) {
-        singles.push(b);
+
+    /** 열쇠별로 모읍니다(먼저 걸리는 단서 하나). */
+    const bySeries = new Map<string, PlanBook[]>();
+    const byTitle = new Map<string, PlanBook[]>();
+    const byAuthor = new Map<string, PlanBook[]>();
+    const byPublisher = new Map<string, PlanBook[]>();
+    const push = (m: Map<string, PlanBook[]>, k: string, b: PlanBook) => {
+      const list = m.get(k) ?? [];
+      list.push(b);
+      m.set(k, list);
+    };
+
+    for (const b of group.books) {
+      const series = norm(b.series);
+      if (series) {
+        push(bySeries, series, b);
         continue;
       }
-      const list = byPublisher.get(pub) ?? [];
-      list.push(b);
-      byPublisher.set(pub, list);
+      push(byTitle, norm(b.title), b);
+    }
+    // 같은 제목이 두 줄 이상이면 그것이 묶음입니다. 한 줄뿐이면 다음 단서로 넘깁니다.
+    for (const [, list] of byTitle) {
+      if (list.length >= 2) bundles.push(list);
+      else {
+        const b = list[0];
+        const author = norm(b.author);
+        if (author) push(byAuthor, author, b);
+        else {
+          const pub = norm(b.publisher);
+          if (pub) push(byPublisher, pub, b);
+          else singles.push(b);
+        }
+      }
+    }
+    for (const [, list] of bySeries) bundles.push(list);
+    for (const [author, list] of byAuthor) {
+      if (list.length >= 2) {
+        bundles.push(list);
+        authorSets.add(author);
+      }
+      else {
+        const b = list[0];
+        const pub = norm(b.publisher);
+        if (pub) push(byPublisher, pub, b);
+        else singles.push(b);
+      }
     }
     for (const [pub, list] of byPublisher) {
       if (list.length >= 3) {
@@ -553,6 +588,14 @@ export function buildPlan(
         singles.push(...list);
       }
     }
+    // 묶음 안의 차례: 시리즈 권 번호 → 제목
+    for (const bundle of bundles) {
+      bundle.sort(
+        (a, b) =>
+          (a.series_no ?? 0) - (b.series_no ?? 0) || (a.title ?? "").localeCompare(b.title ?? "")
+      );
+    }
+
     // 큰 세트부터 자리를 잡습니다 - 큰 묶음이 늦게 오면 들어갈 칸이 없어 쪼개집니다.
     bundles.sort((a, b) => b.length - a.length);
 
@@ -589,8 +632,10 @@ export function buildPlan(
   const setName = (b: PlanBook) => {
     const series = (b.series ?? "").trim();
     if (series) return series;
+    const author = (b.author ?? "").trim();
+    if (author && authorSets.has(author.toLowerCase())) return author;
     const pub = (b.publisher ?? "").trim();
-    return pub && publisherSets.has(pub) ? pub : "";
+    return pub && publisherSets.has(pub.toLowerCase()) ? pub : "";
   };
   for (const zp of zonePlans) {
     zp.books.sort((a, b) => {
