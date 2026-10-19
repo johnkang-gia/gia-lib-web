@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { labelCode } from "@/lib/scan";
+import { isItemCode, labelCode } from "@/lib/scan";
 import { createClient } from "@/lib/supabase/server";
 import { PILE_SIGNATURE } from "@/lib/printJob";
 import type { LibPrintJob } from "@/lib/types";
@@ -125,13 +125,74 @@ export async function POST(request: Request) {
       .select()
       .single();
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+
+    /*
+      ── 뽑은 라벨에 상품코드 책이 있으면 그때 상품코드를 뗍니다 ─────────────
+      처음에는 재등록 카드에 「라벨 붙였습니다 — 상품코드 떼기」 버튼을 두었습니다. 그런데
+      그 버튼을 누르는 순간 다음 책으로 넘어가 버려서, **그 책 라벨을 모아뽑기에 담을 수가
+      없었습니다.** 한 권 찍을 때마다 둘 중 하나만 할 수 있었던 셈입니다.
+
+      상품코드를 떼야 하는 순간은 **라벨이 실제로 뽑힌 때**입니다. 그때가 「라벨 인쇄 완료」를
+      누르는 순간이고, 그 묶음에 무엇이 들었는지도 여기서 압니다. 그래서 떼는 일을 이 자리로
+      옮겼습니다 - 찍는 손은 찍기만 하면 됩니다.
+
+      다른 번호(ISBN 또는 GIA-B-… 라벨)가 있는 줄만 뗍니다. 상품코드가 아직 그 줄의 유일한
+      번호라면 떼면 찍을 방법이 없어집니다.
+    */
+    let droppedProducts = 0;
+    const dropped: string[] = [];
+    const ids = Array.from(new Set(targets));
+    if (ids.length > 0) {
+      const { data: rows } = await supabase
+        .from("lib_books")
+        .select("id,title,isbn,item_code,product_code")
+        .in("id", ids)
+        .not("product_code", "is", null);
+      const list = (rows ?? []) as {
+        id: string;
+        title: string;
+        isbn: string | null;
+        item_code: string | null;
+        product_code: string | null;
+      }[];
+      for (const b of list) {
+        const product = (b.product_code ?? "").trim();
+        if (!product) continue;
+        const hasOther = Boolean((b.isbn ?? "").trim()) || isItemCode((b.item_code ?? "").trim());
+        if (!hasOther) continue;
+        const { data: checks } = await supabase.from("lib_shelf_check").select("*").eq("book_id", b.id);
+        const { data: full } = await supabase.from("lib_books").select("*").eq("id", b.id).maybeSingle();
+        await supabase.from("lib_relabel_log").insert({
+          code: product,
+          isbn: b.isbn,
+          what: "dropproduct",
+          book_id: b.id,
+          before_json: { book: full ?? b, checks: checks ?? [] },
+          from_product: false,
+          created_by: auth.user.email ?? null,
+        });
+        const { error: dropErr } = await supabase
+          .from("lib_books")
+          .update({ product_code: null })
+          .eq("id", b.id);
+        if (!dropErr) {
+          droppedProducts += 1;
+          dropped.push(`${b.title} (${product})`);
+        }
+      }
+    }
+
     return NextResponse.json({
       ok: true,
       moved: targets.length,
       job: data as LibPrintJob,
       pile: null,
       count: 0,
-      message: `${targets.length}장을 뽑은 기록으로 넘겼습니다`,
+      droppedProducts,
+      dropped,
+      message:
+        `${targets.length}장을 뽑은 기록으로 넘겼습니다` +
+        (droppedProducts > 0 ? ` · 상품코드 ${droppedProducts}권을 뗐습니다` : ""),
     });
   }
 

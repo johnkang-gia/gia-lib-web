@@ -584,37 +584,6 @@ export default function RelabelClient() {
    * 순간 그 책은 어디에도 남지 않고, 라벨만 붙인 채 자리 등록을 잊으면 장서에는 있는데
    * 책장에는 없는 책으로 영영 남습니다.
    */
-  /**
-   * **상품코드 떼기** — 라벨을 책에 실제로 붙인 뒤.
-   *
-   * 재등록은 상품코드를 지우지 않고 옮겨 둡니다 - 라벨을 붙이기 전까지 책은 아직 상품코드로
-   * 찍히니까요. 붙인 그 순간에 이 버튼을 누르면 번호가 하나로 정리됩니다.
-   */
-  async function dropProduct(book: LibBook) {
-    if (busy) return;
-    setBusy(true);
-    try {
-      const res = await fetch("/api/books/relabel", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "dropproduct", bookId: book.id }),
-      });
-      const j = (await res.json()) as { ok?: boolean; message?: string; error?: string };
-      if (j.error) {
-        setNote(j.error);
-        say("bad");
-        return;
-      }
-      setNote(`${book.title} — ${j.message ?? "상품코드를 뗐습니다"}`);
-      say("ok");
-      setFound(null);
-      setScanned("");
-      void loadProgress();
-    } finally {
-      setBusy(false);
-    }
-  }
-
   async function doLabelOnly(book: LibBook, pending = false) {
     if (busy) return;
     setBusy(true);
@@ -741,16 +710,28 @@ export default function RelabelClient() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ done: true }),
       });
-      const j = (await res.json()) as { message?: string; error?: string };
+      const j = (await res.json()) as {
+        message?: string;
+        error?: string;
+        droppedProducts?: number;
+        dropped?: string[];
+      };
       if (j.error) {
         setNote(j.error);
         return;
       }
-      setNote(j.message ?? "뽑은 기록으로 넘겼습니다.");
+      setNote(
+        (j.message ?? "뽑은 기록으로 넘겼습니다.") +
+          ((j.droppedProducts ?? 0) > 0
+            ? ` — ${(j.dropped ?? []).slice(0, 3).join(", ")}${(j.dropped ?? []).length > 3 ? " 등" : ""}`
+            : "")
+      );
       say("ok");
       setShowPile(false);
       await loadPile();
       await loadPrinted();
+      // 상품코드가 떼지면 「남은 상품코드 줄」 숫자도 달라집니다.
+      await loadProgress();
     } catch (e) {
       setNote(`보내지 못했습니다 — ${e instanceof Error ? e.message : String(e)}`);
     } finally {
@@ -1559,14 +1540,15 @@ export default function RelabelClient() {
                       <b>일부러 남겨 둔 것</b>입니다. 책에는 아직 상품코드 바코드가 붙어 있으니 그 번호를 찍어도
                       이 줄이 걸려야 합니다. <b>라벨을 책에 붙인 뒤</b>에 떼면 번호가 하나로 정리됩니다.
                     </p>
-                    <button
-                      type="button"
-                      disabled={busy}
-                      onClick={() => void dropProduct(found.book)}
-                      className="mt-1.5 rounded-lg border border-amber-500 bg-white px-2.5 py-1.5 text-xs font-bold text-amber-900 disabled:opacity-50"
-                    >
-                      🏷 라벨 붙였습니다 — 상품코드 떼기
-                    </button>
+                    {/*
+                      버튼이 여기 있었습니다. 누르면 그 자리에서 떼 주는 대신 **다음 책으로
+                      넘어가 버려서**, 그 책 라벨을 모아뽑기에 담을 수가 없었습니다. 찍는 손은
+                      찍기만 해야 합니다 - 떼는 일은 「라벨 인쇄 완료」가 합니다.
+                    */}
+                    <p className="mt-1 text-[11px] font-semibold text-amber-800">
+                      라벨을 담아 두고 <b>「✓ 뽑았습니다 — 기록으로 넘기기」</b>를 누르면, 그 묶음에 든 상품코드를
+                      그때 함께 뗍니다 — 지금은 그냥 담으시면 됩니다.
+                    </p>
                   </div>
                 ) : (
                   <p className="text-slate-500">
@@ -2050,6 +2032,7 @@ export default function RelabelClient() {
                 title="모아뽑기를 비우고 뽑은 기록으로 남깁니다 — 기록에서 다시 뽑을 수 있습니다"
               >
                 ✓ 뽑았습니다 — 기록으로 넘기기
+                <span className="ml-1 text-[11px] font-normal opacity-80">(상품코드도 함께 뗍니다)</span>
               </button>
             </>
           )}
