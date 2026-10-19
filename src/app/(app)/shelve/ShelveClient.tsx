@@ -111,7 +111,13 @@ export default function ShelveClient({
   const groups = useMemo(() => {
     const byLocation = new Map<string, { location: LibLocation | null; items: LibLoanWithBook[] }>();
     for (const loan of rows) {
-      const shelf = loan.book?.shelf ?? null;
+      /*
+        ── 정리 중이면 **갈 칸**으로 묶습니다 ───────────────────────────────
+        정리 계획을 확정해 두면 그 책의 제자리는 「갈 칸」입니다. 지금 자리는 아직 옮기지 않은
+        옛 자리라, 거기로 꽂으면 그 책을 또 옮겨야 합니다. 반납은 한 번에 제자리로 가야 합니다.
+      */
+      const planned = (loan.book as { target?: LibLocation | null } | null)?.target ?? null;
+      const shelf = planned ?? loan.book?.shelf ?? null;
       const key = shelf?.id ?? "none";
       if (!byLocation.has(key)) byLocation.set(key, { location: shelf, items: [] });
       byLocation.get(key)!.items.push(loan);

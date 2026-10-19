@@ -31,8 +31,17 @@ import { withDepartment } from "@/lib/department";
   `!location_id` 로 따라갈 칸을 못박아 둡니다. 빼먹으면 빌드가 막습니다
   (scripts/check-embeds.mjs).
 */
+/*
+  ── 반납된 책을 어디에 꽂아야 하나 ─────────────────────────────────────────
+  정리하는 동안에는 「지금 자리(location_id)」가 옛 자리입니다 - 책은 아직 안 옮겼고 계획만
+  세워 둔 상태니까요. 그때 반납이 들어오면 옛 칸으로 꽂게 되고, 그 책은 다시 옮겨야 합니다.
+
+  그래서 **갈 칸(target_location_id)** 도 함께 읽어 옵니다. 계획을 확정해 두면 반납 정리가
+  「6-3 으로」라고 알려줄 수 있습니다 - 정리 중에도 반납이 제자리로 갑니다.
+*/
 export const BOOK_FIELDS =
-  "id,title,author,isbn,item_code,cover_url,location_id,shelf:lib_locations!location_id(*)";
+  "id,title,author,isbn,item_code,cover_url,location_id,target_location_id," +
+  "shelf:lib_locations!location_id(*),target:lib_locations!target_location_id(id,code,name,color)";
 
 /** 대출 규칙. 아직 설정 행이 없으면 기본값(2주·3권)을 씁니다. */
 export async function getSettings(supabase: SupabaseClient): Promise<LibSettings> {

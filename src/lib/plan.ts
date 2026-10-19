@@ -475,40 +475,13 @@ export function buildPlan(
     if (!zp.groupLabels.includes(label)) zp.groupLabels.push(label);
   };
 
-  /** 한 묶음(시리즈 또는 낱권)을 칸에 넣습니다. from 부터 뒤쪽 칸만 봅니다(차례가 흐트러지지 않게). */
-  const place = (books: PlanBook[], label: string, from: number): number => {
-    // ① 여유 있는 선 안에서 통째로 들어가는 칸
-    for (let i = from; i < zonePlans.length; i += 1) {
-      if (room(zonePlans[i], softLimit) >= need(books)) {
-        for (const b of books) put(zonePlans[i], b, label);
-        return i;
-      }
-    }
-    // ② 꽉 채워서라도 통째로 들어가는 칸(정원을 적어 둔 칸이 작을 때)
-    for (let i = from; i < zonePlans.length; i += 1) {
-      if (room(zonePlans[i], hardLimit) >= need(books)) {
-        for (const b of books) put(zonePlans[i], b, label);
-        return i;
-      }
-    }
-    // ③ 어느 칸에도 통째로 안 들어갑니다 - 그때만 나눠 담습니다.
-    let at = from;
-    for (const b of books) {
-      while (at < zonePlans.length && room(zonePlans[at], hardLimit) < size(b)) at += 1;
-      if (at >= zonePlans.length) {
-        leftover.push(b);
-        continue;
-      }
-      put(zonePlans[at], b, label);
-    }
-    return Math.min(at, Math.max(0, zonePlans.length - 1));
-  };
+  /**
+   * 지금 채우고 있는 칸. **뒤로만 움직입니다** - 앞 칸으로 돌아가 끼워 넣으면 책장을 읽는
+   * 차례가 깨지고, 그러면 반납된 책을 제자리에 꽂을 수 없습니다.
+   */
+  let zi = 0;
 
   for (const group of groups) {
-    /*
-      묶음으로 가릅니다 - 같은 시리즈는 한 덩어리, 시리즈 아닌 책은 한 권씩.
-      group.books 는 이미 줄 세워져 있으므로 차례는 그대로 따릅니다.
-    */
     /*
       ── 무엇을 한 묶음으로 보는가 ───────────────────────────────────────────
       시리즈 이름이 적힌 줄은 **1,230줄 중 37줄**뿐입니다(3%). 그 하나만 보고 묶으면 「누가 봐도
@@ -588,69 +561,110 @@ export function buildPlan(
         singles.push(...list);
       }
     }
-    // 묶음 안의 차례: 시리즈 권 번호 → 제목
+    /*
+      ── 묶음 안의 차례: 권 번호 → 얇은 책 → 제목 ───────────────────────────
+      요청: "책 제목, 출판사, 시리즈를 최대한 같은 책장에 있게 해주고, 그다음에 알파벳과 렉사일을
+      봐서 책장 정리를 하도록 해서 6-1부터 깔끔하게."
+
+      한 세트 안에서는 **권 번호**가 먼저입니다(1권 다음에 2권). 권 번호가 없는 세트 - 같은
+      출판사·같은 작가로 묶인 책들 - 은 **얇은 책부터** 세웁니다. 책등 높이·두께가 비슷한 것끼리
+      이어지면 한 덩어리로 보이고, 아이가 「이 줄은 같은 종류」라고 알아봅니다. 렉사일을 쓸 수
+      없어서(조회처가 주지 않습니다) 쪽수가 그 자리를 대신합니다 - 얇은 책이 대개 쉬운 책입니다.
+    */
     for (const bundle of bundles) {
       bundle.sort(
         (a, b) =>
-          (a.series_no ?? 0) - (b.series_no ?? 0) || (a.title ?? "").localeCompare(b.title ?? "")
+          (a.series_no ?? 0) - (b.series_no ?? 0) ||
+          thickness(a) - thickness(b) ||
+          (a.title ?? "").localeCompare(b.title ?? "", "ko")
       );
     }
 
-    // 큰 세트부터 자리를 잡습니다 - 큰 묶음이 늦게 오면 들어갈 칸이 없어 쪼개집니다.
-    bundles.sort((a, b) => b.length - a.length);
+    /*
+      ── 블록을 알파벳순으로 세웁니다 ───────────────────────────────────────
+      블록 하나는 **세트 한 묶음**이거나 **낱권 한 권**입니다. 그 블록들을 이름순으로 세우고
+      6-1 부터 차례대로 채웁니다 - 그래서 책장을 왼쪽 위에서 오른쪽 아래로 읽으면 가나다·ABC
+      순이 됩니다.
 
-    // 분류마다 새 칸에서 시작하기: 지금 칸에 이미 다른 분류가 들어 있으면 다음 칸부터 봅니다.
-    let from = 0;
-    if (freshShelf) {
-      while (from < zonePlans.length && zonePlans[from].books.length > 0) from += 1;
-      if (from >= zonePlans.length) from = Math.max(0, zonePlans.length - 1);
+      이 차례가 지켜져야 **학생이 책을 찾고, 반납된 책을 제자리에 꽂을** 수 있습니다. 「이 책은
+      S 로 시작하니 6-5 쯤」이라고 짐작할 수 있어야 사서 한 사람이 반납을 감당할 수 있습니다.
+      그래서 자리가 남아도 **차례를 어기고 끼워 넣지 않습니다** - 남는 자리는 다음에 들어올 책의
+      몫입니다.
+
+      「얇은 책 → 두꺼운 책」을 고르면 이름 대신 두께로 세웁니다(세트는 가장 얇은 권을 그 세트의
+      두께로 봅니다).
+    */
+    const blockName = (block: PlanBook[]) => {
+      const b = block[0];
+      const series = (b.series ?? "").trim();
+      if (series) return series;
+      if (block.length > 1) {
+        const author = (b.author ?? "").trim();
+        const pub = (b.publisher ?? "").trim();
+        const sameTitle = block.every((x) => norm(x.title) === norm(b.title));
+        if (sameTitle) return (b.title ?? "").trim();
+        if (author && authorSets.has(author.toLowerCase())) return author;
+        if (pub && publisherSets.has(pub.toLowerCase())) return pub;
+      }
+      // 낱권은 작가 이름으로 세웁니다(작가가 없으면 제목).
+      const author = (b.author ?? "").trim();
+      return author || (b.title ?? "").trim();
+    };
+    const blockThickness = (block: PlanBook[]) =>
+      block.reduce((n, b) => Math.min(n, thickness(b)), Number.POSITIVE_INFINITY);
+
+    const blocks: PlanBook[][] = [...bundles, ...singles.map((b) => [b])];
+    blocks.sort((a, b) => {
+      if (order === "얇은책순") {
+        const ta = blockThickness(a);
+        const tb = blockThickness(b);
+        if (ta !== tb) return ta - tb;
+      }
+      const byName = blockName(a).localeCompare(blockName(b), "ko");
+      if (byName !== 0) return byName;
+      return (a[0].title ?? "").localeCompare(b[0].title ?? "", "ko");
+    });
+
+    // 분류마다 새 칸에서 시작하기 - 지금 칸에 이미 다른 분류가 들어 있으면 다음 칸부터.
+    if (freshShelf && zi < zonePlans.length && zonePlans[zi].books.length > 0) zi += 1;
+
+    for (const block of blocks) {
+      const want = need(block);
+      /*
+        이 묶음이 **빈 칸 하나에 통째로** 들어갈 수 있나? 들어갈 수 있으면 자리가 날 때까지
+        다음 칸으로 넘깁니다(차례를 지키려고 지금 칸에 자리를 남깁니다). 어느 칸보다도 큰
+        묶음이면 그때만 이어서 쪼개 담습니다 - 열두 권짜리 전집은 어쩔 수 없습니다.
+      */
+      const fitsWhole = zonePlans.some((z) => softLimit(z.zone) >= want);
+      if (fitsWhole) {
+        while (zi < zonePlans.length && room(zonePlans[zi], softLimit) < want) zi += 1;
+        if (zi >= zonePlans.length) {
+          leftover.push(...block);
+          continue;
+        }
+        for (const b of block) put(zonePlans[zi], b, group.label);
+        continue;
+      }
+      for (const b of block) {
+        while (zi < zonePlans.length && room(zonePlans[zi], hardLimit) < size(b)) zi += 1;
+        if (zi >= zonePlans.length) {
+          leftover.push(b);
+          continue;
+        }
+        put(zonePlans[zi], b, group.label);
+      }
     }
-
-    // ① 시리즈 묶음 먼저 - 통째로 들어갈 자리를 찾습니다.
-    for (const bundle of bundles) place(bundle, group.label, from);
-    // ② 남은 자리에 낱권을 채웁니다.
-    for (const single of singles) place([single], group.label, from);
   }
 
   /*
-    칸 안에서 다시 줄을 세웁니다. 낱권을 나중에 채워 넣었으므로, 그대로 두면 꽂는 차례가
-    뒤섞입니다 - 꽂을 사람은 위에서 아래로 읽으며 꽂습니다.
+    ── 칸 안의 차례는 **넣은 차례 그대로** ─────────────────────────────────
+    예전에는 낱권을 빈 자리에 나중에 끼워 넣었기 때문에, 칸 안에서 다시 줄을 세워야 했습니다.
+    이제는 블록을 이름순으로 세워 차례대로만 채우므로 **넣은 차례가 곧 꽂는 차례**입니다.
+    여기서 또 섞으면(예: 세트를 칸 앞쪽으로 몰면) 책장을 읽는 차례가 깨집니다.
   */
   const orderIndex = new Map<string, number>();
   let seq = 0;
-  for (const group of groups) for (const b of group.books) orderIndex.set(b.id, seq++);
-
-  /*
-    ── 한 칸 안의 차례: **세트가 먼저, 낱권이 나중** ───────────────────────
-    요청: "각 책장에 시리즈 책들을 우선으로 정리하고(그래야 볼 때 깔끔하게 보이기 때문이야),
-    그 이외의 공간들을 알아서 분배하면서."
-
-    세트는 책등 모양이 같아서 나란히 세우면 한 덩어리로 보입니다. 그 사이에 낱권이 끼면 그
-    효과가 사라집니다. 그래서 칸 안에서 세트를 앞쪽에 몰아 놓고(세트끼리는 이름순, 세트 안에서는
-    권 번호순), 낱권은 그 뒤를 분류·작가순으로 채웁니다.
-  */
-  const setName = (b: PlanBook) => {
-    const series = (b.series ?? "").trim();
-    if (series) return series;
-    const author = (b.author ?? "").trim();
-    if (author && authorSets.has(author.toLowerCase())) return author;
-    const pub = (b.publisher ?? "").trim();
-    return pub && publisherSets.has(pub.toLowerCase()) ? pub : "";
-  };
-  for (const zp of zonePlans) {
-    zp.books.sort((a, b) => {
-      const sa = setName(a);
-      const sb = setName(b);
-      if (Boolean(sa) !== Boolean(sb)) return sa ? -1 : 1;
-      if (sa && sb && sa !== sb) return sa.localeCompare(sb);
-      if (sa && sb && sa === sb) {
-        const na = a.series_no ?? 0;
-        const nb = b.series_no ?? 0;
-        if (na !== nb) return na - nb;
-      }
-      return (orderIndex.get(a.id) ?? 0) - (orderIndex.get(b.id) ?? 0);
-    });
-  }
+  for (const zp of zonePlans) for (const b of zp.books) orderIndex.set(b.id, seq++);
 
   // ── ④ 칸마다 대표 이름 정하기(가장 많이 든 덩어리 기준) ────────────────
   for (const zp of zonePlans) {
