@@ -133,7 +133,12 @@ export default function PlanClient({
     const m = new Map<string, number>();
     for (const b of books) {
       if (!b.location_id) continue;
-      m.set(b.location_id, (m.get(b.location_id) ?? 0) + 1);
+      /*
+        복본은 권수만큼 셉니다. 한 줄을 1권으로 세면 같은 책 네 권이 한 권으로 세어져 칸
+        정원이 실제보다 작게 잡히고, 「자리 부족」이 아닌데 자리 부족으로 나옵니다.
+      */
+      const n = Math.max(1, Math.floor(b.copies ?? 1));
+      m.set(b.location_id, (m.get(b.location_id) ?? 0) + n);
     }
     return m;
   }, [books]);
@@ -498,6 +503,7 @@ export default function PlanClient({
             series: b.series ?? null,
             series_no: b.series_no ?? null,
             pages: b.pages ?? null,
+            copies: b.copies ?? 1,
           },
         });
       }
@@ -1297,15 +1303,21 @@ export default function PlanClient({
           if (nA !== nB) return nB - nA;
           return (zoneName.get(a.id) ?? "").localeCompare(zoneName.get(b.id) ?? "");
         });
-        const sendTotal = out.length;
-        const takeTotal = partners.reduce((n, p2) => n + p2.take.length, 0);
+        const cps = (list: PlanBook[]) =>
+          list.reduce((n, b) => n + Math.max(1, Math.floor(b.copies ?? 1)), 0);
+        const sendTotal = cps(out.map((x) => x.b));
+        const takeTotal = partners.reduce((n, p2) => n + cps(p2.take), 0);
         const setsFirst = zp.books.filter((b) => (b.series ?? "").trim() || (b.publisher ?? "").trim());
         const mm = totalMm(zp.books, cal.factor) / 10;
         const row = (b: PlanBook, right: string) => {
           const set = (b.series ?? "").trim();
+          const n = Math.max(1, Math.floor(b.copies ?? 1));
           return (
             <li key={b.id} className="flex flex-wrap items-baseline gap-x-2">
               <span className="text-slate-800">{b.title}</span>
+              {n > 1 && (
+                <span className="rounded bg-rose-100 px-1 text-[11px] font-bold text-rose-800">{n}권</span>
+              )}
               {set && (
                 <span className="rounded bg-violet-100 px-1 text-[10px] font-bold text-violet-800">
                   {set}
@@ -1357,11 +1369,11 @@ export default function PlanClient({
             <div className="mt-2 flex flex-wrap items-center gap-2">
               {chip(zp.zone.id)}
               <span className="text-sm text-slate-700">
-                다 하면 <b className="text-gia-navy">{zp.books.length}권</b>
+                다 하면 <b className="text-gia-navy">{cps(zp.books)}권</b>
                 {widthZones > 0 && <span className="ml-1 text-xs text-slate-500">(약 {mm.toFixed(0)}cm)</span>}
               </span>
               <span className="text-xs text-slate-500">
-                그대로 {stay.length} · 빼낼 {out.length} · 채울 {incoming.length}
+                그대로 {cps(stay)} · 빼낼 {sendTotal} · 채울 {cps(incoming)}
               </span>
               {setsFirst.length > 0 && <span className="text-xs text-violet-700">세트 {setsFirst.length}권</span>}
               {(zp.zone.capacity_mm ?? 0) > 0 && (
@@ -1372,7 +1384,7 @@ export default function PlanClient({
             <div className="mt-2 space-y-2 text-sm">
               <details open className="rounded-xl bg-emerald-50/60 px-3 py-2">
                 <summary className="cursor-pointer text-xs font-bold text-emerald-800">
-                  ① 그대로 둘 책 {stay.length}권 — 건드리지 마세요
+                  ① 그대로 둘 책 {cps(stay)}권 — 건드리지 마세요
                 </summary>
                 {stay.length > 0 ? (
                   <ul className="mt-1 max-h-48 space-y-0.5 overflow-auto">{stay.map((b) => row(b, "제자리"))}</ul>
@@ -1384,7 +1396,7 @@ export default function PlanClient({
               {inHand.length > 0 && (
                 <details open className="rounded-xl bg-gia-navy/5 px-3 py-2 ring-1 ring-gia-navy/20">
                   <summary className="cursor-pointer text-xs font-bold text-gia-navy">
-                    ② 빼 둔 책부터 꽂습니다 {inHand.length}권 — 앞 칸에서 이미 뺀 책(가지 않아도 됩니다)
+                    ② 빼 둔 책부터 꽂습니다 {cps(inHand)}권 — 앞 칸에서 이미 뺀 책(가지 않아도 됩니다)
                   </summary>
                   <ul className="mt-1 max-h-48 space-y-0.5 overflow-auto">
                     {inHand.map((b) =>
@@ -1420,7 +1432,7 @@ export default function PlanClient({
                             {chip(pt.id)}
                             {both ? (
                               <span className="rounded bg-violet-200 px-1.5 text-[11px] font-bold text-violet-900">
-                                맞교환 {Math.min(pt.send.length, pt.take.length)}권
+                                맞교환 {Math.min(cps(pt.send), cps(pt.take))}권
                               </span>
                             ) : (
                               <span className="text-[11px] font-semibold text-slate-500">
@@ -1428,7 +1440,7 @@ export default function PlanClient({
                               </span>
                             )}
                             <span className="ml-auto text-xs text-slate-500">
-                              보낼 {pt.send.length} · 받을 {pt.take.length}
+                              보낼 {cps(pt.send)} · 받을 {cps(pt.take)}
                             </span>
                           </div>
                           {both && (
@@ -1439,7 +1451,7 @@ export default function PlanClient({
                           {pt.send.length > 0 && (
                             <div className="mt-1.5">
                               <p className="text-[11px] font-bold text-amber-800">
-                                → {zoneName.get(pt.id) ?? "?"} 로 보낼 책 {pt.send.length}권
+                                → {zoneName.get(pt.id) ?? "?"} 로 보낼 책 {cps(pt.send)}권
                               </p>
                               <ul className="mt-0.5 max-h-40 space-y-0.5 overflow-auto">
                                 {pt.send.map((b) => row(b, "가져가서 꽂기"))}
@@ -1449,7 +1461,7 @@ export default function PlanClient({
                           {pt.take.length > 0 && (
                             <div className="mt-1.5">
                               <p className="text-[11px] font-bold text-gia-navy">
-                                ← {zoneName.get(pt.id) ?? "?"} 에서 가져올 책 {pt.take.length}권
+                                ← {zoneName.get(pt.id) ?? "?"} 에서 가져올 책 {cps(pt.take)}권
                               </p>
                               <ul className="mt-0.5 max-h-40 space-y-0.5 overflow-auto">
                                 {pt.take.map((b) => row(b, "빼서 가져오기"))}
@@ -1466,7 +1478,7 @@ export default function PlanClient({
               {unknown.length > 0 && (
                 <details className="rounded-xl bg-slate-50 px-3 py-2">
                   <summary className="cursor-pointer text-xs font-bold text-slate-600">
-                    ④ 자리를 모르는 책 {unknown.length}권 — 찾아서 꽂아야 합니다
+                    ④ 자리를 모르는 책 {cps(unknown)}권 — 찾아서 꽂아야 합니다
                   </summary>
                   <ul className="mt-1 max-h-48 space-y-0.5 overflow-auto">
                     {unknown.map((b) => row(b, "자리 기록 없음"))}
@@ -1756,6 +1768,11 @@ export default function PlanClient({
                     {st.hops.slice(0, 8).map((h, n) => (
                       <li key={`${h.book.id}-${n}`} className="flex flex-wrap items-baseline gap-x-2">
                         <span className="text-slate-800">{h.book.title}</span>
+                        {(h.book.copies ?? 1) > 1 && (
+                          <span className="rounded bg-rose-100 px-1 text-[11px] font-bold text-rose-800">
+                            {h.book.copies}권
+                          </span>
+                        )}
                         {h.book.series && (
                           <span className="rounded bg-violet-100 px-1 text-[10px] font-bold text-violet-800">
                             {h.book.series}
@@ -1807,6 +1824,7 @@ export default function PlanClient({
                   series: b.series ?? null,
                   series_no: b.series_no ?? null,
                   pages: b.pages ?? null,
+                  copies: b.copies ?? 1,
                 },
               }));
               const second = secondPlan(hops);

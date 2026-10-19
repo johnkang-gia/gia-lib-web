@@ -42,6 +42,19 @@ export type PlanBook = {
   /** 아는 두께(mm). 비어 있으면 쪽수로 가늠합니다. */
   thickness_mm?: number | null;
   /**
+   * **이 줄이 몇 권인지**(보유 권수).
+   *
+   * 자료는 「책 한 종」이 한 줄이고, 같은 책을 여러 권 가지고 있으면 그 줄의 권수만 올라갑니다.
+   * 그래서 한 줄을 1권으로 세면 **복본이 전부 사라집니다** - Island of the Blue Dolphins 는
+   * 4권인데 계획에는 1권으로 올라와, 책장에서 네 권을 옮겨야 하는데 한 권만 적혀 있었습니다.
+   * 6등급만 해도 복본이 있는 줄이 9개(16권)입니다.
+   *
+   * 그래서 칸을 채울 때 한 줄은 **자기 권수만큼** 자리를 차지합니다(폭으로 담을 때는 두께 ×
+   * 권수). 같은 책 네 권은 한 덩어리로 같은 칸에 들어갑니다 - 같은 책이 흩어져 있으면
+   * 시리즈를 모으는 뜻이 없습니다.
+   */
+  copies?: number | null;
+  /**
    * 출판사 — **시리즈처럼 묶이는 책들**을 알아보는 데 씁니다.
    *
    * 요청: "같은 종류의 책 1권, 2권 등이나, 같은 출판사에서 나온 시리즈물들을 우선으로
@@ -361,8 +374,11 @@ export function buildPlan(
        자리에 낱권을 채웁니다.** 묶음이 한 칸 몫보다 크면 그때만 나눠 담습니다(열두 권짜리
        전집은 어느 칸에도 통째로 안 들어갈 수 있습니다).
   */
-  const totalBooks = groups.reduce((n, g) => n + g.books.length, 0);
-  /** 한 칸 몫 - 이 등급 책을 이 등급 칸에 고르게 나눈 수(정원을 모르는 칸에만 씁니다). */
+  const totalBooks = groups.reduce(
+    (n, g) => n + g.books.reduce((m, b) => m + Math.max(1, Math.floor(b.copies ?? 1)), 0),
+    0
+  );
+  /** 한 칸 몫 - 이 등급 책을 이 등급 칸에 고르게 나눈 **권수**(정원을 모르는 칸에만 씁니다). */
   const evenShare = zonePlans.length > 0 ? Math.ceil(totalBooks / zonePlans.length) : 0;
 
   /*
@@ -387,12 +403,13 @@ export function buildPlan(
    * 이 등급 책을 꽂는 데 드는 분량. 칸 폭을 쓰는 경우에는 **권수가 아니라 mm** 입니다.
    */
   const anyWidth = zonePlans.some((z) => (z.zone.capacity_mm ?? 0) > 0);
+  const copiesOf = (b: PlanBook) => Math.max(1, Math.floor(b.copies ?? 1));
   const totalNeed = anyWidth
     ? groups.reduce(
-        (n, g) => n + g.books.reduce((m, b) => m + thicknessMm(b, thicknessFactor), 0),
+        (n, g) => n + g.books.reduce((m, b) => m + thicknessMm(b, thicknessFactor) * copiesOf(b), 0),
         0
       )
-    : totalBooks;
+    : groups.reduce((n, g) => n + g.books.reduce((m, b) => m + copiesOf(b), 0), 0);
 
   const knownCap = zonePlans.reduce((n, z) => {
     const mm = z.zone.capacity_mm ?? 0;
@@ -439,7 +456,11 @@ export function buildPlan(
     얹는 일이 됩니다.
   */
   const byWidth = zonePlans.some((z) => (z.zone.capacity_mm ?? 0) > 0);
-  const size = (book: PlanBook) => (byWidth ? thicknessMm(book, thicknessFactor) : 1);
+  /** 한 줄이 차지하는 자리 - 권수만큼입니다(폭으로 담을 때는 두께 × 권수). */
+  const size = (book: PlanBook) => {
+    const n = Math.max(1, Math.floor(book.copies ?? 1));
+    return byWidth ? thicknessMm(book, thicknessFactor) * n : n;
+  };
   const used = (zp: ZonePlan) => zp.books.reduce((n, b) => n + size(b), 0);
   const need = (books: PlanBook[]) => books.reduce((n, b) => n + size(b), 0);
   const room = (zp: ZonePlan, limit: (z: PlanZone) => number) => limit(zp.zone) - used(zp);
@@ -614,8 +635,10 @@ export function buildPlan(
   let stayCount = 0;
   for (const zp of zonePlans) {
     for (const book of zp.books) {
-      if (book.location_id === zp.zone.id) stayCount += 1;
-      else moveCount += 1;
+      // 복본은 권수만큼 셉니다 - 네 권인 줄을 한 권으로 세면 옮길 양이 네 배로 어긋납니다.
+      const n = Math.max(1, Math.floor(book.copies ?? 1));
+      if (book.location_id === zp.zone.id) stayCount += n;
+      else moveCount += n;
     }
   }
 
@@ -627,7 +650,9 @@ export function buildPlan(
     stayCount,
     uncategorized: books.filter((b) => !b.category || b.category === OTHER_CATEGORY).length,
     noAudience: books.filter((b) => !b.audience).length,
-    seriesBooks: books.filter((b) => (b.series ?? "").trim()).length,
+    seriesBooks: books
+      .filter((b) => (b.series ?? "").trim())
+      .reduce((n, b) => n + Math.max(1, Math.floor(b.copies ?? 1)), 0),
     seriesCount: new Set(
       books.map((b) => (b.series ?? "").trim()).filter((x) => x !== "")
     ).size,

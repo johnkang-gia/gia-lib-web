@@ -26,6 +26,8 @@
 export type MoveBook = {
   id: string;
   title: string;
+  /** 같은 책 몇 권인지(복본). 네 권인 줄은 네 권이 함께 움직입니다. */
+  copies?: number | null;
   author?: string | null;
   series?: string | null;
   series_no?: number | null;
