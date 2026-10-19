@@ -184,6 +184,21 @@ export default function PlanClient({
   /** 칸 폭을 적어 둔 칸이 몇 개인지. 하나도 없으면 권수로 담습니다. */
   const widthZones = locations.filter((l) => (l.capacity_mm ?? 0) > 0).length;
 
+  /**
+   * 적어 둔 칸 폭(cm). 지금 고른 등급의 칸들에 적힌 값입니다.
+   *
+   * 칸마다 다른 값이 적혀 있으면(한 칸을 따로 재었을 때) 가장 많이 쓰인 값을 보여 줍니다 -
+   * 「우리 책장 칸 폭」이라는 하나의 숫자가 화면에 있어야 합니다.
+   */
+  const savedWidthCm = useMemo(() => {
+    const vals = targetZones.map((z) => z.capacity_mm ?? 0).filter((n) => n > 0);
+    if (vals.length === 0) return null;
+    const count = new Map<number, number>();
+    for (const v of vals) count.set(v, (count.get(v) ?? 0) + 1);
+    const top = [...count.entries()].sort((a, b) => b[1] - a[1])[0][0];
+    return top / 10;
+  }, [targetZones]);
+
   /** 모든 칸(이 등급)의 폭을 한 번에 적습니다 — 책장 칸 크기가 다 같으니까요. */
   async function setWidthAll(cm: number) {
     const mm = Math.round(cm * 10);
@@ -193,10 +208,12 @@ export default function PlanClient({
     setLocations((list) => list.map((l) => (ids.includes(l.id) ? { ...l, capacity_mm: mm } : l)));
     const { error: err } = await supabase.from("lib_locations").update({ capacity_mm: mm }).in("id", ids);
     if (err) setError(`칸 폭을 적지 못했습니다: ${err.message}`);
-    else
+    else {
+      setEditWidth(false);
       setMessage(
-        `칸 ${ids.length}개의 폭을 ${cm}cm 로 적었습니다 — 이제 권수가 아니라 폭으로 담습니다`
+        `칸 ${ids.length}개의 폭을 ${cm}cm 로 적었습니다 — 고칠 때까지 이 값을 씁니다(권수가 아니라 폭으로 담습니다)`
       );
+    }
   }
 
   const tempZones = locations.filter((l) => l.kind === "임시");
@@ -232,6 +249,15 @@ export default function PlanClient({
   const [roomInput, setRoomInput] = useState<Record<string, string>>({});
   /** 칸 하나의 가로 폭(cm). 책장 칸 크기가 다 같아서 한 번만 적으면 됩니다. */
   const [widthInput, setWidthInput] = useState("");
+  /**
+   * 폭을 고치는 중인지.
+   *
+   * 요청: "책장 길이 적은 거 저장해서 수정을 누르지 않는 이상 고정값으로 만들어줘."
+   *
+   * 한 번 재어 적은 값이 매번 빈 칸으로 돌아오면 다시 재야 하는지 헷갈립니다. 저장된 뒤에는
+   * **적어 둔 값만 보여 주고**, 「수정」을 눌렀을 때만 고칠 수 있게 합니다.
+   */
+  const [editWidth, setEditWidth] = useState(false);
   /** 한 칸씩 채우기 — 지금 몇 번째 칸을 하고 있는지. */
   const [fillAt, setFillAt] = useState(0);
   /** 「꽉 찼습니다」를 누르고 적는 '실제로 넣은 권수'. */
@@ -973,31 +999,66 @@ export default function PlanClient({
           </div>
 
           <div className="mt-2 flex flex-wrap items-center gap-2">
-            <label className="text-xs text-slate-600">
-              칸 하나의 가로 폭
-              <input
-                type="number"
-                min={10}
-                max={300}
-                step={1}
-                value={widthInput}
-                onChange={(e) => setWidthInput(e.target.value)}
-                placeholder="예: 90"
-                className="ml-1.5 w-20 rounded-lg border border-slate-300 px-2 py-1 text-sm"
-              />
-              <span className="ml-1">cm</span>
-            </label>
-            <button
-              type="button"
-              onClick={() => void setWidthAll(Number(widthInput))}
-              disabled={!(Number(widthInput) > 0) || targetZones.length === 0}
-              className="rounded-lg bg-gia-navy px-3 py-1.5 text-xs font-bold text-white disabled:opacity-40"
-            >
-              {onlyLevel != null ? `${onlyLevel}등급 칸 ${targetZones.length}개에 적기` : `칸 ${targetZones.length}개에 적기`}
-            </button>
-            <span className="text-[11px] text-slate-500">
-              책장 칸 크기가 다 같으니 한 번만 재시면 됩니다 — 책이 꽂히는 **안쪽 가로 길이**를 재 주세요.
-            </span>
+            {savedWidthCm != null && !editWidth ? (
+              <>
+                <span className="rounded-lg bg-white px-3 py-1.5 text-sm font-bold text-gia-navy ring-1 ring-slate-300">
+                  칸 폭 {savedWidthCm.toFixed(0)}cm
+                </span>
+                <span className="text-[11px] text-slate-500">
+                  적어 둔 값입니다 — 고칠 때까지 그대로 씁니다.
+                </span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setWidthInput(String(savedWidthCm));
+                    setEditWidth(true);
+                  }}
+                  className="rounded-lg border border-slate-300 px-2.5 py-1.5 text-xs font-semibold text-slate-700"
+                >
+                  수정
+                </button>
+              </>
+            ) : (
+              <>
+                <label className="text-xs text-slate-600">
+                  칸 하나의 가로 폭
+                  <input
+                    type="number"
+                    min={10}
+                    max={300}
+                    step={1}
+                    value={widthInput}
+                    onChange={(e) => setWidthInput(e.target.value)}
+                    placeholder="예: 90"
+                    className="ml-1.5 w-20 rounded-lg border border-slate-300 px-2 py-1 text-sm"
+                  />
+                  <span className="ml-1">cm</span>
+                </label>
+                <button
+                  type="button"
+                  onClick={() => void setWidthAll(Number(widthInput))}
+                  disabled={!(Number(widthInput) > 0) || targetZones.length === 0}
+                  className="rounded-lg bg-gia-navy px-3 py-1.5 text-xs font-bold text-white disabled:opacity-40"
+                >
+                  {onlyLevel != null
+                    ? `${onlyLevel}등급 칸 ${targetZones.length}개에 적기`
+                    : `칸 ${targetZones.length}개에 적기`}
+                </button>
+                {savedWidthCm != null && (
+                  <button
+                    type="button"
+                    onClick={() => setEditWidth(false)}
+                    className="rounded-lg px-2 py-1.5 text-xs font-semibold text-slate-500 underline"
+                  >
+                    그만두기
+                  </button>
+                )}
+                <span className="text-[11px] text-slate-500">
+                  책장 칸 크기가 다 같으니 한 번만 재시면 됩니다 — 책이 꽂히는 <b>안쪽 가로 길이</b>를 재 주세요.
+                  한 번 적으면 고칠 때까지 그 값을 씁니다.
+                </span>
+              </>
+            )}
           </div>
 
           {widthZones > 0 && (
@@ -1166,8 +1227,6 @@ export default function PlanClient({
         if (ordered.length === 0) return null;
         const at = Math.min(fillAt, ordered.length - 1);
         const zp = ordered[at];
-        const setsFirst = zp.books.filter((b) => (b.series ?? "").trim() || (b.publisher ?? "").trim());
-        const mm = totalMm(zp.books, cal.factor) / 10;
 
         /*
           ── 한 칸을 정리하는 차례 ─────────────────────────────────────────
@@ -1193,16 +1252,50 @@ export default function PlanClient({
         const out = books
           .filter((b) => b.location_id === zp.zone.id)
           .map((b) => ({ b, to: goTo.get(b.id) ?? null }))
-          .filter((x) => x.to && x.to !== zp.zone.id);
-        const outTo = new Set(out.map((x) => x.to as string));
+          .filter((x) => x.to && x.to !== zp.zone.id) as { b: PlanBook; to: string }[];
         const incoming = zp.books.filter((b) => b.location_id !== zp.zone.id);
+        /** 앞 칸에서 이미 빼 둔 책 - 들고만 있으니 가지 않아도 됩니다. */
         const inHand = incoming.filter((b) => b.location_id && doneIds.has(b.location_id));
-        const swap = incoming.filter(
-          (b) => b.location_id && !doneIds.has(b.location_id) && outTo.has(b.location_id)
-        );
-        const bring = incoming.filter(
-          (b) => !b.location_id || (!doneIds.has(b.location_id) && !outTo.has(b.location_id))
-        );
+        const unknown = incoming.filter((b) => !b.location_id);
+
+        /*
+          ── 칸 하나에 한 번만 갑니다 ───────────────────────────────────────
+          요청: "이걸 책장별로 안내해줘야지. 빼냅니다 할 때 6-2 칸으로 들어가고 6-2에서 이쪽으로
+          올 책들을 한 번에 안내해줘야지, 그래야 책장별로 교환이 되서 다시 6-2 책장으로 안 가지.
+          지금 방식으로 하면 6-2번 책장에 계속 왔다 갔다 해야 하잖아."
+
+          맞습니다. 「보낼 책」과 「받을 책」을 따로 늘어놓으면 같은 칸을 두 번 갑니다. 그래서
+          **상대 칸으로 묶습니다** - 6-2 블록 하나에 「6-2 로 보낼 책」과 「6-2 에서 가져올 책」이
+          함께 들어갑니다. 한 손에 보낼 책을 들고 가서 꽂고, 받을 책을 빼서 돌아오면 그 칸은
+          끝입니다.
+
+          양쪽이 다 있는 칸(맞교환)이 가장 효율이 좋으니 먼저 세웁니다.
+        */
+        type Partner = { id: string; send: PlanBook[]; take: PlanBook[] };
+        const partnerMap = new Map<string, Partner>();
+        const partner = (id: string) => {
+          const cur = partnerMap.get(id) ?? { id, send: [], take: [] };
+          partnerMap.set(id, cur);
+          return cur;
+        };
+        for (const x of out) partner(x.to).send.push(x.b);
+        for (const b of incoming) {
+          if (!b.location_id || doneIds.has(b.location_id)) continue;
+          partner(b.location_id).take.push(b);
+        }
+        const partners = [...partnerMap.values()].sort((a, b) => {
+          const twoA = a.send.length > 0 && a.take.length > 0 ? 1 : 0;
+          const twoB = b.send.length > 0 && b.take.length > 0 ? 1 : 0;
+          if (twoA !== twoB) return twoB - twoA;
+          const nA = a.send.length + a.take.length;
+          const nB = b.send.length + b.take.length;
+          if (nA !== nB) return nB - nA;
+          return (zoneName.get(a.id) ?? "").localeCompare(zoneName.get(b.id) ?? "");
+        });
+        const sendTotal = out.length;
+        const takeTotal = partners.reduce((n, p2) => n + p2.take.length, 0);
+        const setsFirst = zp.books.filter((b) => (b.series ?? "").trim() || (b.publisher ?? "").trim());
+        const mm = totalMm(zp.books, cal.factor) / 10;
         const row = (b: PlanBook, right: string) => {
           const set = (b.series ?? "").trim();
           return (
@@ -1249,8 +1342,9 @@ export default function PlanClient({
               </div>
             </div>
             <p className="mt-1 text-xs leading-relaxed text-slate-500">
-              <b>1번 칸부터</b> 한 칸씩 합니다. ①그대로 둘 책 → ②빼낼 책 → ③빼 둔 책부터 꽂기 → ④맞교환 →
-              ⑤가져오기 차례로 하시면 바닥에 책이 쌓이지 않습니다. 다 꽂으면 아래에서{" "}
+              <b>1번 칸부터</b> 한 칸씩 합니다. ①그대로 둘 책 → ②빼 둔 책 꽂기 → ③칸마다 한 번만 다녀오기
+              (보낼 책·받을 책을 함께) 차례로 하시면, 같은 칸을 두 번 가지 않고 바닥에도 책이 쌓이지 않습니다.
+              다 꽂으면 아래에서{" "}
               <b>「딱 맞음 · 더 남음 · 꽉 참」</b>을 눌러 주세요 — 그 답이 이 칸의 <b>실측값</b>이 되어 남은 칸들의
               몫이 다시 계산됩니다.
             </p>
@@ -1282,24 +1376,10 @@ export default function PlanClient({
                 )}
               </details>
 
-              {out.length > 0 && (
-                <details open className="rounded-xl bg-amber-50/70 px-3 py-2">
-                  <summary className="cursor-pointer text-xs font-bold text-amber-800">
-                    ② 먼저 빼냅니다 {out.length}권 — 어디로 갈지 적어 두었습니다
-                  </summary>
-                  <ul className="mt-1 max-h-48 space-y-0.5 overflow-auto">
-                    {out.map((x) => row(x.b, `→ ${zoneName.get(x.to as string) ?? "?"} 로`))}
-                  </ul>
-                  <p className="mt-1 text-[11px] text-amber-800">
-                    뺀 책은 <b>가는 칸끼리 모아</b> 두세요. 그 칸 차례가 오면 ③에 「빼 둔 책」으로 다시 나옵니다.
-                  </p>
-                </details>
-              )}
-
               {inHand.length > 0 && (
                 <details open className="rounded-xl bg-gia-navy/5 px-3 py-2 ring-1 ring-gia-navy/20">
                   <summary className="cursor-pointer text-xs font-bold text-gia-navy">
-                    ③ 빼 둔 책부터 꽂습니다 {inHand.length}권 — 앞 칸에서 이미 뺀 책입니다
+                    ② 빼 둔 책부터 꽂습니다 {inHand.length}권 — 앞 칸에서 이미 뺀 책(가지 않아도 됩니다)
                   </summary>
                   <ul className="mt-1 max-h-48 space-y-0.5 overflow-auto">
                     {inHand.map((b) =>
@@ -1312,29 +1392,79 @@ export default function PlanClient({
                 </details>
               )}
 
-              {swap.length > 0 && (
-                <details open className="rounded-xl bg-violet-50 px-3 py-2">
-                  <summary className="cursor-pointer text-xs font-bold text-violet-800">
-                    ④ 맞교환 {swap.length}권 — 저쪽도 이 칸으로 보낼 책이 있습니다
-                  </summary>
-                  <ul className="mt-1 max-h-48 space-y-0.5 overflow-auto">
-                    {swap.map((b) => row(b, `${b.location_id ? (zoneName.get(b.location_id) ?? "?") : "?"} ↔ 맞바꿈`))}
-                  </ul>
-                  <p className="mt-1 text-[11px] text-violet-800">
-                    그 칸으로 갈 책(②)을 들고 가서 <b>한 권 꽂고 한 권 빼 오면</b> 양쪽 다 자리가 맞습니다.
+              {partners.length > 0 && (
+                <div className="rounded-xl bg-white px-3 py-2 ring-1 ring-slate-200">
+                  <p className="text-xs font-bold text-slate-600">
+                    ③ 칸마다 한 번만 갑니다 — 칸 {partners.length}곳 · 보낼 {sendTotal}권 · 받을 {takeTotal}권
                   </p>
-                </details>
+                  <p className="mt-0.5 text-[11px] leading-relaxed text-slate-500">
+                    보낼 책과 받을 책을 <b>그 칸 하나로 묶었습니다.</b> 보낼 책을 들고 가서 꽂고, 받을 책을 빼서
+                    돌아오면 그 칸은 끝입니다 — 같은 칸을 두 번 가지 않습니다.
+                  </p>
+                  <ol className="mt-2 space-y-2">
+                    {partners.map((pt) => {
+                      const both = pt.send.length > 0 && pt.take.length > 0;
+                      return (
+                        <li
+                          key={pt.id}
+                          className={`rounded-lg px-2.5 py-2 ring-1 ${
+                            both ? "bg-violet-50 ring-violet-200" : "bg-slate-50 ring-slate-100"
+                          }`}
+                        >
+                          <div className="flex flex-wrap items-center gap-1.5">
+                            {chip(pt.id)}
+                            {both ? (
+                              <span className="rounded bg-violet-200 px-1.5 text-[11px] font-bold text-violet-900">
+                                맞교환 {Math.min(pt.send.length, pt.take.length)}권
+                              </span>
+                            ) : (
+                              <span className="text-[11px] font-semibold text-slate-500">
+                                {pt.send.length > 0 ? "보내기만" : "받아오기만"}
+                              </span>
+                            )}
+                            <span className="ml-auto text-xs text-slate-500">
+                              보낼 {pt.send.length} · 받을 {pt.take.length}
+                            </span>
+                          </div>
+                          {both && (
+                            <p className="mt-1 text-[11px] text-violet-900">
+                              보낼 책을 들고 가서 한 권 꽂고 한 권 빼 오시면 양쪽 자리가 그대로 맞습니다.
+                            </p>
+                          )}
+                          {pt.send.length > 0 && (
+                            <div className="mt-1.5">
+                              <p className="text-[11px] font-bold text-amber-800">
+                                → {zoneName.get(pt.id) ?? "?"} 로 보낼 책 {pt.send.length}권
+                              </p>
+                              <ul className="mt-0.5 max-h-40 space-y-0.5 overflow-auto">
+                                {pt.send.map((b) => row(b, "가져가서 꽂기"))}
+                              </ul>
+                            </div>
+                          )}
+                          {pt.take.length > 0 && (
+                            <div className="mt-1.5">
+                              <p className="text-[11px] font-bold text-gia-navy">
+                                ← {zoneName.get(pt.id) ?? "?"} 에서 가져올 책 {pt.take.length}권
+                              </p>
+                              <ul className="mt-0.5 max-h-40 space-y-0.5 overflow-auto">
+                                {pt.take.map((b) => row(b, "빼서 가져오기"))}
+                              </ul>
+                            </div>
+                          )}
+                        </li>
+                      );
+                    })}
+                  </ol>
+                </div>
               )}
 
-              {bring.length > 0 && (
-                <details open className="rounded-xl bg-slate-50 px-3 py-2">
+              {unknown.length > 0 && (
+                <details className="rounded-xl bg-slate-50 px-3 py-2">
                   <summary className="cursor-pointer text-xs font-bold text-slate-600">
-                    ⑤ 가져옵니다 {bring.length}권 — 아직 손대지 않은 칸에서
+                    ④ 자리를 모르는 책 {unknown.length}권 — 찾아서 꽂아야 합니다
                   </summary>
-                  <ul className="mt-1 max-h-72 space-y-0.5 overflow-auto">
-                    {bring.map((b) =>
-                      row(b, b.location_id ? `${zoneName.get(b.location_id) ?? "?"} 에서` : "자리 모름 — 찾아야 합니다")
-                    )}
+                  <ul className="mt-1 max-h-48 space-y-0.5 overflow-auto">
+                    {unknown.map((b) => row(b, "자리 기록 없음"))}
                   </ul>
                 </details>
               )}
