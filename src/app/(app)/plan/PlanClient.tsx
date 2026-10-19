@@ -1260,111 +1260,6 @@ export default function PlanClient({
         )}
       </section>
 
-      {/* ── 묶을 단서가 없는 책 ──────────────────────────────────────── */}
-      {(() => {
-        /*
-          시리즈가 비어 있는 책들입니다. 작가나 출판사가 있으면 그것으로라도 묶이지만, 셋 다
-          비어 있는 책은 어디에도 붙지 못해 낱권으로 흩어집니다. 그 책들을 앞에 세웁니다.
-        */
-        const loose = targetBooks
-          .filter((b) => !(b.series ?? "").trim())
-          .map((b) => ({
-            b,
-            none: !(b.author ?? "").trim() && !(b.publisher ?? "").trim(),
-          }))
-          .sort((x, y) => (x.none === y.none ? 0 : x.none ? -1 : 1));
-        const noneCount = loose.filter((x) => x.none).length;
-        if (loose.length === 0) return null;
-        return (
-          <section className={card}>
-            <h2 className="text-sm font-bold text-slate-500">세트로 묶을 단서가 없는 책</h2>
-            <p className="mt-1 text-xs leading-relaxed text-slate-500">
-              계획은 <b>시리즈 → 같은 제목 → 같은 작가(2권 이상) → 같은 출판사(3권 이상)</b> 순으로 책을 묶어
-              한 칸에 넣습니다. 그런데 <b>시리즈가 적힌 줄은 전체 1,230줄 중 37줄</b>뿐입니다. 셋 다 비어 있는
-              책은 어디에도 붙지 못해 낱권으로 흩어집니다 — 이 등급에 <b className="text-amber-700">{noneCount}권</b>{" "}
-              있습니다(예: Brisingr 는 시리즈·작가·출판사가 모두 비어 있어서 Eldest 와 같은 시리즈라는 것을 알
-              길이 없습니다).
-            </p>
-            <p className="mt-1 text-xs leading-relaxed text-slate-500">
-              아는 사람은 책을 손에 든 분뿐입니다. <b>고르고 시리즈 이름을 적어 주세요</b> — 한 번 적으면 다음
-              계획부터 늘 같은 칸으로 묶입니다.
-            </p>
-
-            <div className="mt-2 flex flex-wrap items-center gap-2">
-              <input
-                value={tagName}
-                onChange={(e) => setTagName(e.target.value)}
-                placeholder="예: Inheritance"
-                className="min-w-0 flex-1 rounded-lg border border-slate-300 px-3 py-1.5 text-sm"
-              />
-              <button
-                type="button"
-                onClick={() => void tagSeries()}
-                disabled={tagBusy || tagPick.size === 0 || !tagName.trim()}
-                className="rounded-lg bg-gia-navy px-3 py-1.5 text-xs font-bold text-white disabled:opacity-40"
-              >
-                고른 {tagPick.size}권에 적기
-              </button>
-              {tagPick.size > 0 && (
-                <button
-                  type="button"
-                  onClick={() => setTagPick(new Set())}
-                  className="text-xs font-semibold text-slate-500 underline"
-                >
-                  선택 지우기
-                </button>
-              )}
-            </div>
-
-            <ul className="mt-2 max-h-72 space-y-0.5 overflow-auto text-sm">
-              {loose.slice(0, 200).map(({ b, none }) => (
-                <li key={b.id} className="flex flex-wrap items-baseline gap-x-2">
-                  <label className="flex min-w-0 flex-1 cursor-pointer items-baseline gap-2">
-                    <input
-                      type="checkbox"
-                      checked={tagPick.has(b.id)}
-                      onChange={(e) =>
-                        setTagPick((prev) => {
-                          const next = new Set(prev);
-                          if (e.target.checked) next.add(b.id);
-                          else next.delete(b.id);
-                          return next;
-                        })
-                      }
-                      className="mt-0.5"
-                    />
-                    <span className="min-w-0 text-slate-800">{b.title}</span>
-                  </label>
-                  {(b.total_copies ?? 1) > 1 && (
-                    <span className="rounded bg-rose-100 px-1 text-[11px] font-bold text-rose-800">
-                      {b.total_copies}권
-                    </span>
-                  )}
-                  <span className="ml-auto text-xs text-slate-500">
-                    {none ? (
-                      <span className="font-semibold text-amber-700">단서 없음</span>
-                    ) : (
-                      [b.author, b.publisher].filter(Boolean).join(" · ")
-                    )}
-                  </span>
-                </li>
-              ))}
-            </ul>
-            {loose.length > 200 && (
-              <p className="mt-1 text-xs text-slate-400">…그리고 {loose.length - 200}권 더</p>
-            )}
-            <p className="mt-2 text-[11px] leading-relaxed text-slate-500">
-              같은 책이 <b>두 줄로 등록</b>되어 있으면(전체 68종) 이제 같은 칸으로 묶이기는 하지만, 권수가 갈라져
-              있어 셈이 어긋납니다 —{" "}
-              <a href="/duplicates" className="underline">
-                겹치는 책 합치기
-              </a>{" "}
-              에서 한 줄로 합치시면 깔끔해집니다.
-            </p>
-          </section>
-        );
-      })()}
-
       {/* ── ③-0 한 칸씩 채우기 ───────────────────────────────────────── */}
       {(() => {
         /*
@@ -1453,6 +1348,35 @@ export default function PlanClient({
           const n = Math.max(1, Math.floor(b.total_copies ?? 1));
           return (
             <li key={b.id} className="flex flex-wrap items-baseline gap-x-2">
+              {/*
+                ── 눈에 띄면 그 자리에서 묶습니다 ─────────────────────────────
+                요청: "한 번에 묶을 단서가 없는 책을 분류할 수 없어. 나중에 보이면 내가 알아서
+                할 테니 우선 정리하도록 만들어줘. 나중에 보이게 되면 그때 세트로 등록할게."
+
+                맞습니다. 40권을 책상에서 한 번에 분류할 수는 없습니다. 같은 세트라는 것은 **책을
+                손에 들었을 때** 보입니다 - Eldest 옆에 Brisingr 가 서 있는 걸 본 그 순간이요.
+                그래서 묶는 일을 그 순간으로 옮깁니다. 고르고 아래에서 이름 한 번 적으면 끝이고,
+                안 해도 정리는 그대로 굴러갑니다.
+              */}
+              <button
+                type="button"
+                onClick={() =>
+                  setTagPick((prev) => {
+                    const next = new Set(prev);
+                    if (next.has(b.id)) next.delete(b.id);
+                    else next.add(b.id);
+                    return next;
+                  })
+                }
+                title="같은 세트로 묶기"
+                className={`shrink-0 rounded px-1 text-[10px] font-bold ${
+                  tagPick.has(b.id)
+                    ? "bg-gia-navy text-white"
+                    : "bg-slate-100 text-slate-500 hover:bg-slate-200"
+                }`}
+              >
+                {tagPick.has(b.id) ? "✓세트" : "＋세트"}
+              </button>
               <span className="text-slate-800">{b.title}</span>
               {n > 1 && (
                 <span className="rounded bg-rose-100 px-1 text-[11px] font-bold text-rose-800">{n}권</span>
@@ -1631,6 +1555,33 @@ export default function PlanClient({
                 같은 차례이고, 반납된 책도 그 차례로 제자리를 찾습니다.
               </p>
             </div>
+
+            {tagPick.size > 0 && (
+              <div className="mt-2 flex flex-wrap items-center gap-2 rounded-xl bg-gia-navy/5 px-3 py-2 ring-1 ring-gia-navy/20">
+                <span className="text-xs font-bold text-gia-navy">세트로 묶을 책 {tagPick.size}권</span>
+                <input
+                  value={tagName}
+                  onChange={(e) => setTagName(e.target.value)}
+                  placeholder="세트 이름 (예: Inheritance)"
+                  className="min-w-0 flex-1 rounded-lg border border-slate-300 px-2.5 py-1 text-sm"
+                />
+                <button
+                  type="button"
+                  onClick={() => void tagSeries()}
+                  disabled={tagBusy || !tagName.trim()}
+                  className="rounded-lg bg-gia-navy px-3 py-1 text-xs font-bold text-white disabled:opacity-40"
+                >
+                  묶기
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setTagPick(new Set())}
+                  className="text-xs font-semibold text-slate-500 underline"
+                >
+                  취소
+                </button>
+              </div>
+            )}
 
             <div className="mt-3 grid gap-2 sm:grid-cols-3">
               <button
@@ -2116,6 +2067,117 @@ export default function PlanClient({
         </ol>
         </details>
       </section>
+
+      {/* ── 묶을 단서가 없는 책 ──────────────────────────────────────── */}
+      {(() => {
+        /*
+          시리즈가 비어 있는 책들입니다. 작가나 출판사가 있으면 그것으로라도 묶이지만, 셋 다
+          비어 있는 책은 어디에도 붙지 못해 낱권으로 흩어집니다. 그 책들을 앞에 세웁니다.
+        */
+        const loose = targetBooks
+          .filter((b) => !(b.series ?? "").trim())
+          .map((b) => ({
+            b,
+            none: !(b.author ?? "").trim() && !(b.publisher ?? "").trim(),
+          }))
+          .sort((x, y) => (x.none === y.none ? 0 : x.none ? -1 : 1));
+        const noneCount = loose.filter((x) => x.none).length;
+        if (loose.length === 0) return null;
+        return (
+          <section className={card}>
+            <details>
+              <summary className="cursor-pointer text-sm font-bold text-slate-500">
+                세트로 묶을 단서가 없는 책 {noneCount}권 — 눈에 띌 때 한 번에 묶기{" "}
+                <span className="font-normal text-slate-400">(지금 정리를 막지 않습니다)</span>
+              </summary>
+            <p className="mt-1 text-xs leading-relaxed text-slate-500">
+              계획은 <b>시리즈 → 같은 제목 → 같은 작가(2권 이상) → 같은 출판사(3권 이상)</b> 순으로 책을 묶어
+              한 칸에 넣습니다. 그런데 <b>시리즈가 적힌 줄은 전체 1,230줄 중 37줄</b>뿐입니다. 셋 다 비어 있는
+              책은 어디에도 붙지 못해 낱권으로 흩어집니다 — 이 등급에 <b className="text-amber-700">{noneCount}권</b>{" "}
+              있습니다(예: Brisingr 는 시리즈·작가·출판사가 모두 비어 있어서 Eldest 와 같은 시리즈라는 것을 알
+              길이 없습니다).
+            </p>
+            <p className="mt-1 text-xs leading-relaxed text-slate-500">
+              <b>한 번에 다 하지 않아도 됩니다.</b> 정리하다 「이 둘은 같은 세트인데」가 눈에 띄면 그때 아래
+              ③ 목록에서 <b>＋세트</b>로 골라 이름을 적어 주세요. 한 번 적으면 다음 계획부터 늘 같은 칸으로
+              묶입니다. 지금 당장은 이 책들도 작가·제목 순으로 제자리를 받아 정리됩니다.
+            </p>
+
+            <div className="mt-2 flex flex-wrap items-center gap-2">
+              <input
+                value={tagName}
+                onChange={(e) => setTagName(e.target.value)}
+                placeholder="예: Inheritance"
+                className="min-w-0 flex-1 rounded-lg border border-slate-300 px-3 py-1.5 text-sm"
+              />
+              <button
+                type="button"
+                onClick={() => void tagSeries()}
+                disabled={tagBusy || tagPick.size === 0 || !tagName.trim()}
+                className="rounded-lg bg-gia-navy px-3 py-1.5 text-xs font-bold text-white disabled:opacity-40"
+              >
+                고른 {tagPick.size}권에 적기
+              </button>
+              {tagPick.size > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setTagPick(new Set())}
+                  className="text-xs font-semibold text-slate-500 underline"
+                >
+                  선택 지우기
+                </button>
+              )}
+            </div>
+
+            <ul className="mt-2 max-h-72 space-y-0.5 overflow-auto text-sm">
+              {loose.slice(0, 200).map(({ b, none }) => (
+                <li key={b.id} className="flex flex-wrap items-baseline gap-x-2">
+                  <label className="flex min-w-0 flex-1 cursor-pointer items-baseline gap-2">
+                    <input
+                      type="checkbox"
+                      checked={tagPick.has(b.id)}
+                      onChange={(e) =>
+                        setTagPick((prev) => {
+                          const next = new Set(prev);
+                          if (e.target.checked) next.add(b.id);
+                          else next.delete(b.id);
+                          return next;
+                        })
+                      }
+                      className="mt-0.5"
+                    />
+                    <span className="min-w-0 text-slate-800">{b.title}</span>
+                  </label>
+                  {(b.total_copies ?? 1) > 1 && (
+                    <span className="rounded bg-rose-100 px-1 text-[11px] font-bold text-rose-800">
+                      {b.total_copies}권
+                    </span>
+                  )}
+                  <span className="ml-auto text-xs text-slate-500">
+                    {none ? (
+                      <span className="font-semibold text-amber-700">단서 없음</span>
+                    ) : (
+                      [b.author, b.publisher].filter(Boolean).join(" · ")
+                    )}
+                  </span>
+                </li>
+              ))}
+            </ul>
+            {loose.length > 200 && (
+              <p className="mt-1 text-xs text-slate-400">…그리고 {loose.length - 200}권 더</p>
+            )}
+            <p className="mt-2 text-[11px] leading-relaxed text-slate-500">
+              같은 책이 <b>두 줄로 등록</b>되어 있으면(전체 68종) 이제 같은 칸으로 묶이기는 하지만, 권수가 갈라져
+              있어 셈이 어긋납니다 —{" "}
+              <a href="/duplicates" className="underline">
+                겹치는 책 합치기
+              </a>{" "}
+              에서 한 줄로 합치시면 깔끔해집니다.
+            </p>
+            </details>
+          </section>
+        );
+      })()}
 
       {/* ── ④ 확정 ────────────────────────────────────────────────────── */}
       <section className={`${card} flex flex-wrap items-center gap-3`}>
