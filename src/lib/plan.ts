@@ -326,8 +326,33 @@ export function buildPlan(
        전집은 어느 칸에도 통째로 안 들어갈 수 있습니다).
   */
   const totalBooks = groups.reduce((n, g) => n + g.books.length, 0);
-  /** 한 칸 몫 - 이 등급 책을 이 등급 칸에 고르게 나눈 수. */
+  /** 한 칸 몫 - 이 등급 책을 이 등급 칸에 고르게 나눈 수(정원을 모르는 칸에만 씁니다). */
   const evenShare = zonePlans.length > 0 ? Math.ceil(totalBooks / zonePlans.length) : 0;
+
+  /*
+    ── 고르게 N권씩이 아니라, **칸 크기만큼** ──────────────────────────────
+    「고르게 나눈 몫」은 칸이 다 같은 크기일 때만 맞습니다. 실제 책장은 칸마다 다릅니다 -
+    6-1 에 34권, 6-4 에 14권이 꽂혀 있습니다. 거기에 한 칸 몫(=평균)을 들이대면 두 가지가
+    동시에 일어납니다.
+
+      · 작은 칸은 **평균만큼 받으라고** 해서 물리적으로 안 들어갑니다 → 「자리 부족」
+      · 큰 칸은 평균까지만 받아서 **빈 공간이 남습니다** → 시리즈 사이에 구멍
+
+    그래서 칸마다 **자기 정원에 비례해서** 담습니다. 이 등급 책이 정원 합의 몇 할인지를
+    구하고(채움 비율), 칸마다 그 비율만큼 담습니다 - 큰 칸은 많이, 작은 칸은 적게, 여유는
+    모든 칸에 같은 비율로 남습니다. 책이 정원 합과 같으면 칸마다 꼭 자기 크기만큼 담게 되어
+    「자리 부족」도, 남는 구멍도 생기지 않습니다.
+
+    정원을 적어 두지 않은 칸은 비율을 계산할 근거가 없어서 예전처럼 고르게 나눈 몫을 씁니다
+    (화면은 정원이 비어 있으면 지금 꽂혀 있는 권수를 정원으로 넘겨줍니다 - 그 수만큼은 실제로
+    들어간다는 증거니까요).
+  */
+  const knownCap = zonePlans.reduce(
+    (n, z) => (z.zone.capacity == null ? n : n + Math.max(1, z.zone.capacity)),
+    0
+  );
+  /** 정원 합의 몇 할을 채우게 되는지(0~1). 책이 정원보다 많으면 1 입니다. */
+  const fillRatio = knownCap > 0 ? Math.min(1, totalBooks / knownCap) : 0;
 
   /** 꽉 채웠을 때의 한계(정원을 적어 둔 칸만). 넘기면 책이 안 들어갑니다. */
   const hardLimit = (zone: PlanZone) =>
@@ -341,9 +366,15 @@ export function buildPlan(
    * 책을 버릴 이유가 아닙니다.
    */
   const softLimit = (zone: PlanZone) => {
-    const byCap =
-      zone.capacity === null ? 0 : Math.max(1, Math.floor(zone.capacity * fillTarget));
-    return Math.max(evenShare, byCap);
+    // 정원을 모르는 칸: 고르게 나눈 몫(예전 규칙).
+    if (zone.capacity === null) return Math.max(1, evenShare);
+    /*
+      정원을 아는 칸: **자기 정원 × 채움 비율**. 책이 정원 합보다 적으면 비율이 1 보다 작아
+      칸마다 같은 비율로 여유가 남습니다 - 따로 여유를 둘 필요가 없습니다(그래서 fillTarget
+      은 여기서 쓰지 않습니다. 화면의 「채움 정도」는 정원을 모르는 칸에만 걸립니다).
+    */
+    const byRatio = Math.ceil(Math.max(1, zone.capacity) * fillRatio);
+    return Math.max(1, Math.min(hardLimit(zone), byRatio));
   };
 
   const room = (zp: ZonePlan, limit: (z: PlanZone) => number) => limit(zp.zone) - zp.books.length;

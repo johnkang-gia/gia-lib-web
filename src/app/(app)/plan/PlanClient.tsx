@@ -13,7 +13,8 @@ import {
   type PlanRule,
   type PlanZone,
 } from "@/lib/plan";
-import { orderMoves, type Hop, type MoveStep } from "@/lib/moveOrder";
+import { orderMoves, type Hop, type MoveBook, type MoveStep } from "@/lib/moveOrder";
+import { createClient } from "@/lib/supabase/client";
 import type { LibLocation, LibMap, LibSettings } from "@/lib/types";
 
 /**
@@ -29,7 +30,7 @@ import type { LibLocation, LibMap, LibSettings } from "@/lib/types";
  */
 export default function PlanClient({
   books,
-  locations,
+  locations: initialLocations,
   map,
   settings,
 }: {
@@ -39,6 +40,13 @@ export default function PlanClient({
   settings: LibSettings;
 }) {
   const router = useRouter();
+  /*
+    칸 목록을 화면 안에서 고칩니다 - 「이 칸에 몇 권 더 들어갑니다」(정원 적기)와 「칸 추가」를
+    여기서 하면 계획이 그 자리에서 다시 계산되어야 하니까요. 저장은 데이터베이스에도 함께
+    합니다(구역 관리로 가서 또 적을 일이 없게).
+  */
+  const [locations, setLocations] = useState<LibLocation[]>(initialLocations);
+  const supabase = useMemo(() => createClient(), []);
   const [rule, setRule] = useState<PlanRule>(
     (settings.plan_rule as PlanRule | null) ?? "대상-분류-작가"
   );
@@ -173,6 +181,8 @@ export default function PlanClient({
   const [openZone, setOpenZone] = useState<string | null>(null);
   /** 정리 순서를 전부 펼쳤는지(처음에는 앞의 40단계만 보여 줍니다). */
   const [allSteps, setAllSteps] = useState(false);
+  /** 「N권만 들어갑니다」에 사람이 적는 숫자(칸 id 별). */
+  const [roomInput, setRoomInput] = useState<Record<string, string>>({});
 
   /** 칸 이름 찾기(책이 지금 어디 있는지 말해 줄 때 씁니다). */
 
@@ -294,11 +304,49 @@ export default function PlanClient({
    * 적은 것부터 하는 이유: 한 칸을 끝내면 그 칸은 더 건드릴 일이 없고, 빼낸 자리가 다음 칸의
    * 숨통이 됩니다. 큰 칸부터 들면 책을 바닥에 쌓아 두고 시작해야 합니다.
    */
+  /**
+   * 사람이 2안으로 바꾼 책들(책 id → 갈 칸 id).
+   *
+   * 계산이 세운 자리 위에 **사람의 결정**을 덮습니다. 가서 본 사람이 「여기는 안 들어간다」고
+   * 하면 그게 맞습니다 - 계산을 다시 돌려도 그 사실은 모릅니다.
+   */
+  const [overrides, setOverrides] = useState<Map<string, string>>(new Map());
+
+  /**
+   * 계획 + 사람이 바꾼 자리. 아래의 모든 숫자·순서·확정이 이것을 씁니다.
+   */
+  const planZones = useMemo(() => {
+    if (overrides.size === 0) return plan.zones;
+    const byId = new Map(plan.zones.map((zp) => [zp.zone.id, { ...zp, books: [...zp.books] }]));
+    const moved: { to: string; book: PlanBook }[] = [];
+    for (const zp of byId.values()) {
+      zp.books = zp.books.filter((b) => {
+        const to = overrides.get(b.id);
+        if (!to || to === zp.zone.id) return true;
+        moved.push({ to, book: b });
+        return false;
+      });
+    }
+    for (const m of moved) byId.get(m.to)?.books.push(m.book);
+    // 아예 자리를 못 받은 책도 사람이 칸을 정해 주면 그 칸으로 들어갑니다.
+    for (const b of plan.leftover) {
+      const to = overrides.get(b.id);
+      if (to) byId.get(to)?.books.push(b);
+    }
+    return [...byId.values()];
+  }, [plan.zones, plan.leftover, overrides]);
+
+  /** 아직 갈 곳이 없는 책(사람이 칸을 정해 준 것은 빼고). */
+  const stillLeftover = useMemo(
+    () => plan.leftover.filter((b) => !overrides.has(b.id)),
+    [plan.leftover, overrides]
+  );
+
   const zoneSteps = useMemo(() => {
     const goTo = new Map<string, string>();
-    for (const zp of plan.zones) for (const b of zp.books) goTo.set(b.id, zp.zone.id);
+    for (const zp of planZones) for (const b of zp.books) goTo.set(b.id, zp.zone.id);
 
-    return plan.zones
+    return planZones
       .map((zp) => {
         const incoming = zp.books
           .filter((b) => b.location_id !== zp.zone.id)
@@ -313,7 +361,7 @@ export default function PlanClient({
         return { zone: zp.zone, incoming, outgoing, stay, moves: incoming.length + outgoing.length };
       })
       .sort((a, b) => (a.moves !== b.moves ? a.moves - b.moves : a.zone.sort_order - b.zone.sort_order));
-  }, [plan.zones, books, zoneName]);
+  }, [planZones, books, zoneName]);
 
   /** 칸 색(순서 목록에 칸 이름을 색으로 보여 줄 때 씁니다). */
   const zoneColor = useMemo(() => {
@@ -336,7 +384,7 @@ export default function PlanClient({
    */
   const moveSteps = useMemo<MoveStep[]>(() => {
     const hops: Hop[] = [];
-    for (const zp of plan.zones) {
+    for (const zp of planZones) {
       for (const b of zp.books) {
         if (b.location_id === zp.zone.id) continue;
         hops.push({
@@ -359,7 +407,7 @@ export default function PlanClient({
       room.set(z.id, Math.max(0, (z.capacity ?? now) - now));
     }
     return orderMoves(hops, room, (id) => zoneName.get(id) ?? "?");
-  }, [plan.zones, targetZones, nowInZone, zoneName]);
+  }, [planZones, targetZones, nowInZone, zoneName]);
 
   /** 같은 짝이 연달아 나오면 한 줄로 묶습니다 - 「6-1 ↔ 6-2」를 다섯 번 쓰지 않게. */
   const mergedSteps = useMemo(() => {
@@ -385,6 +433,111 @@ export default function PlanClient({
     find: mergedSteps.filter((st) => st.kind === "find" && !st.blocked).length,
     blocked: mergedSteps.filter((st) => st.blocked).length,
   };
+
+  /**
+   * **자리가 모자란 칸을 사람이 정하는 자리.**
+   *
+   * 요청: "지금은 그냥 자리부족으로만 나오고 그래서 어떻게 할지를 선택할 수 없으니까, 물리적으로
+   * 자리가 있어서 넣을 수 있는지 체크해서 그대로 실행할 수 있다면 실행하고, 물리적으로 불가하다면
+   * 2안을 제시하고, 책장도 더 추가할 수 있으니까 그럴 경우에는 책장을 추가하라고 안내해주고."
+   *
+   * 「자리 부족」은 **계산이 모르는 일**입니다. 칸 정원을 재어 둔 적이 없어서 「지금 꽂혀 있는
+   * 만큼이 정원」이라고 보고 있을 뿐입니다. 실제로 몇 권 더 들어가는지는 가서 본 사람만 압니다.
+   * 그래서 세 가지를 그 자리에서 할 수 있게 둡니다.
+   *
+   *   ① **들어갑니다** — 몇 권 더 들어가는지 적습니다. 정원이 적히는 순간 계획이 다시 계산되고
+   *      자리 부족이 사라집니다. 적어 둔 정원은 다음에도 쓰입니다.
+   *   ② **안 들어갑니다** — 같은 등급에서 **여유가 있는 칸**을 찾아 2안을 보여줍니다. 누르면 그
+   *      책들의 갈 자리만 바꿉니다(시리즈는 쪼개지 않습니다).
+   *   ③ 여유 있는 칸이 **하나도 없을 때만** 칸 추가를 권합니다 - 물리적인 공간은 한계가 있으니
+   *      모든 결말이 칸 추가가 되어서는 안 됩니다.
+   */
+  async function setCapacity(zoneId: string, extra: number) {
+    const now = nowInZone.get(zoneId) ?? 0;
+    const base = locations.find((l) => l.id === zoneId)?.capacity ?? now;
+    const next = Math.max(1, base + extra);
+    setLocations((list) => list.map((l) => (l.id === zoneId ? { ...l, capacity: next } : l)));
+    const { error: err } = await supabase.from("lib_locations").update({ capacity: next }).eq("id", zoneId);
+    if (err) setError(`정원을 적지 못했습니다: ${err.message}`);
+    else setMessage(`${zoneName.get(zoneId) ?? "칸"} 정원을 ${next}권으로 적었습니다 — 계획을 다시 세웠습니다`);
+  }
+
+  /** 지금 계획에서 칸마다 **남는 자리**(정원 − 담긴 권수). 2안을 찾을 때 씁니다. */
+  const spare = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const zp of planZones) {
+      const cap = zp.zone.capacity ?? nowInZone.get(zp.zone.id) ?? 0;
+      m.set(zp.zone.id, cap - zp.books.length);
+    }
+    return m;
+  }, [planZones, nowInZone]);
+
+  /** 2안 — 이 책들을 보낼 수 있는 칸(같은 등급, 여유 있는 쪽부터). */
+  function secondPlan(hops: Hop[]) {
+    const left = [...hops];
+    const out: { zoneId: string; books: MoveBook[] }[] = [];
+    const roomLeft = new Map(spare);
+    const cand = [...roomLeft.entries()]
+      .filter(([id, n]) => n > 0 && (onlyLevel == null || zoneLevel2(id) === onlyLevel))
+      .sort((a, b) => b[1] - a[1]);
+    for (const [zoneId] of cand) {
+      const take: MoveBook[] = [];
+      while (left.length > 0 && (roomLeft.get(zoneId) ?? 0) > take.length) {
+        take.push((left.shift() as Hop).book);
+      }
+      if (take.length > 0) out.push({ zoneId, books: take });
+      if (left.length === 0) break;
+    }
+    return { moves: out, stillLeft: left.length };
+  }
+
+  /** 칸 id 로 등급을 봅니다(2안 후보를 같은 등급 안에서만 찾기 위해). */
+  function zoneLevel2(id: string) {
+    const l = locations.find((x) => x.id === id);
+    return l ? zoneLevel(l) : null;
+  }
+
+  /** 2안을 받아들입니다 - 그 책들의 '갈 자리'만 바꿉니다. */
+  function applySecond(moves: { zoneId: string; books: MoveBook[] }[]) {
+    setOverrides((prev) => {
+      const next = new Map(prev);
+      for (const m of moves) for (const b of m.books) next.set(b.id, m.zoneId);
+      return next;
+    });
+    const total = moves.reduce((n, m) => n + m.books.length, 0);
+    setMessage(
+      `${total}권을 ${moves.map((m) => `${zoneName.get(m.zoneId) ?? "?"} ${m.books.length}권`).join(" · ")} 으로 바꿨습니다`
+    );
+  }
+
+  /** 이 등급에 칸을 하나 더 만듭니다(여유 있는 칸이 하나도 없을 때만 권합니다). */
+  async function addZone(level: number) {
+    const mine = locations.filter((l) => zoneLevel(l) === level);
+    const used = mine
+      .map((l) => Number((l.code.split("-")[1] ?? "").replace(/[^0-9]/g, "")))
+      .filter((n) => Number.isFinite(n) && n > 0);
+    const next = (used.length > 0 ? Math.max(...used) : 0) + 1;
+    const code = `${level}-${next}`;
+    const { data, error: err } = await supabase
+      .from("lib_locations")
+      .insert({
+        code,
+        kind: "임시",
+        color: levelColor(level),
+        label_level: level,
+        sort_order: (mine[mine.length - 1]?.sort_order ?? locations.length) + 1,
+      })
+      .select("*")
+      .single();
+    if (err || !data) {
+      setError(`칸을 만들지 못했습니다: ${err?.message ?? ""}`);
+      return;
+    }
+    setLocations((list) => [...list, data as LibLocation]);
+    setMessage(
+      `${code} 칸을 만들었습니다 — 정원은 아직 비어 있습니다. 실제로 몇 권 들어가는지 적어 주시면 그만큼만 담습니다.`
+    );
+  }
 
   /** 칸 이름표 한 개. */
   function chip(id: string) {
@@ -413,7 +566,7 @@ export default function PlanClient({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           rule,
-          zones: plan.zones.map((zp) => ({
+          zones: planZones.map((zp) => ({
             id: zp.zone.id,
             bookIds: zp.books.map((b) => b.id),
             plan_audience: zp.primary,
@@ -717,7 +870,7 @@ export default function PlanClient({
         <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-4">
           <Stat label="옮겨야 할 책" value={plan.moveCount} tone="amber" suffix="권" />
           <Stat label="그대로 둘 책" value={plan.stayCount} tone="emerald" suffix="권" />
-          <Stat label="쓰는 칸" value={plan.zones.filter((z) => z.books.length > 0).length} suffix="칸" />
+          <Stat label="쓰는 칸" value={planZones.filter((z) => z.books.length > 0).length} suffix="칸" />
           <Stat
             label="자리 못 받은 책"
             value={plan.leftover.length}
@@ -799,6 +952,21 @@ export default function PlanClient({
               )}
             </div>
 
+            {overrides.size > 0 && (
+              <p className="mt-2 flex flex-wrap items-center gap-2 rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-600">
+                <span>
+                  사람이 정한 자리 <b className="text-gia-navy">{overrides.size}권</b> 이 계획 위에 덮여 있습니다.
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setOverrides(new Map())}
+                  className="rounded-lg border border-slate-300 bg-white px-2.5 py-1 font-semibold text-slate-700"
+                >
+                  되돌리기
+                </button>
+              </p>
+            )}
+
             <ol className="mt-3 space-y-2">
               {shownSteps.map((st, i) => (
                 <li
@@ -854,6 +1022,102 @@ export default function PlanClient({
                   <p className={`mt-1 text-xs leading-relaxed ${st.blocked ? "text-amber-800" : "text-slate-500"}`}>
                     {st.why}
                   </p>
+                  {/*
+                    ── 자리가 모자란 칸: 여기서 정합니다 ─────────────────────
+                    「자리 부족」만 떠 있으면 아무것도 할 수 없습니다. 몇 권 더 들어가는지는
+                    가서 본 사람만 아니까, 그 답을 받는 칸을 바로 옆에 둡니다. 안 들어간다면
+                    같은 등급에서 여유 있는 칸을 찾아 2안을 보여주고, 여유 칸이 하나도 없을
+                    때만 칸 추가를 권합니다.
+                  */}
+                  {st.blocked && (
+                    <div className="mt-2 rounded-lg bg-white px-3 py-2.5 ring-1 ring-amber-200">
+                      <p className="text-xs font-bold text-slate-600">
+                        가서 보고 정해 주세요 — {zoneName.get(st.zones[0]) ?? "이 칸"} 에 {st.hops.length}권이 더
+                        들어가나요?
+                      </p>
+                      <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => void setCapacity(st.zones[0], st.hops.length)}
+                          className="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-bold text-white"
+                        >
+                          ✓ {st.hops.length}권 다 들어갑니다
+                        </button>
+                        <span className="text-xs text-slate-400">또는</span>
+                        <input
+                          type="number"
+                          min={0}
+                          max={st.hops.length}
+                          value={roomInput[st.zones[0]] ?? ""}
+                          onChange={(e) =>
+                            setRoomInput((v) => ({ ...v, [st.zones[0]]: e.target.value }))
+                          }
+                          placeholder="N"
+                          className="w-16 rounded-lg border border-slate-300 px-2 py-1 text-xs"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const n = Number(roomInput[st.zones[0]] ?? "");
+                            if (!Number.isFinite(n) || n < 0) return;
+                            void setCapacity(st.zones[0], n);
+                          }}
+                          className="rounded-lg border border-slate-300 px-2.5 py-1.5 text-xs font-semibold text-slate-700"
+                        >
+                          권만 들어갑니다
+                        </button>
+                      </div>
+                      {(() => {
+                        const second = secondPlan(st.hops);
+                        const level = zoneLevel2(st.zones[0]);
+                        return (
+                          <div className="mt-2 border-t border-slate-100 pt-2">
+                            {second.moves.length > 0 ? (
+                              <>
+                                <p className="text-xs text-slate-600">
+                                  <b>안 들어간다면 2안</b> —{" "}
+                                  {second.moves
+                                    .map((m) => `${zoneName.get(m.zoneId) ?? "?"} 에 ${m.books.length}권`)
+                                    .join(" · ")}
+                                  {second.stillLeft > 0 && (
+                                    <span className="text-amber-700"> (그래도 {second.stillLeft}권은 갈 곳이 없습니다)</span>
+                                  )}
+                                </p>
+                                <button
+                                  type="button"
+                                  onClick={() => applySecond(second.moves)}
+                                  className="mt-1.5 rounded-lg border border-gia-navy bg-white px-3 py-1.5 text-xs font-bold text-gia-navy"
+                                >
+                                  → 2안으로 바꾸기
+                                </button>
+                              </>
+                            ) : (
+                              <p className="text-xs text-amber-800">
+                                <b>이 등급에 여유 있는 칸이 없습니다.</b> 다른 칸에서도 받을 자리가 없으니, 칸을
+                                하나 더 쓰는 수밖에 없습니다.
+                              </p>
+                            )}
+                            {second.stillLeft > 0 && level != null && (
+                              <div className="mt-2 rounded-lg bg-slate-50 px-2.5 py-2">
+                                <p className="text-[11px] leading-relaxed text-slate-600">
+                                  책장을 더 놓을 자리가 <b>실제로 있을 때만</b> 칸을 추가해 주세요. 공간은 한계가
+                                  있어서, 모자랄 때마다 칸을 늘리면 나중에 둘 곳이 없어집니다 — 먼저 위의 정원을
+                                  재어 적는 쪽이 대개 맞습니다.
+                                </p>
+                                <button
+                                  type="button"
+                                  onClick={() => void addZone(level)}
+                                  className="mt-1.5 rounded-lg border border-slate-400 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700"
+                                >
+                                  + {level}등급 칸 하나 더 만들기
+                                </button>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })()}
+                    </div>
+                  )}
                   <ul className="mt-1.5 space-y-0.5 text-sm">
                     {st.hops.slice(0, 8).map((h, n) => (
                       <li key={`${h.book.id}-${n}`} className="flex flex-wrap items-baseline gap-x-2">
@@ -889,11 +1153,65 @@ export default function PlanClient({
           </>
         )}
 
-        {plan.leftover.length > 0 && (
-          <p className="mt-3 rounded-lg bg-amber-50 px-3 py-2 text-xs leading-relaxed text-amber-900">
-            자리를 못 받은 책 {plan.leftover.length}권이 있습니다 — 칸 정원을 올리거나(구역 관리) 채움 정도를
-            높이면 들어갑니다.
-          </p>
+        {stillLeftover.length > 0 && (
+          <div className="mt-3 rounded-xl bg-amber-50 px-3 py-2.5 ring-1 ring-amber-200">
+            <p className="text-sm font-bold text-amber-900">
+              아직 갈 곳이 없는 책 {stillLeftover.length}권
+            </p>
+            <p className="mt-0.5 text-xs leading-relaxed text-amber-900">
+              이 등급 칸의 정원을 다 합쳐도 책이 더 많습니다. <b>정원이 실제보다 작게 잡혀 있을</b> 가능성이
+              큽니다 — 칸마다 몇 권 더 들어가는지 위에서 적어 주시면 그만큼 들어갑니다.
+            </p>
+            {(() => {
+              const hops: Hop[] = stillLeftover.map((b) => ({
+                from: b.location_id,
+                to: "",
+                book: {
+                  id: b.id,
+                  title: b.title,
+                  author: b.author,
+                  series: b.series ?? null,
+                  series_no: b.series_no ?? null,
+                  pages: b.pages ?? null,
+                },
+              }));
+              const second = secondPlan(hops);
+              return second.moves.length > 0 ? (
+                <>
+                  <p className="mt-2 text-xs text-amber-900">
+                    <b>여유가 남은 칸으로 보낼 수 있습니다</b> —{" "}
+                    {second.moves.map((m) => `${zoneName.get(m.zoneId) ?? "?"} 에 ${m.books.length}권`).join(" · ")}
+                    {second.stillLeft > 0 && ` (${second.stillLeft}권은 그래도 남습니다)`}
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => applySecond(second.moves)}
+                    className="mt-1.5 rounded-lg border border-amber-500 bg-white px-3 py-1.5 text-xs font-bold text-amber-900"
+                  >
+                    → 여유 칸으로 보내기
+                  </button>
+                </>
+              ) : (
+                <p className="mt-2 text-xs text-amber-900">
+                  여유가 남은 칸이 하나도 없습니다 — 정원을 재어 적거나, 책장을 더 놓을 자리가 실제로 있다면 칸을
+                  하나 더 만들어야 합니다(위의 자리 부족 줄에서 할 수 있습니다).
+                </p>
+              );
+            })()}
+            <ul className="mt-2 max-h-40 space-y-0.5 overflow-auto text-sm">
+              {stillLeftover.slice(0, 20).map((b) => (
+                <li key={b.id} className="flex flex-wrap items-baseline gap-x-2">
+                  <span className="text-slate-800">{b.title}</span>
+                  {b.series && (
+                    <span className="rounded bg-violet-100 px-1 text-[10px] font-bold text-violet-800">{b.series}</span>
+                  )}
+                </li>
+              ))}
+              {stillLeftover.length > 20 && (
+                <li className="text-xs text-amber-700">…그리고 {stillLeftover.length - 20}권 더</li>
+              )}
+            </ul>
+          </div>
         )}
 
         <details className="mt-4 rounded-xl bg-slate-50 px-3 py-2">
