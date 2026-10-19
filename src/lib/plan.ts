@@ -52,8 +52,12 @@ export type PlanBook = {
    * 그래서 칸을 채울 때 한 줄은 **자기 권수만큼** 자리를 차지합니다(폭으로 담을 때는 두께 ×
    * 권수). 같은 책 네 권은 한 덩어리로 같은 칸에 들어갑니다 - 같은 책이 흩어져 있으면
    * 시리즈를 모으는 뜻이 없습니다.
+   *
+   * 이름은 자료의 칸 이름 그대로 `total_copies` 입니다. 처음에는 `copies` 로 적었는데, 화면이
+   * 자료를 **그대로** 넘기기 때문에(select 한 줄이 곧 PlanBook) 이름이 다르면 값이 비어 들어와
+   * 복본이 또 1권으로 세어졌습니다 - 고친 줄 알았는데 화면은 그대로였습니다.
    */
-  copies?: number | null;
+  total_copies?: number | null;
   /**
    * 출판사 — **시리즈처럼 묶이는 책들**을 알아보는 데 씁니다.
    *
@@ -375,7 +379,7 @@ export function buildPlan(
        전집은 어느 칸에도 통째로 안 들어갈 수 있습니다).
   */
   const totalBooks = groups.reduce(
-    (n, g) => n + g.books.reduce((m, b) => m + Math.max(1, Math.floor(b.copies ?? 1)), 0),
+    (n, g) => n + g.books.reduce((m, b) => m + Math.max(1, Math.floor(b.total_copies ?? 1)), 0),
     0
   );
   /** 한 칸 몫 - 이 등급 책을 이 등급 칸에 고르게 나눈 **권수**(정원을 모르는 칸에만 씁니다). */
@@ -403,7 +407,7 @@ export function buildPlan(
    * 이 등급 책을 꽂는 데 드는 분량. 칸 폭을 쓰는 경우에는 **권수가 아니라 mm** 입니다.
    */
   const anyWidth = zonePlans.some((z) => (z.zone.capacity_mm ?? 0) > 0);
-  const copiesOf = (b: PlanBook) => Math.max(1, Math.floor(b.copies ?? 1));
+  const copiesOf = (b: PlanBook) => Math.max(1, Math.floor(b.total_copies ?? 1));
   const totalNeed = anyWidth
     ? groups.reduce(
         (n, g) => n + g.books.reduce((m, b) => m + thicknessMm(b, thicknessFactor) * copiesOf(b), 0),
@@ -458,7 +462,7 @@ export function buildPlan(
   const byWidth = zonePlans.some((z) => (z.zone.capacity_mm ?? 0) > 0);
   /** 한 줄이 차지하는 자리 - 권수만큼입니다(폭으로 담을 때는 두께 × 권수). */
   const size = (book: PlanBook) => {
-    const n = Math.max(1, Math.floor(book.copies ?? 1));
+    const n = Math.max(1, Math.floor(book.total_copies ?? 1));
     return byWidth ? thicknessMm(book, thicknessFactor) * n : n;
   };
   const used = (zp: ZonePlan) => zp.books.reduce((n, b) => n + size(b), 0);
@@ -636,7 +640,7 @@ export function buildPlan(
   for (const zp of zonePlans) {
     for (const book of zp.books) {
       // 복본은 권수만큼 셉니다 - 네 권인 줄을 한 권으로 세면 옮길 양이 네 배로 어긋납니다.
-      const n = Math.max(1, Math.floor(book.copies ?? 1));
+      const n = Math.max(1, Math.floor(book.total_copies ?? 1));
       if (book.location_id === zp.zone.id) stayCount += n;
       else moveCount += n;
     }
@@ -652,7 +656,7 @@ export function buildPlan(
     noAudience: books.filter((b) => !b.audience).length,
     seriesBooks: books
       .filter((b) => (b.series ?? "").trim())
-      .reduce((n, b) => n + Math.max(1, Math.floor(b.copies ?? 1)), 0),
+      .reduce((n, b) => n + Math.max(1, Math.floor(b.total_copies ?? 1)), 0),
     seriesCount: new Set(
       books.map((b) => (b.series ?? "").trim()).filter((x) => x !== "")
     ).size,

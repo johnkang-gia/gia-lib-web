@@ -137,7 +137,7 @@ export default function PlanClient({
         복본은 권수만큼 셉니다. 한 줄을 1권으로 세면 같은 책 네 권이 한 권으로 세어져 칸
         정원이 실제보다 작게 잡히고, 「자리 부족」이 아닌데 자리 부족으로 나옵니다.
       */
-      const n = Math.max(1, Math.floor(b.copies ?? 1));
+      const n = Math.max(1, Math.floor(b.total_copies ?? 1));
       m.set(b.location_id, (m.get(b.location_id) ?? 0) + n);
     }
     return m;
@@ -503,7 +503,7 @@ export default function PlanClient({
             series: b.series ?? null,
             series_no: b.series_no ?? null,
             pages: b.pages ?? null,
-            copies: b.copies ?? 1,
+            copies: b.total_copies ?? 1,
           },
         });
       }
@@ -1304,14 +1304,14 @@ export default function PlanClient({
           return (zoneName.get(a.id) ?? "").localeCompare(zoneName.get(b.id) ?? "");
         });
         const cps = (list: PlanBook[]) =>
-          list.reduce((n, b) => n + Math.max(1, Math.floor(b.copies ?? 1)), 0);
+          list.reduce((n, b) => n + Math.max(1, Math.floor(b.total_copies ?? 1)), 0);
         const sendTotal = cps(out.map((x) => x.b));
         const takeTotal = partners.reduce((n, p2) => n + cps(p2.take), 0);
         const setsFirst = zp.books.filter((b) => (b.series ?? "").trim() || (b.publisher ?? "").trim());
         const mm = totalMm(zp.books, cal.factor) / 10;
         const row = (b: PlanBook, right: string) => {
           const set = (b.series ?? "").trim();
-          const n = Math.max(1, Math.floor(b.copies ?? 1));
+          const n = Math.max(1, Math.floor(b.total_copies ?? 1));
           return (
             <li key={b.id} className="flex flex-wrap items-baseline gap-x-2">
               <span className="text-slate-800">{b.title}</span>
@@ -1824,7 +1824,7 @@ export default function PlanClient({
                   series: b.series ?? null,
                   series_no: b.series_no ?? null,
                   pages: b.pages ?? null,
-                  copies: b.copies ?? 1,
+                  copies: b.total_copies ?? 1,
                 },
               }));
               const second = secondPlan(hops);
