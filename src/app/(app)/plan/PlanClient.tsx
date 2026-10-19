@@ -273,6 +273,8 @@ export default function PlanClient({
   /** 시리즈 이름을 적어 줄 책들(고른 것)과 적을 이름. */
   const [tagPick, setTagPick] = useState<Set<string>>(new Set());
   const [tagName, setTagName] = useState("");
+  /** 세트에 넣을 책을 찾는 검색어 — 이 책장에 없는 책도 찾아 넣을 수 있게. */
+  const [tagQuery, setTagQuery] = useState("");
   const [tagBusy, setTagBusy] = useState(false);
   /** 「꽉 찼습니다」를 누르고 적는 '실제로 넣은 권수'. */
   const [placedInput, setPlacedInput] = useState("");
@@ -739,6 +741,7 @@ export default function PlanClient({
       setMessage(`${ids.length}권에 시리즈 「${name}」을 적었습니다 — 이제 같은 칸으로 묶입니다`);
       setTagPick(new Set());
       setTagName("");
+      setTagQuery("");
       router.refresh();
     } finally {
       setTagBusy(false);
@@ -1360,14 +1363,21 @@ export default function PlanClient({
               */}
               <button
                 type="button"
-                onClick={() =>
+                onClick={() => {
                   setTagPick((prev) => {
                     const next = new Set(prev);
                     if (next.has(b.id)) next.delete(b.id);
                     else next.add(b.id);
                     return next;
-                  })
-                }
+                  });
+                  // 이름을 비워 두면 적을 거리가 없습니다 - 시리즈가 있으면 그것을, 없으면 제목을
+                  // 괄호 앞까지 잘라 미리 채워 둡니다(그대로 쓰거나 고치면 됩니다).
+                  if (!tagPick.has(b.id) && !tagName.trim()) {
+                    const series = (b.series ?? "").trim();
+                    setTagName(series || (b.title ?? "").split(/[(:]/)[0].trim());
+                  }
+                  if (!tagPick.has(b.id)) setTagQuery("");
+                }}
                 title="같은 세트로 묶기"
                 className={`shrink-0 rounded px-1 text-[10px] font-bold ${
                   tagPick.has(b.id)
@@ -1557,29 +1567,127 @@ export default function PlanClient({
             </div>
 
             {tagPick.size > 0 && (
-              <div className="mt-2 flex flex-wrap items-center gap-2 rounded-xl bg-gia-navy/5 px-3 py-2 ring-1 ring-gia-navy/20">
-                <span className="text-xs font-bold text-gia-navy">세트로 묶을 책 {tagPick.size}권</span>
-                <input
-                  value={tagName}
-                  onChange={(e) => setTagName(e.target.value)}
-                  placeholder="세트 이름 (예: Inheritance)"
-                  className="min-w-0 flex-1 rounded-lg border border-slate-300 px-2.5 py-1 text-sm"
-                />
-                <button
-                  type="button"
-                  onClick={() => void tagSeries()}
-                  disabled={tagBusy || !tagName.trim()}
-                  className="rounded-lg bg-gia-navy px-3 py-1 text-xs font-bold text-white disabled:opacity-40"
-                >
-                  묶기
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setTagPick(new Set())}
-                  className="text-xs font-semibold text-slate-500 underline"
-                >
-                  취소
-                </button>
+              <div className="mt-2 rounded-xl bg-gia-navy/5 px-3 py-2.5 ring-1 ring-gia-navy/20">
+                {/*
+                  ── 이 책장에 없는 책도 찾아 넣습니다 ─────────────────────────
+                  요청: "세트 버튼을 누르면 검색할 수 있게 해주고, 검색해서 책을 선택하면 세트로
+                  묶어줘. 이 책장 말고도 발견하는 경우도 있으니까."
+
+                  맞습니다. 세트의 나머지 권은 다른 칸에, 심지어 다른 등급에 꽂혀 있기 마련입니다.
+                  그래서 검색은 **도서관 전체**를 봅니다(제목·작가·출판사). 찾아 넣으면 그 책도
+                  같은 세트가 되어, 다음 계획에서 같은 칸으로 모입니다.
+                */}
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <span className="text-xs font-bold text-gia-navy">세트로 묶을 책 {tagPick.size}권</span>
+                  {[...tagPick].slice(0, 8).map((id) => {
+                    const bk = books.find((x) => x.id === id);
+                    return (
+                      <button
+                        key={id}
+                        type="button"
+                        onClick={() =>
+                          setTagPick((prev) => {
+                            const next = new Set(prev);
+                            next.delete(id);
+                            return next;
+                          })
+                        }
+                        className="rounded-lg bg-white px-2 py-0.5 text-[11px] font-semibold text-slate-700 ring-1 ring-slate-300"
+                        title="빼기"
+                      >
+                        {(bk?.title ?? "?").slice(0, 24)} ✕
+                      </button>
+                    );
+                  })}
+                  {tagPick.size > 8 && (
+                    <span className="text-[11px] text-slate-500">…+{tagPick.size - 8}</span>
+                  )}
+                </div>
+
+                <div className="mt-2 flex flex-wrap items-center gap-2">
+                  <input
+                    value={tagQuery}
+                    onChange={(e) => setTagQuery(e.target.value)}
+                    placeholder="🔎 다른 칸의 같은 세트 책 찾기 (제목·작가·출판사)"
+                    className="min-w-0 flex-1 rounded-lg border border-slate-300 px-2.5 py-1 text-sm"
+                  />
+                </div>
+                {tagQuery.trim().length >= 2 &&
+                  (() => {
+                    const q = tagQuery.trim().toLowerCase();
+                    const hits = books
+                      .filter(
+                        (b2) =>
+                          !tagPick.has(b2.id) &&
+                          [b2.title, b2.author, b2.publisher, b2.series]
+                            .filter(Boolean)
+                            .some((v) => (v as string).toLowerCase().includes(q))
+                      )
+                      .slice(0, 12);
+                    return (
+                      <ul className="mt-1 max-h-56 space-y-0.5 overflow-auto rounded-lg bg-white px-2 py-1 text-sm ring-1 ring-slate-200">
+                        {hits.length === 0 && (
+                          <li className="px-1 py-1 text-xs text-slate-400">찾는 책이 없습니다.</li>
+                        )}
+                        {hits.map((b2) => (
+                          <li key={b2.id} className="flex flex-wrap items-baseline gap-x-2">
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setTagPick((prev) => new Set(prev).add(b2.id))
+                              }
+                              className="shrink-0 rounded bg-gia-navy px-1.5 text-[11px] font-bold text-white"
+                            >
+                              넣기
+                            </button>
+                            <span className="min-w-0 text-slate-800">{b2.title}</span>
+                            {(b2.series ?? "").trim() && (
+                              <span className="rounded bg-violet-100 px-1 text-[10px] font-bold text-violet-800">
+                                {b2.series}
+                              </span>
+                            )}
+                            <span className="ml-auto text-[11px] text-slate-500">
+                              {b2.label_level ? `${b2.label_level}등급 · ` : ""}
+                              {b2.location_id ? (zoneName.get(b2.location_id) ?? "?") : "자리 없음"}
+                              {(b2.total_copies ?? 1) > 1 ? ` · ${b2.total_copies}권` : ""}
+                            </span>
+                          </li>
+                        ))}
+                      </ul>
+                    );
+                  })()}
+
+                <div className="mt-2 flex flex-wrap items-center gap-2">
+                  <input
+                    value={tagName}
+                    onChange={(e) => setTagName(e.target.value)}
+                    placeholder="세트 이름 (예: Inheritance)"
+                    className="min-w-0 flex-1 rounded-lg border border-slate-300 px-2.5 py-1 text-sm"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => void tagSeries()}
+                    disabled={tagBusy || !tagName.trim()}
+                    className="rounded-lg bg-gia-navy px-3 py-1 text-xs font-bold text-white disabled:opacity-40"
+                  >
+                    {tagPick.size}권 묶기
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setTagPick(new Set());
+                      setTagName("");
+                      setTagQuery("");
+                    }}
+                    className="text-xs font-semibold text-slate-500 underline"
+                  >
+                    취소
+                  </button>
+                </div>
+                <p className="mt-1 text-[11px] leading-relaxed text-slate-500">
+                  다른 등급 칸의 책도 넣을 수 있습니다 — 세트 이름이 같아지면 그 등급 정리에서 같은 칸으로
+                  모입니다. 라벨 등급은 바뀌지 않습니다.
+                </p>
               </div>
             )}
 
