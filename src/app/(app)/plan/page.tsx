@@ -25,7 +25,7 @@ export default async function PlanPage() {
       supabase
         .from("lib_books")
         .select(
-          "id,title,author,audience,category,language,location_id,series,series_no,label_level,pages"
+          "id,title,author,audience,category,language,location_id,series,series_no,label_level,pages,thickness_mm,publisher"
         )
         .eq("status", "보유")
         .order("id", { ascending: true })

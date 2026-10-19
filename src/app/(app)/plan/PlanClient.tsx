@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { levelColor } from "@/lib/bookLevels";
 import { levelOfCode } from "@/lib/levelOfCode";
+import { calibrate, totalMm, thicknessMm } from "@/lib/thickness";
 import {
   buildPlan,
   PLAN_RULES,
@@ -145,12 +146,58 @@ export default function PlanClient({
           color: l.color,
           sort_order: l.sort_order,
           capacity: l.capacity ?? (nowInZone.get(l.id) || null),
+          /*
+            칸 폭(mm). 적어 두면 계획이 **권수가 아니라 폭으로** 칸을 채웁니다 - 얇은 책
+            세 권과 두꺼운 책 한 권이 같은 자리로 계산됩니다.
+          */
+          capacity_mm: l.capacity_mm ?? null,
         })),
     [locations, useTempZones, onlyLevel, nowInZone]
   );
 
   /** 정원을 적어 둔 칸이 하나도 없으면 사람에게 말해 줍니다(숫자의 뜻이 달라지니까요). */
   const measuredZones = locations.filter((l) => l.capacity != null).length;
+
+  /**
+   * **두께 가늠을 책장으로 바로잡습니다.**
+   *
+   * 쪽수로 두께를 가늠하면 종이 두께를 하나로 잡게 되어 책마다 오차가 있습니다. 그런데 바로잡을
+   * 자가 이미 있습니다 - 꽉 찬 칸의 책 두께 합은 그 칸의 폭이어야 합니다. 폭을 한 번 재어
+   * 적어 두면 「재어 둔 폭 ÷ 가늠한 합」이 나오고, 그 비율로 1,193권이 함께 맞습니다.
+   */
+  const booksByZone = useMemo(() => {
+    const m = new Map<string, PlanBook[]>();
+    for (const b of books) {
+      if (!b.location_id) continue;
+      const list = m.get(b.location_id) ?? [];
+      list.push(b);
+      m.set(b.location_id, list);
+    }
+    return m;
+  }, [books]);
+
+  const cal = useMemo(
+    () => calibrate(locations.map((l) => ({ id: l.id, capacity_mm: l.capacity_mm })), booksByZone),
+    [locations, booksByZone]
+  );
+
+  /** 칸 폭을 적어 둔 칸이 몇 개인지. 하나도 없으면 권수로 담습니다. */
+  const widthZones = locations.filter((l) => (l.capacity_mm ?? 0) > 0).length;
+
+  /** 모든 칸(이 등급)의 폭을 한 번에 적습니다 — 책장 칸 크기가 다 같으니까요. */
+  async function setWidthAll(cm: number) {
+    const mm = Math.round(cm * 10);
+    if (!(mm > 0)) return;
+    const ids = targetZones.map((z) => z.id);
+    if (ids.length === 0) return;
+    setLocations((list) => list.map((l) => (ids.includes(l.id) ? { ...l, capacity_mm: mm } : l)));
+    const { error: err } = await supabase.from("lib_locations").update({ capacity_mm: mm }).in("id", ids);
+    if (err) setError(`칸 폭을 적지 못했습니다: ${err.message}`);
+    else
+      setMessage(
+        `칸 ${ids.length}개의 폭을 ${cm}cm 로 적었습니다 — 이제 권수가 아니라 폭으로 담습니다`
+      );
+  }
 
   const tempZones = locations.filter((l) => l.kind === "임시");
 
@@ -183,6 +230,14 @@ export default function PlanClient({
   const [allSteps, setAllSteps] = useState(false);
   /** 「N권만 들어갑니다」에 사람이 적는 숫자(칸 id 별). */
   const [roomInput, setRoomInput] = useState<Record<string, string>>({});
+  /** 칸 하나의 가로 폭(cm). 책장 칸 크기가 다 같아서 한 번만 적으면 됩니다. */
+  const [widthInput, setWidthInput] = useState("");
+  /** 한 칸씩 채우기 — 지금 몇 번째 칸을 하고 있는지. */
+  const [fillAt, setFillAt] = useState(0);
+  /** 「꽉 찼습니다」를 누르고 적는 '실제로 넣은 권수'. */
+  const [placedInput, setPlacedInput] = useState("");
+  /** 「공간 더 남음」에 적는 '더 들어갈 권수'. */
+  const [moreInput, setMoreInput] = useState("");
 
   /** 칸 이름 찾기(책이 지금 어디 있는지 말해 줄 때 씁니다). */
 
@@ -263,7 +318,15 @@ export default function PlanClient({
     // 한 틱 미뤄서 화면이 먼저 그려지게 합니다.
     const id = setTimeout(() => {
       try {
-        const result = buildPlan(targetBooks, targetZones, rule, freshShelf, fillTarget, order);
+        const result = buildPlan(
+          targetBooks,
+          targetZones,
+          rule,
+          freshShelf,
+          fillTarget,
+          order,
+          cal.factor
+        );
         if (alive) setComputed(result);
       } catch (e) {
         if (alive) setPlanError(e instanceof Error ? e.message : "계획을 계산하지 못했습니다.");
@@ -273,7 +336,7 @@ export default function PlanClient({
       alive = false;
       clearTimeout(id);
     };
-  }, [targetBooks, targetZones, rule, freshShelf, fillTarget, order]);
+  }, [targetBooks, targetZones, rule, freshShelf, fillTarget, order, cal.factor]);
 
   const plan: PlanResult = computed ?? {
     zones: [],
@@ -286,6 +349,13 @@ export default function PlanClient({
     seriesBooks: 0,
     seriesCount: 0,
   };
+
+  /** 이 등급 책을 꽂는 데 드는 폭(cm) · 적어 둔 칸 폭의 합(cm). */
+  const widthNeeded = useMemo(() => totalMm(targetBooks, cal.factor) / 10, [targetBooks, cal.factor]);
+  const widthHave = useMemo(
+    () => targetZones.reduce((n, z) => n + (z.capacity_mm ?? 0), 0) / 10,
+    [targetZones]
+  );
 
   const zoneName = useMemo(() => {
     const m = new Map<string, string>();
@@ -537,6 +607,71 @@ export default function PlanClient({
     setMessage(
       `${code} 칸을 만들었습니다 — 정원은 아직 비어 있습니다. 실제로 몇 권 들어가는지 적어 주시면 그만큼만 담습니다.`
     );
+  }
+
+  /**
+   * ── 한 칸씩 채우기 ──────────────────────────────────────────────────────
+   *
+   * 요청: "앞에서부터 하나의 책장씩 정리하도록 해서, 한 책장이 정리가 완료된다면 거기에서
+   * 버튼으로 공간 더 남음 · 꽉 참을 체크하게 하고, 꽉 참을 누르면 그 이후에 어떻게 정리하면
+   * 될지 알려주는 식으로 ... 한 책장이 어느 정도 차면 이제 다음 책장을 정리할 수 있도록."
+   *
+   * 이 고리의 값은 **사람이 자(ruler)가 된다**는 데 있습니다. 한 칸을 실제로 꽂아 보고 「꽉
+   * 찼다 / 더 남았다」를 누르면 그것이 그 칸의 **측정값**이 됩니다. 그 값을 적어 두면 남은
+   * 칸들의 몫이 그 자리에서 다시 계산되고, 칸을 하나씩 해 나갈수록 계획이 정확해집니다.
+   * 그래서 끝까지 가면 1,193권의 자리가 전부 실측 위에 서게 됩니다.
+   *
+   * 끝낸 칸은 **고정합니다**(사람이 정한 자리로 덮어 둡니다). 뒤 칸을 재며 계획을 다시
+   * 계산할 때 이미 꽂아 둔 칸이 흔들리면, 그 칸을 다시 빼야 합니다.
+   */
+  async function finishZone(
+    zp: { zone: PlanZone; books: PlanBook[] },
+    placed: number,
+    opts: { more?: number } = {}
+  ) {
+    const kept = zp.books.slice(0, Math.max(0, placed));
+    const mm = Math.round(totalMm(kept, cal.factor));
+    const extra = opts.more ?? 0;
+    /*
+      정원은 **넣어 본 만큼**입니다. 「더 들어갑니다」면 그만큼 더 받을 수 있다는 뜻이므로
+      넣은 권수에 더해 적습니다 - 다음 계산이 그만큼 더 담아 줍니다.
+    */
+    const capacity = Math.max(1, kept.length + extra);
+    const capacityMm =
+      (zp.zone.capacity_mm ?? 0) > 0
+        ? zp.zone.capacity_mm
+        : mm > 0
+          ? Math.round(mm * (capacity / Math.max(1, kept.length)))
+          : null;
+
+    setLocations((list) =>
+      list.map((l) => (l.id === zp.zone.id ? { ...l, capacity, capacity_mm: capacityMm ?? l.capacity_mm } : l))
+    );
+    // 꽂아 둔 책은 그 칸에 고정합니다.
+    setOverrides((prev) => {
+      const next = new Map(prev);
+      for (const b of kept) next.set(b.id, zp.zone.id);
+      return next;
+    });
+
+    const { error: err } = await supabase
+      .from("lib_locations")
+      .update({ capacity, ...(capacityMm ? { capacity_mm: capacityMm } : {}) })
+      .eq("id", zp.zone.id);
+    if (err) setError(`칸을 적지 못했습니다: ${err.message}`);
+
+    if (extra > 0) {
+      setMessage(
+        `${zp.zone.code} 에 ${kept.length}권을 꽂고 ${extra}권 더 들어간다고 적었습니다 — 다음 책들을 가져왔습니다`
+      );
+    } else {
+      setMessage(
+        `${zp.zone.code} 끝 — ${kept.length}권으로 적었습니다. 남은 책은 다음 칸으로 넘겼습니다.`
+      );
+      setFillAt((n) => n + 1);
+    }
+    setPlacedInput("");
+    setMoreInput("");
   }
 
   /** 칸 이름표 한 개. */
@@ -806,6 +941,102 @@ export default function PlanClient({
           </label>
         </div>
 
+        {/*
+          ── 칸을 권수로 채울까, 폭으로 채울까 ──────────────────────────────
+          요청: "책 정보에서 책의 크기를 가늠할 수 있는 정보가 없을까? 얇은 책 2개와 일반 책
+          1권은 거의 비슷한 두께로 ... 문제는 각 책의 두께가 전부 다르다는 거야. 지금은 책장
+          크기는 다 동일해."
+
+          조회처에 **실제 치수는 없습니다**(표본 20권 중 0권). 있는 것은 쪽수입니다. 종이 한
+          장이 두 쪽이고 책 종이는 0.1~0.15mm 이므로 쪽수로 두께를 가늠할 수 있습니다 - 80쪽
+          그림책 6mm, 320쪽 소설 20mm 로, 그림책 세 권이 소설 한 권과 비슷해집니다.
+
+          칸 크기가 다 같으니 **폭은 한 번만 재면 됩니다.** 한 칸을 재어 넣으면 그 등급 모든
+          칸에 같이 적고, 그때부터 계획은 권수가 아니라 폭으로 담습니다. 게다가 재어 둔 폭은
+          **자(ruler)** 가 되어 쪽수 가늠의 오차까지 바로잡습니다.
+        */}
+        <div className="mt-3 rounded-xl bg-slate-50 px-3 py-2.5">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-xs font-bold text-slate-600">칸을 채우는 단위</span>
+            <span
+              className={`rounded-lg px-2.5 py-1 text-xs font-bold ${
+                widthZones > 0 ? "bg-gia-navy text-white" : "bg-white text-slate-600 ring-1 ring-slate-300"
+              }`}
+            >
+              {widthZones > 0 ? "📏 책 두께(폭)" : "📚 권수"}
+            </span>
+            <span className="text-xs text-slate-500">
+              {widthZones > 0
+                ? `칸 폭을 적어 둔 칸 ${widthZones}개 — 얇은 책은 적게, 두꺼운 책은 많이 차지합니다`
+                : "지금은 모든 책을 한 권으로 셉니다 — 80쪽 그림책과 400쪽 소설이 같은 자리를 차지하는 셈입니다"}
+            </span>
+          </div>
+
+          <div className="mt-2 flex flex-wrap items-center gap-2">
+            <label className="text-xs text-slate-600">
+              칸 하나의 가로 폭
+              <input
+                type="number"
+                min={10}
+                max={300}
+                step={1}
+                value={widthInput}
+                onChange={(e) => setWidthInput(e.target.value)}
+                placeholder="예: 90"
+                className="ml-1.5 w-20 rounded-lg border border-slate-300 px-2 py-1 text-sm"
+              />
+              <span className="ml-1">cm</span>
+            </label>
+            <button
+              type="button"
+              onClick={() => void setWidthAll(Number(widthInput))}
+              disabled={!(Number(widthInput) > 0) || targetZones.length === 0}
+              className="rounded-lg bg-gia-navy px-3 py-1.5 text-xs font-bold text-white disabled:opacity-40"
+            >
+              {onlyLevel != null ? `${onlyLevel}등급 칸 ${targetZones.length}개에 적기` : `칸 ${targetZones.length}개에 적기`}
+            </button>
+            <span className="text-[11px] text-slate-500">
+              책장 칸 크기가 다 같으니 한 번만 재시면 됩니다 — 책이 꽂히는 **안쪽 가로 길이**를 재 주세요.
+            </span>
+          </div>
+
+          {widthZones > 0 && (
+            <p className="mt-2 text-xs leading-relaxed text-slate-600">
+              이 등급 책을 꽂는 데 <b className="text-gia-navy">{widthNeeded.toFixed(0)}cm</b> 가 들고, 칸은 모두{" "}
+              <b className="text-gia-navy">{widthHave.toFixed(0)}cm</b> 입니다
+              {widthHave > 0 && (
+                <>
+                  {" "}
+                  — {widthNeeded <= widthHave ? (
+                    <span className="font-semibold text-emerald-700">
+                      {(widthHave - widthNeeded).toFixed(0)}cm 남습니다
+                    </span>
+                  ) : (
+                    <span className="font-semibold text-amber-700">
+                      {(widthNeeded - widthHave).toFixed(0)}cm 모자랍니다
+                    </span>
+                  )}
+                </>
+              )}
+              .
+              {cal.zones > 0 && (
+                <>
+                  {" "}
+                  재어 둔 칸 {cal.zones}개로 종이 두께를 바로잡았습니다(가늠 ×
+                  {cal.factor.toFixed(2)}).
+                </>
+              )}
+              {pagesLeft > 0 && (
+                <>
+                  {" "}
+                  <b>쪽수를 모르는 책 {pagesLeft}권</b>은 {Math.round(14)}mm 로 봅니다 — 「쪽수 채우기」를 돌리면
+                  그만큼 정확해집니다.
+                </>
+              )}
+            </p>
+          )}
+        </div>
+
         {settings.plan_made_at && (
           <p className="mt-2 inline-block rounded-lg bg-slate-100 px-3 py-1.5 text-xs text-slate-500">
             {/*
@@ -922,6 +1153,175 @@ export default function PlanClient({
           </p>
         )}
       </section>
+
+      {/* ── ③-0 한 칸씩 채우기 ───────────────────────────────────────── */}
+      {(() => {
+        /*
+          앞에서부터 한 칸씩. 지금 칸의 목록은 **세트가 먼저, 낱권이 나중**으로 이미 줄 세워져
+          있어서, 위에서 아래로 읽으며 꽂으면 됩니다.
+        */
+        const ordered = planZones
+          .filter((zp) => targetZones.some((z) => z.id === zp.zone.id))
+          .sort((a, b) => a.zone.sort_order - b.zone.sort_order || a.zone.code.localeCompare(b.zone.code));
+        if (ordered.length === 0) return null;
+        const at = Math.min(fillAt, ordered.length - 1);
+        const zp = ordered[at];
+        const setsFirst = zp.books.filter((b) => (b.series ?? "").trim() || (b.publisher ?? "").trim());
+        const mm = totalMm(zp.books, cal.factor) / 10;
+        return (
+          <section className={card}>
+            <div className="flex flex-wrap items-center gap-2">
+              <h2 className="text-sm font-bold text-slate-500">③ 한 칸씩 채우기</h2>
+              <span className="text-xs text-slate-400">
+                {at + 1} / {ordered.length} 칸
+              </span>
+              <div className="ml-auto flex gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => setFillAt(Math.max(0, at - 1))}
+                  disabled={at === 0}
+                  className="rounded-lg border border-slate-300 px-2.5 py-1 text-xs font-semibold text-slate-600 disabled:opacity-40"
+                >
+                  ← 앞 칸
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setFillAt(Math.min(ordered.length - 1, at + 1))}
+                  disabled={at >= ordered.length - 1}
+                  className="rounded-lg border border-slate-300 px-2.5 py-1 text-xs font-semibold text-slate-600 disabled:opacity-40"
+                >
+                  다음 칸 →
+                </button>
+              </div>
+            </div>
+            <p className="mt-1 text-xs leading-relaxed text-slate-500">
+              이 칸에 <b>위에서부터 차례대로</b> 꽂으세요. <b>시리즈·세트가 먼저</b>, 낱권이 그 뒤입니다 — 책등
+              모양이 같은 책이 나란히 서야 책장이 정돈되어 보입니다. 다 꽂으면 아래에서{" "}
+              <b>「딱 맞음 · 더 남음 · 꽉 참」</b>을 눌러 주세요. 그 답이 이 칸의 <b>실측값</b>이 되어 남은 칸들의
+              몫이 다시 계산됩니다.
+            </p>
+
+            <div className="mt-2 flex flex-wrap items-center gap-2">
+              {chip(zp.zone.id)}
+              <span className="text-sm text-slate-700">
+                넣을 책 <b className="text-gia-navy">{zp.books.length}권</b>
+                {widthZones > 0 && <span className="ml-1 text-xs text-slate-500">(약 {mm.toFixed(0)}cm)</span>}
+              </span>
+              {setsFirst.length > 0 && (
+                <span className="text-xs text-violet-700">세트로 묶인 책 {setsFirst.length}권</span>
+              )}
+              {(zp.zone.capacity_mm ?? 0) > 0 && (
+                <span className="text-xs text-slate-400">칸 폭 {((zp.zone.capacity_mm ?? 0) / 10).toFixed(0)}cm</span>
+              )}
+            </div>
+
+            <ol className="mt-2 max-h-96 space-y-0.5 overflow-auto text-sm">
+              {zp.books.map((b, i) => {
+                const set = (b.series ?? "").trim();
+                return (
+                  <li key={b.id} className="flex flex-wrap items-baseline gap-x-2">
+                    <span className="w-7 shrink-0 text-right text-xs text-slate-400">{i + 1}.</span>
+                    <span className="text-slate-800">{b.title}</span>
+                    {set && (
+                      <span className="rounded bg-violet-100 px-1 text-[10px] font-bold text-violet-800">
+                        {set}
+                        {b.series_no != null ? ` ${b.series_no}` : ""}
+                      </span>
+                    )}
+                    {!set && b.publisher && (
+                      <span className="rounded bg-slate-100 px-1 text-[10px] text-slate-500">{b.publisher}</span>
+                    )}
+                    <span className="ml-auto text-xs text-slate-500">
+                      {b.location_id === zp.zone.id
+                        ? "그대로"
+                        : `${b.location_id ? (zoneName.get(b.location_id) ?? "?") : "자리 모름"} 에서`}
+                      {(b.pages ?? 0) > 0 && (
+                        <span className="ml-1 text-[11px] text-slate-400">
+                          {Math.round(thicknessMm(b, cal.factor))}mm
+                        </span>
+                      )}
+                    </span>
+                  </li>
+                );
+              })}
+            </ol>
+
+            <div className="mt-3 grid gap-2 sm:grid-cols-3">
+              <button
+                type="button"
+                onClick={() => void finishZone(zp, zp.books.length)}
+                className="rounded-xl bg-emerald-600 px-3 py-2.5 text-left text-sm font-bold text-white"
+              >
+                ✓ 딱 맞음 — 다 들어갔습니다
+                <span className="block text-[11px] font-medium opacity-85">
+                  이 칸 정원을 {zp.books.length}권으로 적고 다음 칸으로
+                </span>
+              </button>
+
+              <div className="rounded-xl border border-slate-300 px-3 py-2.5">
+                <p className="text-sm font-bold text-slate-700">공간 더 남음</p>
+                <div className="mt-1 flex items-center gap-1.5">
+                  <input
+                    type="number"
+                    min={1}
+                    max={200}
+                    value={moreInput}
+                    onChange={(e) => setMoreInput(e.target.value)}
+                    placeholder="N"
+                    className="w-16 rounded-lg border border-slate-300 px-2 py-1 text-sm"
+                  />
+                  <span className="text-xs text-slate-500">권 더</span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const n = Number(moreInput);
+                      if (!Number.isFinite(n) || n <= 0) return;
+                      void finishZone(zp, zp.books.length, { more: n });
+                    }}
+                    className="ml-auto rounded-lg bg-gia-navy px-2.5 py-1 text-xs font-bold text-white"
+                  >
+                    더 가져오기
+                  </button>
+                </div>
+                <p className="mt-1 text-[11px] leading-relaxed text-slate-500">
+                  다음 칸에 갈 책을 그만큼 이 칸으로 당겨 옵니다 — 칸은 그대로 열려 있습니다.
+                </p>
+              </div>
+
+              <div className="rounded-xl border border-amber-400 bg-amber-50/50 px-3 py-2.5">
+                <p className="text-sm font-bold text-amber-900">꽉 참 — 다 못 넣었습니다</p>
+                <div className="mt-1 flex items-center gap-1.5">
+                  <input
+                    type="number"
+                    min={0}
+                    max={zp.books.length}
+                    value={placedInput}
+                    onChange={(e) => setPlacedInput(e.target.value)}
+                    placeholder={String(Math.max(0, zp.books.length - 1))}
+                    className="w-16 rounded-lg border border-amber-300 px-2 py-1 text-sm"
+                  />
+                  <span className="text-xs text-amber-800">권까지</span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const n = Number(placedInput || String(Math.max(0, zp.books.length - 1)));
+                      if (!Number.isFinite(n) || n < 0) return;
+                      void finishZone(zp, Math.min(n, zp.books.length));
+                    }}
+                    className="ml-auto rounded-lg bg-amber-600 px-2.5 py-1 text-xs font-bold text-white"
+                  >
+                    여기까지
+                  </button>
+                </div>
+                <p className="mt-1 text-[11px] leading-relaxed text-amber-900">
+                  목록에서 <b>몇 번째 책까지</b> 들어갔는지 적어 주세요. 나머지는 다음 칸으로 넘기고, 남은 칸들의
+                  몫을 다시 계산합니다.
+                </p>
+              </div>
+            </div>
+          </section>
+        );
+      })()}
 
       {/* ── ③ 정리 순서 ──────────────────────────────────────────────── */}
       <section className={card}>

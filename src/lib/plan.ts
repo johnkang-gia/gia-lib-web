@@ -15,6 +15,7 @@
 
 import { AUDIENCE_ORDER, type Audience } from "@/lib/audience";
 import { CATEGORY_KEYS, OTHER_CATEGORY } from "@/lib/categories";
+import { thicknessMm } from "@/lib/thickness";
 
 /** 계획을 세울 때 쓰는 최소한의 책 정보. */
 export type PlanBook = {
@@ -38,6 +39,20 @@ export type PlanBook = {
    * 0 은 「물어봤는데 모른다」, null 은 「아직 안 물어봤다」 - 둘 다 맨 뒤로 보냅니다.
    */
   pages?: number | null;
+  /** 아는 두께(mm). 비어 있으면 쪽수로 가늠합니다. */
+  thickness_mm?: number | null;
+  /**
+   * 출판사 — **시리즈처럼 묶이는 책들**을 알아보는 데 씁니다.
+   *
+   * 요청: "같은 종류의 책 1권, 2권 등이나, 같은 출판사에서 나온 시리즈물들을 우선으로
+   * 정리(그래야 볼 때 깔끔하게 보이기 때문이야)."
+   *
+   * 시리즈 이름이 비어 있어도 같은 출판사 책 여러 권이 한 분류에 모여 있으면 그것은 사실상
+   * 한 세트입니다(도버 문고, 매직 트리 하우스처럼 판형과 등 디자인이 같습니다). 세 권
+   * 이상이면 한 덩어리로 묶어 같은 칸에 넣습니다 - 책등 모양이 같은 책이 나란히 서면
+   * 책장이 눈에 띄게 정돈되어 보입니다.
+   */
+  publisher?: string | null;
 };
 
 /** 계획을 세울 때 쓰는 최소한의 구역 정보. */
@@ -49,6 +64,13 @@ export type PlanZone = {
   sort_order: number;
   /** 실측 수용 권수. 비어 있으면 '얼마든지'로 봅니다. */
   capacity: number | null;
+  /**
+   * 칸의 가로 폭(mm). 적어 두면 **권수가 아니라 폭으로** 채웁니다.
+   *
+   * 권수로 채우면 80쪽 그림책과 400쪽 소설이 같은 자리를 차지하는 셈이 됩니다. 실제로는
+   * 그림책 세 권이 소설 한 권과 비슷합니다 - 그래서 폭이 있으면 폭이 먼저입니다.
+   */
+  capacity_mm?: number | null;
 };
 
 /** 분류 기준 순서. 앞에 온 것이 큰 덩어리입니다. */
@@ -213,7 +235,11 @@ export function buildPlan(
   rule: PlanRule,
   freshShelf: boolean,
   fillTarget = 0.8,
-  order: PlanOrder = "이름순"
+  order: PlanOrder = "이름순",
+  /**
+   * 쪽수로 가늠한 두께를 바로잡는 비율(칸 폭을 재어 둔 칸에서 계산합니다). 1 이면 그대로.
+   */
+  thicknessFactor = 1
 ): PlanResult {
   // ── ① 덩어리로 묶기 ────────────────────────────────────────────────────
   const groupMap = new Map<string, PlanGroup>();
@@ -303,6 +329,8 @@ export function buildPlan(
   }));
 
   const leftover: PlanBook[] = [];
+  /** 세트로 인정한 출판사 이름 — 칸 안에서 세트를 앞쪽에 몰아 놓을 때 씁니다. */
+  const publisherSets = new Set<string>();
 
   /*
     ── 칸에 나눠 담기 ──────────────────────────────────────────────────────
@@ -347,16 +375,31 @@ export function buildPlan(
     (화면은 정원이 비어 있으면 지금 꽂혀 있는 권수를 정원으로 넘겨줍니다 - 그 수만큼은 실제로
     들어간다는 증거니까요).
   */
-  const knownCap = zonePlans.reduce(
-    (n, z) => (z.zone.capacity == null ? n : n + Math.max(1, z.zone.capacity)),
-    0
-  );
+  /**
+   * 이 등급 책을 꽂는 데 드는 분량. 칸 폭을 쓰는 경우에는 **권수가 아니라 mm** 입니다.
+   */
+  const anyWidth = zonePlans.some((z) => (z.zone.capacity_mm ?? 0) > 0);
+  const totalNeed = anyWidth
+    ? groups.reduce(
+        (n, g) => n + g.books.reduce((m, b) => m + thicknessMm(b, thicknessFactor), 0),
+        0
+      )
+    : totalBooks;
+
+  const knownCap = zonePlans.reduce((n, z) => {
+    const mm = z.zone.capacity_mm ?? 0;
+    if (mm > 0) return n + mm;
+    return z.zone.capacity == null ? n : n + Math.max(1, z.zone.capacity);
+  }, 0);
   /** 정원 합의 몇 할을 채우게 되는지(0~1). 책이 정원보다 많으면 1 입니다. */
-  const fillRatio = knownCap > 0 ? Math.min(1, totalBooks / knownCap) : 0;
+  const fillRatio = knownCap > 0 ? Math.min(1, totalNeed / knownCap) : 0;
 
   /** 꽉 채웠을 때의 한계(정원을 적어 둔 칸만). 넘기면 책이 안 들어갑니다. */
-  const hardLimit = (zone: PlanZone) =>
-    zone.capacity === null ? Number.POSITIVE_INFINITY : Math.max(1, zone.capacity);
+  const hardLimit = (zone: PlanZone) => {
+    const mm = zone.capacity_mm ?? 0;
+    if (mm > 0) return mm;
+    return zone.capacity === null ? Number.POSITIVE_INFINITY : Math.max(1, zone.capacity);
+  };
 
   /**
    * 여유를 둔 선. 고르게 나눈 몫과, 정원의 fillTarget 중 **큰 쪽**입니다.
@@ -366,6 +409,8 @@ export function buildPlan(
    * 책을 버릴 이유가 아닙니다.
    */
   const softLimit = (zone: PlanZone) => {
+    const mm = zone.capacity_mm ?? 0;
+    if (mm > 0) return Math.max(1, Math.min(mm, Math.ceil(mm * fillRatio)));
     // 정원을 모르는 칸: 고르게 나눈 몫(예전 규칙).
     if (zone.capacity === null) return Math.max(1, evenShare);
     /*
@@ -377,7 +422,19 @@ export function buildPlan(
     return Math.max(1, Math.min(hardLimit(zone), byRatio));
   };
 
-  const room = (zp: ZonePlan, limit: (z: PlanZone) => number) => limit(zp.zone) - zp.books.length;
+  /*
+    ── 담는 단위 ───────────────────────────────────────────────────────────
+    칸 폭(capacity_mm)이 적혀 있으면 **mm 로** 셉니다. 한 권이 차지하는 자리는 권수 1 이 아니라
+    자기 두께이고, 그래야 얇은 책 세 권과 두꺼운 책 한 권이 같은 자리로 계산됩니다.
+
+    폭이 없는 칸은 예전처럼 권수로 셉니다 - 폭을 모르는 채로 mm 를 쓰면 가늠 위에 가늠을
+    얹는 일이 됩니다.
+  */
+  const byWidth = zonePlans.some((z) => (z.zone.capacity_mm ?? 0) > 0);
+  const size = (book: PlanBook) => (byWidth ? thicknessMm(book, thicknessFactor) : 1);
+  const used = (zp: ZonePlan) => zp.books.reduce((n, b) => n + size(b), 0);
+  const need = (books: PlanBook[]) => books.reduce((n, b) => n + size(b), 0);
+  const room = (zp: ZonePlan, limit: (z: PlanZone) => number) => limit(zp.zone) - used(zp);
 
   const put = (zp: ZonePlan, book: PlanBook, label: string) => {
     zp.books.push(book);
@@ -388,14 +445,14 @@ export function buildPlan(
   const place = (books: PlanBook[], label: string, from: number): number => {
     // ① 여유 있는 선 안에서 통째로 들어가는 칸
     for (let i = from; i < zonePlans.length; i += 1) {
-      if (room(zonePlans[i], softLimit) >= books.length) {
+      if (room(zonePlans[i], softLimit) >= need(books)) {
         for (const b of books) put(zonePlans[i], b, label);
         return i;
       }
     }
     // ② 꽉 채워서라도 통째로 들어가는 칸(정원을 적어 둔 칸이 작을 때)
     for (let i = from; i < zonePlans.length; i += 1) {
-      if (room(zonePlans[i], hardLimit) >= books.length) {
+      if (room(zonePlans[i], hardLimit) >= need(books)) {
         for (const b of books) put(zonePlans[i], b, label);
         return i;
       }
@@ -403,7 +460,7 @@ export function buildPlan(
     // ③ 어느 칸에도 통째로 안 들어갑니다 - 그때만 나눠 담습니다.
     let at = from;
     for (const b of books) {
-      while (at < zonePlans.length && room(zonePlans[at], hardLimit) <= 0) at += 1;
+      while (at < zonePlans.length && room(zonePlans[at], hardLimit) < size(b)) at += 1;
       if (at >= zonePlans.length) {
         leftover.push(b);
         continue;
@@ -419,13 +476,13 @@ export function buildPlan(
       group.books 는 이미 줄 세워져 있으므로 차례는 그대로 따릅니다.
     */
     const bundles: PlanBook[][] = [];
-    const singles: PlanBook[] = [];
+    const loose: PlanBook[] = [];
     let cur: PlanBook[] = [];
     let curName = "";
     for (const b of group.books) {
       const name = (b.series ?? "").trim();
       if (!name) {
-        singles.push(b);
+        loose.push(b);
         continue;
       }
       if (name !== curName) {
@@ -436,6 +493,35 @@ export function buildPlan(
       cur.push(b);
     }
     if (cur.length > 0) bundles.push(cur);
+
+    /*
+      ── 같은 출판사 세 권 이상은 **시리즈로 봅니다** ────────────────────────
+      시리즈 이름이 적혀 있지 않아도, 한 분류 안에 같은 출판사 책이 여러 권이면 그것은 대개
+      한 세트입니다(판형·책등 디자인이 같습니다). 나란히 세우면 책장이 눈에 띄게 정돈되어
+      보입니다. 두 권 이하는 세트라고 하기 어려우니 낱권으로 둡니다.
+    */
+    const byPublisher = new Map<string, PlanBook[]>();
+    const singles: PlanBook[] = [];
+    for (const b of loose) {
+      const pub = (b.publisher ?? "").trim();
+      if (!pub) {
+        singles.push(b);
+        continue;
+      }
+      const list = byPublisher.get(pub) ?? [];
+      list.push(b);
+      byPublisher.set(pub, list);
+    }
+    for (const [pub, list] of byPublisher) {
+      if (list.length >= 3) {
+        bundles.push(list);
+        publisherSets.add(pub);
+      } else {
+        singles.push(...list);
+      }
+    }
+    // 큰 세트부터 자리를 잡습니다 - 큰 묶음이 늦게 오면 들어갈 칸이 없어 쪼개집니다.
+    bundles.sort((a, b) => b.length - a.length);
 
     // 분류마다 새 칸에서 시작하기: 지금 칸에 이미 다른 분류가 들어 있으면 다음 칸부터 봅니다.
     let from = 0;
@@ -457,8 +543,35 @@ export function buildPlan(
   const orderIndex = new Map<string, number>();
   let seq = 0;
   for (const group of groups) for (const b of group.books) orderIndex.set(b.id, seq++);
+
+  /*
+    ── 한 칸 안의 차례: **세트가 먼저, 낱권이 나중** ───────────────────────
+    요청: "각 책장에 시리즈 책들을 우선으로 정리하고(그래야 볼 때 깔끔하게 보이기 때문이야),
+    그 이외의 공간들을 알아서 분배하면서."
+
+    세트는 책등 모양이 같아서 나란히 세우면 한 덩어리로 보입니다. 그 사이에 낱권이 끼면 그
+    효과가 사라집니다. 그래서 칸 안에서 세트를 앞쪽에 몰아 놓고(세트끼리는 이름순, 세트 안에서는
+    권 번호순), 낱권은 그 뒤를 분류·작가순으로 채웁니다.
+  */
+  const setName = (b: PlanBook) => {
+    const series = (b.series ?? "").trim();
+    if (series) return series;
+    const pub = (b.publisher ?? "").trim();
+    return pub && publisherSets.has(pub) ? pub : "";
+  };
   for (const zp of zonePlans) {
-    zp.books.sort((a, b) => (orderIndex.get(a.id) ?? 0) - (orderIndex.get(b.id) ?? 0));
+    zp.books.sort((a, b) => {
+      const sa = setName(a);
+      const sb = setName(b);
+      if (Boolean(sa) !== Boolean(sb)) return sa ? -1 : 1;
+      if (sa && sb && sa !== sb) return sa.localeCompare(sb);
+      if (sa && sb && sa === sb) {
+        const na = a.series_no ?? 0;
+        const nb = b.series_no ?? 0;
+        if (na !== nb) return na - nb;
+      }
+      return (orderIndex.get(a.id) ?? 0) - (orderIndex.get(b.id) ?? 0);
+    });
   }
 
   // ── ④ 칸마다 대표 이름 정하기(가장 많이 든 덩어리 기준) ────────────────
@@ -475,8 +588,17 @@ export function buildPlan(
     const top = [...tally.values()].sort((a, b) => b.count - a.count)[0];
     zp.primary = top?.primary ?? null;
     zp.category = top?.category ?? null;
+    /*
+      얼마나 찼는지 - 폭을 아는 칸은 **폭 대비**로 봅니다(권수 대비가 아니라). 두꺼운 책이
+      몰린 칸은 권수가 적어도 꽉 찬 것입니다.
+    */
+    const mm = zp.zone.capacity_mm ?? 0;
     zp.fill =
-      zp.zone.capacity && zp.zone.capacity > 0 ? zp.books.length / zp.zone.capacity : null;
+      mm > 0
+        ? used(zp) / mm
+        : zp.zone.capacity && zp.zone.capacity > 0
+          ? zp.books.length / zp.zone.capacity
+          : null;
   }
 
   // ── ⑤ 요약 숫자 ────────────────────────────────────────────────────────
