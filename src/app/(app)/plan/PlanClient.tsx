@@ -48,8 +48,13 @@ export default function PlanClient({
   */
   const [locations, setLocations] = useState<LibLocation[]>(initialLocations);
   const supabase = useMemo(() => createClient(), []);
+  /*
+    기본은 **「지금 라벨 등급 → 분류 → 작가」**입니다. 책마다 색 라벨이 붙어 있고 책장도 그
+    등급으로 칸을 나눠 쓰고 있어서, 정리는 지금 라벨을 그대로 두고 그 안을 정돈하는 일입니다.
+    (한 번 확정한 뒤에는 그때 쓴 기준이 기억되어 그것으로 열립니다.)
+  */
   const [rule, setRule] = useState<PlanRule>(
-    (settings.plan_rule as PlanRule | null) ?? "대상-분류-작가"
+    (settings.plan_rule as PlanRule | null) ?? "라벨-분류-작가"
   );
   const [freshShelf, setFreshShelf] = useState(false);
   const [saving, setSaving] = useState(false);
