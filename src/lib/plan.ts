@@ -59,6 +59,16 @@ export type PlanBook = {
    */
   total_copies?: number | null;
   /**
+   * 렉사일 지수(추정 포함) — **쉬운 책 → 어려운 책** 순으로 세울 때 씁니다.
+   *
+   * 조회처는 렉사일을 주지 않아서 지금까지 쪽수로 대신했습니다. 쪽수는 **두께**지 난이도가
+   * 아닙니다(그림책 100쪽과 소설 100쪽은 전혀 다릅니다). 렉사일이 있으면 그것이 먼저입니다.
+   * 두께 계산(칸 폭)은 그대로 쪽수를 씁니다 - 그건 물리적인 값이니까요.
+   */
+  lexile?: number | null;
+  /** 그 렉사일이 AI 추정값인지. 정리에는 똑같이 쓰고, 화면에만 '추정'으로 표시합니다. */
+  lexile_guess?: boolean | null;
+  /**
    * 출판사 — **시리즈처럼 묶이는 책들**을 알아보는 데 씁니다.
    *
    * 요청: "같은 종류의 책 1권, 2권 등이나, 같은 출판사에서 나온 시리즈물들을 우선으로
@@ -252,6 +262,28 @@ export type PlanOrder = "이름순" | "얇은책순";
 function thickness(book: PlanBook) {
   const n = book.pages ?? 0;
   return n > 0 ? n : Number.POSITIVE_INFINITY;
+}
+
+/**
+ * **난이도 열쇠** — 쉬운 책이 작은 값입니다.
+ *
+ * 렉사일이 있으면 렉사일, 없으면 쪽수로 대신합니다. 둘 다 없으면 맨 뒤로 보냅니다. 렉사일과
+ * 쪽수는 단위가 달라 한 줄에 섞어 비교할 수 없으므로(910 과 192), 렉사일을 아는 책을 먼저
+ * 세우고 모르는 책을 그 뒤에 쪽수순으로 세웁니다 - 아는 만큼은 제대로 섭니다.
+ */
+function hardness(book: PlanBook): { known: number; value: number } {
+  const lex = Number(book.lexile ?? 0);
+  if (Number.isFinite(lex) && lex > 0) return { known: 0, value: lex };
+  const pages = Number(book.pages ?? 0);
+  if (Number.isFinite(pages) && pages > 0) return { known: 1, value: pages };
+  return { known: 2, value: Number.POSITIVE_INFINITY };
+}
+
+/** 난이도 비교(쉬운 책 먼저). */
+function byHardness(a: PlanBook, b: PlanBook) {
+  const ha = hardness(a);
+  const hb = hardness(b);
+  return ha.known !== hb.known ? ha.known - hb.known : ha.value - hb.value;
 }
 
 export function buildPlan(
@@ -575,7 +607,7 @@ export function buildPlan(
       bundle.sort(
         (a, b) =>
           (a.series_no ?? 0) - (b.series_no ?? 0) ||
-          thickness(a) - thickness(b) ||
+          byHardness(a, b) ||
           (a.title ?? "").localeCompare(b.title ?? "", "ko")
       );
     }
@@ -610,15 +642,23 @@ export function buildPlan(
       const author = (b.author ?? "").trim();
       return author || (b.title ?? "").trim();
     };
-    const blockThickness = (block: PlanBook[]) =>
-      block.reduce((n, b) => Math.min(n, thickness(b)), Number.POSITIVE_INFINITY);
+    /** 세트의 난이도 = 그 세트에서 가장 쉬운 권(세트는 쉬운 권부터 읽습니다). */
+    const blockHardness = (block: PlanBook[]) =>
+      block.reduce(
+        (best, b) => {
+          const h = hardness(b);
+          return h.known < best.known || (h.known === best.known && h.value < best.value) ? h : best;
+        },
+        { known: 2, value: Number.POSITIVE_INFINITY }
+      );
 
     const blocks: PlanBook[][] = [...bundles, ...singles.map((b) => [b])];
     blocks.sort((a, b) => {
       if (order === "얇은책순") {
-        const ta = blockThickness(a);
-        const tb = blockThickness(b);
-        if (ta !== tb) return ta - tb;
+        const ha = blockHardness(a);
+        const hb = blockHardness(b);
+        if (ha.known !== hb.known) return ha.known - hb.known;
+        if (ha.value !== hb.value) return ha.value - hb.value;
       }
       const byName = blockName(a).localeCompare(blockName(b), "ko");
       if (byName !== 0) return byName;

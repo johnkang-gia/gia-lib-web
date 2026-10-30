@@ -603,11 +603,20 @@ export default function TidyClient({ levels }: { levels: LibLabelLevel[] }) {
               )}
 
               <div className="mt-4 flex flex-wrap gap-2">
+                {/*
+                  ── 여기가 「정리 시작」입니다 ────────────────────────────────
+                  요청: "6-1부터 꺼내서 바코드를 찍어서 등록하고, 책장에 있는 6단계 책들을 전부
+                  바코드로 찍어서 현재 위치를 저장해 놓고 정리 시작을 누르면 시리즈별·알파벳별·
+                  렉사일별 기준들을 순차적으로 적용해서 가장 최적의 정리를 찾을 수 있도록."
+
+                  앞 단계(다시 찍기)가 **현재 위치를 저장하는 일**이고, 이 버튼이 **정리 시작**
+                  입니다. 누르면 그 등급 책만 가지고 기준을 차례대로 적용한 계획이 나옵니다.
+                */}
                 <Link
                   href={`/plan?level=${level}`}
-                  className="rounded-xl bg-gia-navy px-4 py-2.5 text-sm font-bold text-white"
+                  className="rounded-xl bg-gia-navy px-5 py-3 text-sm font-black text-white"
                 >
-                  이 목록으로 {level}등급 정리 계획 보기 →
+                  ▶ {level}등급 정리 시작 — 시리즈 · 알파벳 · 렉사일 순으로
                 </Link>
                 <button
                   type="button"

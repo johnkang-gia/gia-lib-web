@@ -287,6 +287,8 @@ export default function PlanClient({
     author: string | null;
     category: string | null;
     audience: string | null;
+    lexile: number | null;
+    lexile_guess: boolean;
     sure: boolean;
     why: string | null;
   };
@@ -817,6 +819,8 @@ export default function PlanClient({
             author: r.author,
             category: r.category,
             audience: r.audience,
+            lexile: r.lexile,
+            lexile_guess: r.lexile_guess,
           })),
         }),
       });
@@ -1079,7 +1083,7 @@ export default function PlanClient({
               className="rounded-lg border border-slate-300 px-2 py-1 text-sm"
             >
               <option value="이름순">이름순 — 시리즈·작가·제목 차례로</option>
-              <option value="얇은책순">얇은 책 → 두꺼운 책 (쪽수)</option>
+              <option value="얇은책순">쉬운 책 → 어려운 책 (렉사일·쪽수)</option>
             </select>
             <span className="text-xs text-slate-400">
               {order === "얇은책순"
@@ -1645,9 +1649,10 @@ export default function PlanClient({
               )}
 
               <p className="text-[11px] leading-relaxed text-slate-500">
-                <b>꽂는 규칙</b>: 세트는 <b>세트 이름</b>으로, 낱권은 <b>작가 이름</b>으로 가나다·ABC 순입니다. 세트
-                안에서는 권 번호순, 번호가 없으면 얇은 책부터. 그래서 6-1 부터 왼쪽 위 → 오른쪽 아래로 읽으면 늘
-                같은 차례이고, 반납된 책도 그 차례로 제자리를 찾습니다.
+                <b>적용한 기준(차례대로)</b>: ① <b>묶기</b> — 시리즈 → 같은 제목 → 같은 작가(2권+) → 같은
+                출판사(3권+) ② <b>세우기</b> — 세트는 세트 이름, 낱권은 작가 이름의 가나다·ABC 순 ③ <b>세트 안</b>{" "}
+                — 권 번호순, 번호가 없으면 <b>렉사일(쉬운 책 → 어려운 책)</b>, 렉사일을 모르면 쪽수. 그래서 6-1
+                부터 왼쪽 위 → 오른쪽 아래로 읽으면 늘 같은 차례이고, 반납된 책도 그 차례로 제자리를 찾습니다.
               </p>
             </div>
 
@@ -2314,8 +2319,9 @@ export default function PlanClient({
                   {aiBusy ? "읽는 중…" : ai ? "다음 50권 더" : "50권 읽어 오기"}
                 </button>
                 <span className="text-[11px] text-slate-500">
-                  제목으로 <b>시리즈·작가·분류·대상</b>을 채웁니다. 모르는 책은 비워 둡니다. 저장은 아래에서
-                  확인하고 누를 때만 합니다.
+                  제목으로 <b>시리즈·작가·분류·대상·렉사일</b>을 채웁니다. <b>분류·대상·렉사일은 비워 두지
+                  않습니다</b>(정리에 쓰는 값이라 비면 순서에서 빠집니다 — 짐작한 값은 「확실하지 않음」으로
+                  표시). 시리즈·작가는 <b>확실할 때만</b> 채웁니다. 저장은 확인하고 누를 때만 합니다.
                 </span>
               </div>
 
@@ -2405,6 +2411,14 @@ export default function PlanClient({
                             {r.audience && (
                               <span>
                                 대상 <b className="text-gia-navy">{r.audience}</b>
+                              </span>
+                            )}
+                            {r.lexile != null && (
+                              <span>
+                                렉사일 <b className="text-gia-navy">{r.lexile}L</b>
+                                {r.lexile_guess !== false && (
+                                  <span className="ml-0.5 text-[10px] text-slate-400">추정</span>
+                                )}
                               </span>
                             )}
                           </div>

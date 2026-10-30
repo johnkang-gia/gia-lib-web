@@ -28,6 +28,7 @@ type BookRow = {
   series_no: number | null;
   category: string | null;
   audience: string | null;
+  lexile: number | null;
   label_level: number | null;
   location_id: string | null;
   total_copies: number;
@@ -52,6 +53,8 @@ export async function POST(request: Request) {
       author?: string | null;
       category?: string | null;
       audience?: string | null;
+      lexile?: number | null;
+      lexile_guess?: boolean;
     }[];
   } | null;
 
@@ -68,7 +71,7 @@ export async function POST(request: Request) {
       */
       const { data: cur } = await supabase
         .from("lib_books")
-        .select("series,series_no,author,category,audience")
+        .select("series,series_no,author,category,audience,lexile")
         .eq("id", r.id)
         .maybeSingle();
       const now = (cur ?? {}) as Partial<BookRow>;
@@ -77,6 +80,14 @@ export async function POST(request: Request) {
       if (r.author && !(now.author ?? "").trim()) patch.author = r.author;
       if (r.category && !(now.category ?? "").trim()) patch.category = r.category;
       if (r.audience && !(now.audience ?? "").trim()) patch.audience = r.audience;
+      /*
+        렉사일은 **사람이 적은 값이 늘 우선**입니다. 비어 있을 때만 추정값을 넣고, 추정이라는
+        사실을 함께 적습니다(화면이 '추정'으로 표시합니다).
+      */
+      if (r.lexile != null && now.lexile == null) {
+        patch.lexile = r.lexile;
+        patch.lexile_guess = r.lexile_guess !== false;
+      }
       if (Object.keys(patch).length === 0) continue;
       const { error } = await supabase.from("lib_books").update(patch).eq("id", r.id);
       if (!error) done += 1;
@@ -93,7 +104,7 @@ export async function POST(request: Request) {
       supabase
         .from("lib_books")
         .select(
-          "id,title,author,publisher,isbn,series,series_no,category,audience,label_level,location_id,total_copies"
+          "id,title,author,publisher,isbn,series,series_no,category,audience,lexile,label_level,location_id,total_copies"
         )
         .eq("status", "보유")
         .order("id", { ascending: true })
@@ -124,7 +135,8 @@ export async function POST(request: Request) {
         !(b.series ?? "").trim() ||
         !(b.author ?? "").trim() ||
         !(b.category ?? "").trim() ||
-        !(b.audience ?? "").trim()
+        !(b.audience ?? "").trim() ||
+        b.lexile == null
     )
     .map((b) => ({
       b,
@@ -180,16 +192,19 @@ export async function POST(request: Request) {
           author: b.author,
           category: b.category,
           audience: b.audience,
+          lexile: b.lexile,
         },
         series: !(b.series ?? "").trim() ? f.series : null,
         series_no: b.series_no == null ? f.series_no : null,
         author: !(b.author ?? "").trim() ? f.author : null,
         category: !(b.category ?? "").trim() ? f.category : null,
         audience: !(b.audience ?? "").trim() ? f.audience : null,
+        lexile: b.lexile == null ? f.lexile : null,
+        lexile_guess: f.lexile_guess,
         sure: f.sure,
         why: f.why,
       };
-      const any = give.series || give.author || give.category || give.audience;
+      const any = give.series || give.author || give.category || give.audience || give.lexile != null;
       return any ? give : null;
     })
     .filter((v): v is NonNullable<typeof v> => v !== null);
@@ -199,7 +214,8 @@ export async function POST(request: Request) {
       !(b.series ?? "").trim() ||
       !(b.author ?? "").trim() ||
       !(b.category ?? "").trim() ||
-      !(b.audience ?? "").trim()
+      !(b.audience ?? "").trim() ||
+      b.lexile == null
   ).length;
 
   return NextResponse.json({

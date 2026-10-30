@@ -45,6 +45,16 @@ export type MetaFill = {
   author: string | null;
   category: string | null;
   audience: string | null;
+  /**
+   * 렉사일 지수(추정 포함). 쉬운 책 → 어려운 책 순으로 세울 때 씁니다.
+   *
+   * 렉사일은 MetaMetrics 측정값이라 조회처가 주지 않습니다. 널리 읽히는 책은 AI 가 알거나 꽤
+   * 좁게 추정할 수 있어서, **비워 두지 않고 추정값을 받습니다** - 비어 있으면 그 책은 난이도
+   * 순서에서 빠져 맨 뒤로 밀립니다. 대신 추정이라는 사실을 함께 적습니다(lexile_guess).
+   */
+  lexile: number | null;
+  /** 그 렉사일이 추정인지(측정값을 아는 경우에만 false). */
+  lexile_guess: boolean;
   /** 얼마나 확실한지 — 확실하지 않은 제안은 화면이 따로 모읍니다. */
   sure: boolean;
   /** 왜 그렇게 봤는지 한 줄(사람이 판단할 근거). */
@@ -62,14 +72,24 @@ const SYSTEM = `당신은 학교 도서관의 사서를 돕습니다. 책 목록
 3. series_no 는 그 시리즈의 몇 권째인지. 모르면 null.
 4. author 는 널리 쓰이는 이름 하나로. 원어 이름이 있으면 원어로(예: "Christopher Paolini").
    이미 작가가 적혀 있으면 그 값을 그대로 돌려줍니다.
-5. category 는 반드시 다음 중 하나 또는 null: ${CATEGORY_KEYS.join(" / ")}
-6. audience 는 반드시 다음 중 하나 또는 null: ${AUDIENCE_ORDER.join(" / ")}
+5. category 는 반드시 다음 중 하나: ${CATEGORY_KEYS.join(" / ")}
+   **category 와 audience 와 lexile 은 비워 두지 마세요.** 이 셋은 책을 책장에 세우는 데 쓰는
+   값이라, 비어 있으면 그 책이 순서에서 빠져 엉뚱한 자리에 갑니다. 확실하지 않아도 제목에서
+   짐작되는 가장 그럴듯한 값을 적고 sure=false 로 알려주세요. 정말 아무 짐작도 안 되는
+   경우에만 "기타" / "전체" 를 쓰세요.
+6. audience 는 반드시 다음 중 하나: ${AUDIENCE_ORDER.join(" / ")}
    (유치부=그림책·아주 쉬운 책, 초등부, 중고등부, 전체)
-7. sure 는 그 책을 정말 아는 경우에만 true. 제목만 보고 짐작한 것이면 false.
-8. why 는 20자 이내 한국어 한 줄(예: "파올리니 유산 3부", "뉴베리 수상 동화").
+7. lexile 은 그 책의 렉사일 지수(숫자만, 예: 910). 측정값을 아는 책이면 그 값과
+   lexile_guess=false. 모르면 같은 또래 책들과 견주어 **추정**한 값과 lexile_guess=true.
+   그림책은 보통 200~500, 초등 중학년 400~700, 초등 고학년 700~900, 중고등 900~1200 입니다.
+   한국어책도 같은 기준으로 영어 렉사일에 견주어 추정해 주세요.
+8. series 와 author 는 다릅니다 - 이 둘은 **사실**이라 틀리면 자료가 더러워집니다. 확실하지
+   않으면 반드시 null 로 두세요. (category·audience·lexile 은 정리용 값이라 짐작해도 됩니다.)
+9. sure 는 그 책을 정말 아는 경우에만 true. 제목만 보고 짐작한 것이면 false.
+10. why 는 20자 이내 한국어 한 줄(예: "파올리니 유산 3부", "뉴베리 수상 동화").
 
 오직 JSON 하나만 답합니다. 설명·머리말·코드블록 표시를 붙이지 마세요:
-{"books":[{"id":"","series":null,"series_no":null,"author":null,"category":null,"audience":null,"sure":false,"why":null}]}`;
+{"books":[{"id":"","series":null,"series_no":null,"author":null,"category":"동화·소설","audience":"초등부","lexile":600,"lexile_guess":true,"sure":false,"why":null}]}`;
 
 /** 한 번에 물어보는 권수. 너무 크면 답이 잘리고, 너무 작으면 왕복이 늘어납니다. */
 export const BATCH = 25;
@@ -167,6 +187,7 @@ export async function fillMeta(books: MetaAsk[]): Promise<MetaFill[]> {
     const category = str(row.category);
     const audience = str(row.audience);
     const no = Number(row.series_no);
+    const lex = Number(row.lexile);
     out.push({
       id,
       series: str(row.series),
@@ -175,6 +196,9 @@ export async function fillMeta(books: MetaAsk[]): Promise<MetaFill[]> {
       // 우리 목록에 없는 말은 버립니다 - 새 분류가 섞이면 칸이 어긋납니다.
       category: category && CATEGORY_KEYS.includes(category) ? category : null,
       audience: audience && (AUDIENCE_ORDER as string[]).includes(audience) ? audience : null,
+      // 렉사일은 터무니없는 값을 막습니다(0 이나 5000 이 오면 쓸 수 없습니다).
+      lexile: Number.isFinite(lex) && lex >= 50 && lex <= 2000 ? Math.round(lex) : null,
+      lexile_guess: row.lexile_guess !== false,
       sure: row.sure === true,
       why: str(row.why),
     });
