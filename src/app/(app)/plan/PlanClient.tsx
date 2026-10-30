@@ -275,6 +275,24 @@ export default function PlanClient({
   const [tagName, setTagName] = useState("");
   /** 세트에 넣을 책을 찾는 검색어 — 이 책장에 없는 책도 찾아 넣을 수 있게. */
   const [tagQuery, setTagQuery] = useState("");
+
+  /** AI 가 채워 준 제안들(아직 저장하지 않은 것). */
+  type AiRow = {
+    id: string;
+    title: string;
+    copies: number;
+    level: number | null;
+    series: string | null;
+    series_no: number | null;
+    author: string | null;
+    category: string | null;
+    audience: string | null;
+    sure: boolean;
+    why: string | null;
+  };
+  const [ai, setAi] = useState<{ rows: AiRow[]; left: number } | null>(null);
+  const [aiBusy, setAiBusy] = useState(false);
+  const [aiDrop, setAiDrop] = useState<Set<string>>(new Set());
   const [tagBusy, setTagBusy] = useState(false);
   /** 「꽉 찼습니다」를 누르고 적는 '실제로 넣은 권수'. */
   const [placedInput, setPlacedInput] = useState("");
@@ -745,6 +763,73 @@ export default function PlanClient({
       router.refresh();
     } finally {
       setTagBusy(false);
+    }
+  }
+
+  /**
+   * **AI 로 빈 칸 채우기** — 제안을 받아 와 사람이 보고 고릅니다.
+   *
+   * 정리가 흐트러지는 이유는 계산이 아니라 **묶을 근거가 비어 있기** 때문입니다(시리즈가 적힌
+   * 줄은 1,230줄 중 37줄). 제목만 보고도 알 수 있는 것이 대부분이라 그 자리를 AI 가 메웁니다.
+   * 다만 **바로 저장하지 않습니다** - 틀린 값이 자료에 섞이면 아무도 다시 확인하지 않습니다.
+   */
+  async function askAi() {
+    if (aiBusy) return;
+    setAiBusy(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/books/ai-meta", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "suggest", level: onlyLevel, limit: 50 }),
+      });
+      const j = await res.json();
+      if (!res.ok || j.error) {
+        setError(j?.error ?? "AI 채우기에 실패했습니다.");
+        if (!j?.suggestions?.length) return;
+      }
+      setAi({ rows: (j.suggestions ?? []) as AiRow[], left: Number(j.left ?? 0) });
+      setAiDrop(new Set());
+      if ((j.suggestions ?? []).length === 0) setMessage(j.message ?? "채울 빈 칸이 없습니다.");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "AI 채우기에 실패했습니다.");
+    } finally {
+      setAiBusy(false);
+    }
+  }
+
+  /** 고른 제안을 자료에 적습니다(제외한 것은 버립니다). */
+  async function applyAi() {
+    if (!ai || aiBusy) return;
+    const rows = ai.rows.filter((r) => !aiDrop.has(r.id));
+    if (rows.length === 0) return;
+    setAiBusy(true);
+    try {
+      const res = await fetch("/api/books/ai-meta", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "apply",
+          rows: rows.map((r) => ({
+            id: r.id,
+            series: r.series,
+            series_no: r.series_no,
+            author: r.author,
+            category: r.category,
+            audience: r.audience,
+          })),
+        }),
+      });
+      const j = await res.json();
+      if (!res.ok || j.error) {
+        setError(j?.error ?? "적용하지 못했습니다.");
+        return;
+      }
+      setMessage(`${j.applied}권의 빈 칸을 채웠습니다 — 계획을 다시 세웠습니다`);
+      setAi(null);
+      router.refresh();
+    } finally {
+      setAiBusy(false);
     }
   }
 
@@ -2195,7 +2280,7 @@ export default function PlanClient({
           <section className={card}>
             <details>
               <summary className="cursor-pointer text-sm font-bold text-slate-500">
-                세트로 묶을 단서가 없는 책 {noneCount}권 — 눈에 띌 때 한 번에 묶기{" "}
+                세트로 묶을 단서가 없는 책 {noneCount}권 — 🤖 AI 로 채우기 · 눈에 띌 때 묶기{" "}
                 <span className="font-normal text-slate-400">(지금 정리를 막지 않습니다)</span>
               </summary>
             <p className="mt-1 text-xs leading-relaxed text-slate-500">
@@ -2210,6 +2295,126 @@ export default function PlanClient({
               ③ 목록에서 <b>＋세트</b>로 골라 이름을 적어 주세요. 한 번 적으면 다음 계획부터 늘 같은 칸으로
               묶입니다. 지금 당장은 이 책들도 작가·제목 순으로 제자리를 받아 정리됩니다.
             </p>
+
+            {/*
+              ── AI 로 한꺼번에 채우기 ──────────────────────────────────────
+              40권을 손으로 적는 것과, 40권을 **보고 고르는** 것은 전혀 다른 일입니다. 제안이
+              앞에 놓이면 「맞다/아니다」만 누르면 됩니다. 확실하지 않다고 한 제안은 노란 줄로
+              따로 표시해, 그것만 눈여겨보면 됩니다.
+            */}
+            <div className="mt-2 rounded-xl bg-gia-navy/5 px-3 py-2.5 ring-1 ring-gia-navy/20">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-xs font-bold text-gia-navy">🤖 AI 로 빈 칸 채우기</span>
+                <button
+                  type="button"
+                  onClick={() => void askAi()}
+                  disabled={aiBusy}
+                  className="rounded-lg bg-gia-navy px-3 py-1.5 text-xs font-bold text-white disabled:opacity-40"
+                >
+                  {aiBusy ? "읽는 중…" : ai ? "다음 50권 더" : "50권 읽어 오기"}
+                </button>
+                <span className="text-[11px] text-slate-500">
+                  제목으로 <b>시리즈·작가·분류·대상</b>을 채웁니다. 모르는 책은 비워 둡니다. 저장은 아래에서
+                  확인하고 누를 때만 합니다.
+                </span>
+              </div>
+
+              {ai && ai.rows.length > 0 && (
+                <>
+                  <div className="mt-2 flex flex-wrap items-center gap-2">
+                    <span className="text-xs text-slate-600">
+                      제안 {ai.rows.length}권
+                      {aiDrop.size > 0 && ` · 제외 ${aiDrop.size}권`}
+                      {ai.left > 0 && ` · 아직 ${ai.left}권 남음`}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => void applyAi()}
+                      disabled={aiBusy || ai.rows.length === aiDrop.size}
+                      className="rounded-lg bg-emerald-600 px-3 py-1 text-xs font-bold text-white disabled:opacity-40"
+                    >
+                      ✓ {ai.rows.length - aiDrop.size}권 적용
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setAi(null)}
+                      className="text-xs font-semibold text-slate-500 underline"
+                    >
+                      버리기
+                    </button>
+                  </div>
+                  <ul className="mt-1.5 max-h-96 space-y-1 overflow-auto">
+                    {ai.rows.map((r) => {
+                      const dropped = aiDrop.has(r.id);
+                      return (
+                        <li
+                          key={r.id}
+                          className={`rounded-lg px-2 py-1.5 text-sm ring-1 ${
+                            dropped
+                              ? "bg-slate-100 text-slate-400 ring-slate-200"
+                              : r.sure
+                                ? "bg-white ring-slate-200"
+                                : "bg-amber-50 ring-amber-200"
+                          }`}
+                        >
+                          <div className="flex flex-wrap items-baseline gap-x-2">
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setAiDrop((prev) => {
+                                  const next = new Set(prev);
+                                  if (next.has(r.id)) next.delete(r.id);
+                                  else next.add(r.id);
+                                  return next;
+                                })
+                              }
+                              className="shrink-0 rounded bg-slate-200 px-1.5 text-[11px] font-bold text-slate-600"
+                            >
+                              {dropped ? "되살리기" : "아니요"}
+                            </button>
+                            <span className="min-w-0 font-semibold">{r.title}</span>
+                            {r.copies > 1 && (
+                              <span className="rounded bg-rose-100 px-1 text-[11px] font-bold text-rose-800">
+                                {r.copies}권
+                              </span>
+                            )}
+                            {!r.sure && (
+                              <span className="rounded bg-amber-200 px-1 text-[10px] font-bold text-amber-900">
+                                확실하지 않음
+                              </span>
+                            )}
+                            {r.why && <span className="text-[11px] text-slate-500">{r.why}</span>}
+                          </div>
+                          <div className="mt-0.5 flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-slate-600">
+                            {r.series && (
+                              <span>
+                                시리즈 <b className="text-violet-800">{r.series}</b>
+                                {r.series_no != null ? ` ${r.series_no}권` : ""}
+                              </span>
+                            )}
+                            {r.author && (
+                              <span>
+                                작가 <b className="text-gia-navy">{r.author}</b>
+                              </span>
+                            )}
+                            {r.category && (
+                              <span>
+                                분류 <b className="text-gia-navy">{r.category}</b>
+                              </span>
+                            )}
+                            {r.audience && (
+                              <span>
+                                대상 <b className="text-gia-navy">{r.audience}</b>
+                              </span>
+                            )}
+                          </div>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                </>
+              )}
+            </div>
 
             <div className="mt-2 flex flex-wrap items-center gap-2">
               <input
