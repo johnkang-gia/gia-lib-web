@@ -265,7 +265,21 @@ export default function PlanClient({
    * 자체가 「단어 얼마 안 되는 책부터」이고, 거기에는 **쪽수**가 바로 맞습니다 - 구글북스와
    * 오픈라이브러리가 줍니다. 시리즈는 어느 쪽을 골라도 반드시 붙여 둡니다.
    */
-  const [order, setOrder] = useState<PlanOrder>("이름순");
+  /*
+    ── 등급 하나를 정리할 때는 **난이도 오름차순이 기본** ───────────────────
+    요청: "4-1은 낮은 난이도 도서부터 끝에는 높은 난이도 도서까지 정리해주는 건데."
+
+    등급 안에서 책장을 읽는 축이 난이도라는 뜻입니다 - 4-1 이 가장 쉽고 마지막 칸이 가장
+    어렵습니다. 아이가 자기 수준의 칸 앞에 서면 그 칸 전체가 읽을 수 있는 책입니다.
+    (같은 난이도끼리는 이름순이라, 반납된 책도 그 자리를 찾을 수 있습니다.)
+
+    등급을 고르지 않고 전체를 볼 때는 예전처럼 이름순입니다.
+  */
+  const [order, setOrder] = useState<PlanOrder>(
+    Number.isFinite(Number(params.get("level"))) && Number(params.get("level")) > 0
+      ? "얇은책순"
+      : "이름순"
+  );
 
   /** 쪽수를 아는 책이 몇 권인지, 아직 안 물어본 책이 몇 권인지. */
   const [pagesKnown, setPagesKnown] = useState(0);
@@ -315,6 +329,18 @@ export default function PlanClient({
   const [ai, setAi] = useState<{ rows: AiRow[]; left: number } | null>(null);
   /** AI 기능이 켜져 있는지(ANTHROPIC_API_KEY 가 들어 있는지). null 이면 아직 확인 전. */
   const [aiReady, setAiReady] = useState<boolean | null>(null);
+
+  /** 정식 등록 전 점검 결과(그 등급 책이 몇 권 제자리에 찍혔는지). */
+  const [fin, setFin] = useState<{
+    level: number;
+    zones: number;
+    alreadyFormal: number;
+    total: number;
+    placed: number;
+    notPlacedCount: number;
+    notPlaced: { id: string; title: string; copies: number; at: string | null; goTo: string | null }[];
+  } | null>(null);
+  const [finBusy, setFinBusy] = useState(false);
   const [aiBusy, setAiBusy] = useState(false);
   const [aiDrop, setAiDrop] = useState<Set<string>>(new Set());
   const [tagBusy, setTagBusy] = useState(false);
@@ -856,6 +882,43 @@ export default function PlanClient({
       router.refresh();
     } finally {
       setAiBusy(false);
+    }
+  }
+
+  /**
+   * **정식 책장으로 등록** — 한 등급의 정리를 끝맺습니다.
+   *
+   * 요청: "그것대로 정리를 내가 하고 나면 정식 책장으로 등록(정식 책장이 되면 구역 프린트
+   * 가능하고 정식으로 각 책에 위치가 등록됨)."
+   *
+   * 끝맺기 전에 **몇 권이 제자리에 찍혔는지** 먼저 세어 보여 줍니다. 안 찍힌 책은 제자리 없는
+   * 책으로 남으니까요. 막지는 않습니다 - 몇 권 빼 두는 경우도 있습니다.
+   */
+  async function checkFinal(go: boolean) {
+    if (onlyLevel == null || finBusy) return;
+    setFinBusy(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/plan/finalize", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: go ? "finalize" : "check", level: onlyLevel }),
+      });
+      const j = await res.json();
+      if (!res.ok || j.error) {
+        setError(j?.error ?? "끝맺지 못했습니다.");
+        return;
+      }
+      setFin(j.check ?? null);
+      if (go) {
+        setMessage(
+          `${onlyLevel}등급 칸 ${j.formal}개를 정식 책장으로 등록했습니다 — 구역 라벨을 뽑아 붙이실 수 있습니다`
+        );
+        setFin(null);
+        router.refresh();
+      }
+    } finally {
+      setFinBusy(false);
     }
   }
 
@@ -2598,6 +2661,104 @@ export default function PlanClient({
           </button>
         </div>
       </section>
+
+      {/* ── ⑤ 정리 끝 — 정식 책장으로 ─────────────────────────────────── */}
+      {onlyLevel != null && (
+        <section className={card}>
+          <h2 className="text-sm font-bold text-slate-500">⑤ 정리를 마쳤으면 — 정식 책장으로 등록</h2>
+          <p className="mt-1 text-xs leading-relaxed text-slate-500">
+            지금 이 칸들은 <b>임시</b>입니다 — 「무작정 꽂아 둔 칸」이라는 뜻이고, 그래서 자리를 알려줄 때도
+            「아마 거기」였습니다. 실제로 다 옮기고 <b>자리 등록에서 찍어</b> 넣었다면 그 자리가 이제 그 책의
+            <b> 제자리</b>입니다. 그 사실을 적는 것이 이 걸음입니다.
+          </p>
+          <ul className="mt-2 space-y-1 text-xs leading-relaxed text-slate-600">
+            <li>· {onlyLevel}등급 칸이 <b>정식</b>이 됩니다 — <b>구역 라벨</b>을 뽑아 코팅해 붙일 수 있습니다</li>
+            <li>· 칸마다 <b>정리를 마친 시각</b>이 남습니다</li>
+            <li>
+              · 그 등급 책의 <b>「가야 할 자리」를 비웁니다</b> — 이제 가야 할 곳이 아니라 <b>있는 곳</b>이
+              답입니다. 책을 찍거나 검색하면 그 자리가 나오고, 반납 정리도 그 자리로 묶입니다
+            </li>
+          </ul>
+
+          {fin && (
+            <div
+              className={`mt-3 rounded-xl px-3 py-2.5 ring-1 ${
+                fin.notPlacedCount === 0 ? "bg-emerald-50 ring-emerald-200" : "bg-amber-50 ring-amber-200"
+              }`}
+            >
+              <p className="text-sm font-bold text-slate-800">
+                {fin.level}등급 {fin.total}권 중 <b className="text-gia-navy">{fin.placed}권</b>이 이 등급 칸에
+                찍혀 있습니다
+                {fin.notPlacedCount > 0 && ` · 아직 ${fin.notPlacedCount}권이 밖에 있습니다`}
+              </p>
+              {fin.notPlacedCount > 0 ? (
+                <>
+                  <p className="mt-0.5 text-xs leading-relaxed text-amber-900">
+                    밖에 있는 책은 <b>제자리 없는 책</b>으로 남습니다. 꽂은 뒤 <b>자리 등록</b>에서 찍으면
+                    제자리가 됩니다 — 몇 권 일부러 빼 두신 것이면 그대로 진행하셔도 됩니다.
+                  </p>
+                  <ul className="mt-1.5 max-h-44 space-y-0.5 overflow-auto text-sm">
+                    {fin.notPlaced.map((b) => (
+                      <li key={b.id} className="flex flex-wrap items-baseline gap-x-2">
+                        <span className="text-slate-800">{b.title}</span>
+                        {b.copies > 1 && (
+                          <span className="rounded bg-rose-100 px-1 text-[11px] font-bold text-rose-800">
+                            {b.copies}권
+                          </span>
+                        )}
+                        <span className="ml-auto text-xs text-slate-500">
+                          {b.at ? `지금 ${b.at}` : "자리 없음"}
+                          {b.goTo ? ` · 갈 칸 ${b.goTo}` : ""}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                </>
+              ) : (
+                <p className="mt-0.5 text-xs font-semibold text-emerald-800">
+                  모두 제자리에 있습니다 — 끝맺어도 좋습니다.
+                </p>
+              )}
+            </div>
+          )}
+
+          <div className="mt-3 flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={() => void checkFinal(false)}
+              disabled={finBusy}
+              className="rounded-xl border border-slate-300 px-4 py-2.5 text-sm font-semibold text-slate-700 disabled:opacity-40"
+            >
+              {finBusy ? "세는 중…" : "먼저 점검하기 — 몇 권이 제자리에 있나"}
+            </button>
+            <button
+              type="button"
+              onClick={() => void checkFinal(true)}
+              disabled={finBusy || fin == null}
+              title={fin == null ? "먼저 점검해 주세요" : undefined}
+              className="rounded-xl bg-emerald-600 px-5 py-2.5 text-sm font-bold text-white disabled:opacity-40"
+            >
+              ✓ {onlyLevel}등급 정식 책장으로 등록
+            </button>
+            <button
+              type="button"
+              onClick={() =>
+                window.open(
+                  `/print/shelf-labels?ids=${targetZones.map((z) => z.id).join(",")}`,
+                  "_blank"
+                )
+              }
+              className="rounded-xl border border-slate-300 px-4 py-2.5 text-sm font-semibold text-slate-700"
+            >
+              🖨 {onlyLevel}등급 구역 라벨 인쇄
+            </button>
+          </div>
+          <p className="mt-1.5 text-[11px] text-slate-500">
+            점검을 한 번 눌러 숫자를 본 뒤에 등록할 수 있게 해 두었습니다 — 모르고 끝맺으면 밖에 있는 책이
+            조용히 제자리를 잃습니다.
+          </p>
+        </section>
+      )}
     </div>
   );
 }

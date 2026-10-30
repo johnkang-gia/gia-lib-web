@@ -103,6 +103,19 @@ export default async function PrintShelfLabelsPage({
             <p className="font-bold">
               책장 구역 라벨 {locations.length}장 · A4 {pages.length}장
             </p>
+            {/*
+              아직 임시인 칸의 라벨을 코팅해 붙이면, 정리 뒤에 또 떼야 합니다. 그래서 몇 칸이
+              임시인지 먼저 말해 줍니다 - 막지는 않습니다(미리 뽑아 두는 경우도 있습니다).
+            */}
+            {locations.some((l) => l.kind === "임시") && (
+              <p className="mt-1 rounded-lg bg-amber-50 px-2.5 py-1.5 text-xs leading-relaxed text-amber-900">
+                <b>
+                  {locations.filter((l) => l.kind === "임시").length}칸이 아직 「임시」입니다
+                </b>{" "}
+                — 정리를 마치고 <b>정식 책장으로 등록</b>한 뒤에 뽑으시면 아래 범위가 그대로 맞습니다(정리 계획
+                화면 ⑤). 지금 뽑으면 정리 뒤에 다시 뽑아야 할 수 있습니다.
+              </p>
+            )}
             <p className="mt-1 text-xs leading-relaxed text-slate-500">
               인쇄 설정에서 <b>배율 100%</b>, <b>여백 없음</b>으로 맞춰주세요. <b>코팅해서</b> 책장 칸
               앞면이나 선반 모서리에 붙이면 오래 씁니다. 위쪽 색 띠는 <b>라벨 등급 색</b>이고, 가운데
