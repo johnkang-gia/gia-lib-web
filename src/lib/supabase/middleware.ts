@@ -52,8 +52,17 @@ export async function updateSession(request: NextRequest) {
     : null;
 
   const path = request.nextUrl.pathname;
+  /*
+    로그인 없이도 열리는 길. 로그인 화면과,
+    **아무 자료도 내보내지 않는 점검 창구**(/api/ai-status - AI 기능이 켜져 있는지 true/false
+    하나)만 둡니다. 로그인이 막아 버리면 배포 직후 「키가 들어갔나」를 확인할 수가 없어서,
+    안 되는 이유를 짚지 못한 채 설정 화면과 앱 사이를 오가게 됩니다.
+  */
   const isAuthRoute =
-    path.startsWith("/login") || path.startsWith("/auth") || path.startsWith("/pending");
+    path.startsWith("/login") ||
+    path.startsWith("/auth") ||
+    path.startsWith("/pending") ||
+    path === "/api/ai-status";
 
   if (!user && !isAuthRoute) {
     const url = request.nextUrl.clone();
