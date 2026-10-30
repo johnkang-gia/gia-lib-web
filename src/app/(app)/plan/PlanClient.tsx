@@ -186,6 +186,26 @@ export default function PlanClient({
     return m;
   }, [books]);
 
+  /*
+    AI 가 켜져 있는지 한 번 물어봅니다. 꺼져 있으면 버튼을 눌러 보고 나서 실패를 알게 되는 대신,
+    **누르기 전에** 무엇을 해야 하는지 적어 둘 수 있습니다.
+  */
+  useEffect(() => {
+    let alive = true;
+    void (async () => {
+      try {
+        const res = await fetch("/api/ai-status", { cache: "no-store" });
+        const j = (await res.json()) as { ai?: boolean };
+        if (alive) setAiReady(Boolean(j.ai));
+      } catch {
+        if (alive) setAiReady(null);
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, []);
+
   const cal = useMemo(
     () => calibrate(locations.map((l) => ({ id: l.id, capacity_mm: l.capacity_mm })), booksByZone),
     [locations, booksByZone]
@@ -293,6 +313,8 @@ export default function PlanClient({
     why: string | null;
   };
   const [ai, setAi] = useState<{ rows: AiRow[]; left: number } | null>(null);
+  /** AI 기능이 켜져 있는지(ANTHROPIC_API_KEY 가 들어 있는지). null 이면 아직 확인 전. */
+  const [aiReady, setAiReady] = useState<boolean | null>(null);
   const [aiBusy, setAiBusy] = useState(false);
   const [aiDrop, setAiDrop] = useState<Set<string>>(new Set());
   const [tagBusy, setTagBusy] = useState(false);
@@ -2313,11 +2335,22 @@ export default function PlanClient({
                 <button
                   type="button"
                   onClick={() => void askAi()}
-                  disabled={aiBusy}
+                  disabled={aiBusy || aiReady === false}
                   className="rounded-lg bg-gia-navy px-3 py-1.5 text-xs font-bold text-white disabled:opacity-40"
                 >
                   {aiBusy ? "읽는 중…" : ai ? "다음 50권 더" : "50권 읽어 오기"}
                 </button>
+                {aiReady === false && (
+                  <span className="rounded-lg bg-amber-100 px-2 py-1 text-[11px] font-bold text-amber-900">
+                    아직 꺼져 있습니다 — Vercel의 gia-lib-web → Settings → Environment Variables 에
+                    ANTHROPIC_API_KEY 를 넣고 다시 배포해 주세요
+                  </span>
+                )}
+                {aiReady === true && (
+                  <span className="rounded-lg bg-emerald-100 px-2 py-0.5 text-[11px] font-bold text-emerald-800">
+                    켜져 있습니다
+                  </span>
+                )}
                 <span className="text-[11px] text-slate-500">
                   제목으로 <b>시리즈·작가·분류·대상·렉사일</b>을 채웁니다. <b>분류·대상·렉사일은 비워 두지
                   않습니다</b>(정리에 쓰는 값이라 비면 순서에서 빠집니다 — 짐작한 값은 「확실하지 않음」으로
