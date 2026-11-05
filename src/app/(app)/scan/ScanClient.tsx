@@ -160,16 +160,46 @@ export default function ScanClient({
     setBanner({ tone, title, sub, seq: seqRef.current });
   }, []);
 
+  /**
+   * **글자로 찾을 때 무엇을 찾는지** — 학생인지 책인지.
+   *
+   * 요청: "해리포터 검색할려고 harry 쳤더니 우리 학교 현우가 나왔어. 학생 검색이랑 책 검색을
+   * 분리해야 할 거 같아."
+   *
+   * 그 학생의 영문 이름이 Harry 였습니다. 사람 이름과 책 제목은 겹치므로(Harry, Daniel,
+   * Oliver…) 한 입력칸이 알아서 가려 주기를 기대할 수 없습니다. 그래서 **사람이 고릅니다.**
+   *
+   * **바코드는 이 고름과 무관합니다** - 학생카드든 책 바코드든 찍으면 그대로 알아봅니다.
+   * 이 고름은 **글자를 쳐서 찾을 때만** 쓰입니다.
+   */
+  const [findWhat, setFindWhat] = useState<"student" | "book">("student");
+  useEffect(() => {
+    try {
+      const saved = window.localStorage.getItem("gia-find-what");
+      if (saved === "book" || saved === "student") setFindWhat(saved);
+    } catch {
+      /* 저장이 막혀 있어도 찾기는 됩니다. */
+    }
+  }, []);
+  const pickFindWhat = useCallback((next: "student" | "book") => {
+    setFindWhat(next);
+    try {
+      window.localStorage.setItem("gia-find-what", next);
+    } catch {
+      /* 기억하지 못해도 이번 찾기는 됩니다. */
+    }
+  }, []);
+
   const send = useCallback(
     async (code: string, opts: { mode?: "cart"; action?: "return" } = {}) => {
       const res = await fetch("/api/scan", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ code, studentNo: null, ...opts }),
+        body: JSON.stringify({ code, studentNo: null, as: findWhat, ...opts }),
       });
       return (await res.json()) as ScanResult;
     },
-    []
+    [findWhat]
   );
 
   const loadStudent = useCallback(
@@ -462,6 +492,33 @@ export default function ScanClient({
     <div className="flex min-h-0 flex-1 flex-col gap-3 p-4 sm:p-5">
       {/* ── 머리말: 찍는 칸 ────────────────────────────────────────────── */}
       <div className="flex flex-wrap items-center gap-3 rounded-2xl bg-white p-4 shadow-sm ring-1 ring-slate-200">
+        {/*
+          ── 글자로 찾을 때 무엇을 찾는지 ──────────────────────────────────
+          바코드를 찍는 데는 아무 영향이 없습니다(찍으면 학생카드든 책이든 알아봅니다).
+          글자를 칠 때만 이쪽을 봅니다 - 이름과 제목이 겹치기 때문입니다.
+        */}
+        <div className="flex shrink-0 overflow-hidden rounded-xl ring-1 ring-slate-300">
+          {(
+            [
+              ["student", `🪪 ${t("학생")}`],
+              ["book", `📚 ${t("책")}`],
+            ] as const
+          ).map(([key, label]) => (
+            <button
+              key={key}
+              type="button"
+              onClick={() => {
+                pickFindWhat(key);
+                inputRef.current?.focus();
+              }}
+              className={`px-3 py-2.5 text-sm font-bold ${
+                findWhat === key ? "bg-gia-navy text-white" : "bg-white text-slate-600"
+              }`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
         <input
           ref={inputRef}
           value={value}
@@ -472,7 +529,11 @@ export default function ScanClient({
               void handleScan(value);
             }
           }}
-          placeholder={t("학생카드 · 책 바코드 · 제목으로 찾기 — 순서는 상관없습니다")}
+          placeholder={
+            findWhat === "book"
+              ? t("바코드를 찍거나, 책 제목·지은이를 적고 Enter")
+              : t("학생카드를 찍거나, 학생 이름을 적고 Enter")
+          }
           className="scan-input min-w-0 flex-1 rounded-2xl border-2 border-dashed border-slate-300 bg-slate-50 px-4 py-3.5 text-center text-lg outline-none focus:border-gia-gold focus:bg-white"
           autoComplete="off"
           spellCheck={false}

@@ -19,6 +19,10 @@ import { EN_GENERATED } from "@/lib/i18n/generated";
  * 어색하면 여기에 적어 덮어 쓰면 됩니다.
  */
 const EN_MANUAL: Record<string, string> = {
+  "책": "Book",
+  "바코드를 찍거나, 책 제목·지은이를 적고 Enter": "Scan a barcode, or type a title or author and press Enter",
+  "학생카드를 찍거나, 학생 이름을 적고 Enter": "Scan a library card, or type a student name and press Enter",
+
   // ── 메뉴(새로 생긴 것들) ────────────────────────────────────────────────
   "재등록 · 라벨 뽑기": "Re-register · print labels",
   "상품코드 책을 ISBN으로 바꿔 적고 라벨 담기": "Swap product codes for ISBNs and queue labels",

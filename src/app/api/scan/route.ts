@@ -60,6 +60,21 @@ export async function POST(request: Request) {
      * 않습니다 - 찍자마자 나간 책을 목록에서 빼려면 반납 처리를 해야 하니까요.
      */
     mode?: "cart";
+    /**
+     * **글자로 찾을 때 무엇을 찾는지** — 학생인지 책인지.
+     *
+     * 요청: "해리포터 검색할려고 harry 쳤더니 우리 학교 현우가 나왔어. 학생 검색이랑 책
+     * 검색을 분리해야 할 거 같아."
+     *
+     * 그 학생의 **영문 이름이 Harry** 였습니다. 지금까지는 학생을 먼저 찾고, 학생이 하나라도
+     * 나오면 책은 아예 찾지 않았습니다(대출·반납이 훨씬 잦아서 그렇게 두었습니다). 그런데
+     * 사람 이름과 책 제목은 **겹칩니다** - Harry, Daniel, Oliver 같은 이름이 영문 이름으로도
+     * 쓰이고 책 제목에도 들어갑니다. 한 입력칸이 알아서 가려 주기를 기대할 수 없습니다.
+     *
+     * 그래서 사람이 고릅니다. 비어 있으면 예전처럼 학생 먼저 봅니다(바코드를 찍는 길은 이
+     * 값과 무관하게 그대로입니다 - 학생카드든 책 바코드든 찍으면 바로 알아봅니다).
+     */
+    as?: "student" | "book";
   };
   try {
     body = await request.json();
@@ -140,6 +155,28 @@ export async function POST(request: Request) {
   // 요청: "종이카드로 사용하기 때문에 분실하거나 잊어버릴 수 있어서, 이름으로도 출입이나
   // 대여를 할 수 있게". 바코드가 아닌 글자가 들어오면 학생 이름으로 봅니다.
   if (!isIsbn(code) && !isItemCode(code) && /[가-힣A-Za-z]/.test(raw) && raw.length >= 2) {
+    /*
+      ── 책만 찾으라고 했으면 학생은 보지 않습니다 ─────────────────────────
+      사람 이름과 책 제목은 겹칩니다(영문 이름 Harry ↔ Harry Potter). 사람이 「책」을 골라
+      두었으면 학생 쪽은 아예 보지 않아야, 찾던 책이 학생에게 가려지지 않습니다.
+    */
+    if (body.as === "book") {
+      const books = await searchBooks(supabase, raw);
+      if (books.length > 0) {
+        return NextResponse.json<ScanResult>({
+          kind: "book_choices",
+          query: raw,
+          books,
+          message: `'${raw}' 책 ${books.length}권을 찾았습니다`,
+        });
+      }
+      return NextResponse.json<ScanResult>({
+        kind: "error",
+        message: `'${raw}' 책을 찾지 못했습니다.`,
+        detail: "제목이나 지은이의 일부만 입력해도 됩니다. 학생을 찾으시려면 위에서 「학생」으로 바꿔주세요.",
+      });
+    }
+
     const like = `%${raw}%`;
     const { data } = await supabase
       .from("lib_students")
@@ -154,6 +191,17 @@ export async function POST(request: Request) {
     // 요청: "책검색은 메인페이지에서 가능하게 해주고" - 메인 화면 입력칸 하나로 학생도 책도
     // 찾을 수 있게 했습니다. 학생을 먼저 보는 이유는 대출·반납이 훨씬 잦기 때문입니다.
     if (found.length === 0) {
+      /*
+        「학생」을 골라 두었으면 책으로 넘어가지 않습니다 - 학생을 찾는 중에 엉뚱한 책 목록이
+        뜨면 그게 더 헷갈립니다. 대신 책에서 찾아보라고 말해 줍니다.
+      */
+      if (body.as === "student") {
+        return NextResponse.json<ScanResult>({
+          kind: "error",
+          message: `'${raw}' 학생을 찾지 못했습니다.`,
+          detail: "이름의 일부만 입력해도 됩니다. 책을 찾으시려면 위에서 「책」으로 바꿔주세요.",
+        });
+      }
       const books = await searchBooks(supabase, raw);
       if (books.length > 0) {
         return NextResponse.json<ScanResult>({
