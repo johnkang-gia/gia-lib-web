@@ -19,6 +19,18 @@ import { EN_GENERATED } from "@/lib/i18n/generated";
  * 어색하면 여기에 적어 덮어 쓰면 됩니다.
  */
 const EN_MANUAL: Record<string, string> = {
+  "학생 이름으로 찾기": "Find a student by name",
+  "책 제목 · 지은이로 찾기": "Find a book by title or author",
+  "찾기 지우기": "Clear search",
+  "이 학생 맞습니까?": "Is this the right student?",
+  "이 책 맞습니까?": "Is this the right book?",
+  "네, 이 학생입니다": "Yes, that's them",
+  "네, 목록에 담기": "Yes, add it",
+  "그 이름의 학생이 없습니다.": "No student by that name.",
+  "그 제목의 책이 없습니다.": "No book by that title.",
+  "다음 학생": "Next student",
+  "여기에 바코드를 찍어주세요 — 학생카드도 책도 됩니다": "Scan a barcode here — library card or book",
+
   "책": "Book",
   "바코드를 찍거나, 책 제목·지은이를 적고 Enter": "Scan a barcode, or type a title or author and press Enter",
   "학생카드를 찍거나, 학생 이름을 적고 Enter": "Scan a library card, or type a student name and press Enter",
@@ -282,7 +294,6 @@ const EN_MANUAL: Record<string, string> = {
     "Student card · book barcode · search by title — any order",
   "오늘 대출": "Out today",
   "오늘 반납": "Back today",
-  "다음 학생": "Next student",
   "학생카드를 찍어주세요": "Scan a student card",
   "책을 먼저 찍어도 됩니다 — 오른쪽에 쌓아 두고 기다립니다":
     "You can scan books first — they wait on the right",

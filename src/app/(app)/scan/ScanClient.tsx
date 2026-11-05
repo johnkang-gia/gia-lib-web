@@ -172,35 +172,86 @@ export default function ScanClient({
    * **바코드는 이 고름과 무관합니다** - 학생카드든 책 바코드든 찍으면 그대로 알아봅니다.
    * 이 고름은 **글자를 쳐서 찾을 때만** 쓰입니다.
    */
-  const [findWhat, setFindWhat] = useState<"student" | "book">("student");
-  useEffect(() => {
-    try {
-      const saved = window.localStorage.getItem("gia-find-what");
-      if (saved === "book" || saved === "student") setFindWhat(saved);
-    } catch {
-      /* 저장이 막혀 있어도 찾기는 됩니다. */
-    }
-  }, []);
-  const pickFindWhat = useCallback((next: "student" | "book") => {
-    setFindWhat(next);
-    try {
-      window.localStorage.setItem("gia-find-what", next);
-    } catch {
-      /* 기억하지 못해도 이번 찾기는 됩니다. */
-    }
-  }, []);
-
+  /**
+   * ── 칸마다 검색창 ────────────────────────────────────────────────────────
+   *
+   * 요청: "책 검색 결과는 오른쪽 책목록에 쭉 나와야 하고, 학생 검색 결과는 학생쪽에 뜨도록
+   * 해줘. 그래서 선택하면 맞는지 한번 물어보고 맞다고 하면 학생은 학생쪽으로 책은 책쪽으로
+   * 등록해줘. 아예 검색창을 학생쪽에 하나 책쪽에 하나 만들어서."
+   *
+   * 입력칸 하나로 둘을 다 찾으려 했던 것이 문제였습니다 - 영문 이름이 Harry 인 학생 때문에
+   * 해리포터가 가려졌습니다. 어느 쪽을 찾는지는 **어느 칸에 쳤는지**로 정해지는 것이 가장
+   * 분명합니다. 그래서 학생 칸에 하나, 책 칸에 하나 둡니다.
+   *
+   * 글자를 한 자 칠 때마다 찾고(지우면 지운 대로 줄어듭니다), 고르면 **맞는지 한 번 묻고**
+   * 그때 제자리로 보냅니다 - 이름이 비슷한 학생을 잘못 띄우면 그 아이 대출 기록에 남습니다.
+   */
+  const [stuQ, setStuQ] = useState("");
+  const [stuHits, setStuHits] = useState<LibStudent[]>([]);
+  const [bookQ, setBookQ] = useState("");
+  const [bookHits, setBookHits] = useState<LibBookWithShelf[]>([]);
+  /** 「이 학생/이 책 맞습니까」를 묻는 중인 것. */
+  const [askStudent, setAskStudent] = useState<LibStudent | null>(null);
+  const [askBook, setAskBook] = useState<LibBookWithShelf | null>(null);
   const send = useCallback(
     async (code: string, opts: { mode?: "cart"; action?: "return" } = {}) => {
       const res = await fetch("/api/scan", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ code, studentNo: null, as: findWhat, ...opts }),
+        body: JSON.stringify({ code, studentNo: null, ...opts }),
       });
       return (await res.json()) as ScanResult;
     },
-    [findWhat]
+    []
   );
+
+  /*
+    한 자 칠 때마다 서버에 다녀오면 손보다 느려집니다. 250ms 동안 더 안 치면 그때 한 번
+    다녀옵니다. 글자를 지워 두 자 아래가 되면 결과를 비웁니다 - 「지우면 지운 대로」입니다.
+  */
+  useEffect(() => {
+    const q = stuQ.trim();
+    if (q.length < 2) {
+      setStuHits([]);
+      return;
+    }
+    const id = window.setTimeout(() => {
+      void (async () => {
+        try {
+          const res = await fetch(`/api/find?as=student&q=${encodeURIComponent(q)}`, {
+            cache: "no-store",
+          });
+          const j = (await res.json()) as { students?: LibStudent[] };
+          setStuHits(j.students ?? []);
+        } catch {
+          setStuHits([]);
+        }
+      })();
+    }, 250);
+    return () => window.clearTimeout(id);
+  }, [stuQ]);
+
+  useEffect(() => {
+    const q = bookQ.trim();
+    if (q.length < 2) {
+      setBookHits([]);
+      return;
+    }
+    const id = window.setTimeout(() => {
+      void (async () => {
+        try {
+          const res = await fetch(`/api/find?as=book&q=${encodeURIComponent(q)}`, {
+            cache: "no-store",
+          });
+          const j = (await res.json()) as { books?: LibBookWithShelf[] };
+          setBookHits(j.books ?? []);
+        } catch {
+          setBookHits([]);
+        }
+      })();
+    }, 250);
+    return () => window.clearTimeout(id);
+  }, [bookQ]);
 
   const loadStudent = useCallback(
     async (studentNo: string) => {
@@ -492,33 +543,6 @@ export default function ScanClient({
     <div className="flex min-h-0 flex-1 flex-col gap-3 p-4 sm:p-5">
       {/* ── 머리말: 찍는 칸 ────────────────────────────────────────────── */}
       <div className="flex flex-wrap items-center gap-3 rounded-2xl bg-white p-4 shadow-sm ring-1 ring-slate-200">
-        {/*
-          ── 글자로 찾을 때 무엇을 찾는지 ──────────────────────────────────
-          바코드를 찍는 데는 아무 영향이 없습니다(찍으면 학생카드든 책이든 알아봅니다).
-          글자를 칠 때만 이쪽을 봅니다 - 이름과 제목이 겹치기 때문입니다.
-        */}
-        <div className="flex shrink-0 overflow-hidden rounded-xl ring-1 ring-slate-300">
-          {(
-            [
-              ["student", `🪪 ${t("학생")}`],
-              ["book", `📚 ${t("책")}`],
-            ] as const
-          ).map(([key, label]) => (
-            <button
-              key={key}
-              type="button"
-              onClick={() => {
-                pickFindWhat(key);
-                inputRef.current?.focus();
-              }}
-              className={`px-3 py-2.5 text-sm font-bold ${
-                findWhat === key ? "bg-gia-navy text-white" : "bg-white text-slate-600"
-              }`}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
         <input
           ref={inputRef}
           value={value}
@@ -529,11 +553,7 @@ export default function ScanClient({
               void handleScan(value);
             }
           }}
-          placeholder={
-            findWhat === "book"
-              ? t("바코드를 찍거나, 책 제목·지은이를 적고 Enter")
-              : t("학생카드를 찍거나, 학생 이름을 적고 Enter")
-          }
+          placeholder={t("여기에 바코드를 찍어주세요 — 학생카드도 책도 됩니다")}
           className="scan-input min-w-0 flex-1 rounded-2xl border-2 border-dashed border-slate-300 bg-slate-50 px-4 py-3.5 text-center text-lg outline-none focus:border-gia-gold focus:bg-white"
           autoComplete="off"
           spellCheck={false}
@@ -660,6 +680,110 @@ export default function ScanClient({
       <div className="grid min-h-0 flex-1 gap-3 lg:grid-cols-2">
         {/* ── 왼쪽 ──────────────────────────────────────────────────── */}
         <section className="flex min-h-0 flex-col gap-3 overflow-y-auto rounded-2xl bg-white p-4 shadow-sm ring-1 ring-slate-200">
+          {/* ── 학생 찾기 ─────────────────────────────────────────────── */}
+          <div className="shrink-0">
+            <div className="flex items-center gap-2">
+              <span className="text-sm">🪪</span>
+              <div className="relative min-w-0 flex-1">
+                <input
+                  value={stuQ}
+                  onChange={(e) => {
+                    setStuQ(e.target.value);
+                    setAskStudent(null);
+                  }}
+                  placeholder={t("학생 이름으로 찾기")}
+                  className="w-full rounded-xl border border-slate-300 py-2 pr-8 pl-3 text-sm"
+                  autoComplete="off"
+                />
+                {stuQ && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setStuQ("");
+                      setStuHits([]);
+                      setAskStudent(null);
+                    }}
+                    title={t("찾기 지우기")}
+                    className="absolute top-1/2 right-1.5 -translate-y-1/2 rounded-full bg-slate-200 px-1.5 text-xs font-bold text-slate-600"
+                  >
+                    ✕
+                  </button>
+                )}
+              </div>
+              {student && (
+                <button
+                  type="button"
+                  onClick={nextStudent}
+                  className="shrink-0 rounded-xl border border-slate-300 px-2.5 py-2 text-xs font-semibold text-slate-600"
+                >
+                  {t("다음 학생")}
+                </button>
+              )}
+            </div>
+
+            {/* 고른 학생이 맞는지 한 번 묻습니다 - 이름이 비슷한 아이를 잘못 띄우면 그 아이 기록에 남습니다. */}
+            {askStudent && (
+              <div className="mt-2 rounded-xl bg-amber-50 px-3 py-2.5 ring-1 ring-amber-300">
+                <p className="text-sm text-amber-900">
+                  <b className="text-base">{askStudent.name}</b>{" "}
+                  <span className="text-xs">
+                    {[askStudent.grade, askStudent.class_name].filter(Boolean).join(" ")} ·{" "}
+                    {askStudent.student_no}
+                  </span>
+                  {" — "}
+                  {t("이 학생 맞습니까?")}
+                </p>
+                <div className="mt-1.5 flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const no = askStudent.student_no;
+                      setAskStudent(null);
+                      setStuQ("");
+                      setStuHits([]);
+                      void loadStudent(no);
+                    }}
+                    className="rounded-lg bg-gia-navy px-3 py-1.5 text-xs font-bold text-white"
+                  >
+                    {t("네, 이 학생입니다")}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setAskStudent(null)}
+                    className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-600"
+                  >
+                    {t("아니요")}
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {!askStudent && stuQ.trim().length >= 2 && (
+              <ul className="mt-2 max-h-56 space-y-1 overflow-y-auto">
+                {stuHits.length === 0 && (
+                  <li className="px-1 py-1.5 text-xs text-slate-400">
+                    {t("그 이름의 학생이 없습니다.")}
+                  </li>
+                )}
+                {stuHits.map((st) => (
+                  <li key={st.id}>
+                    <button
+                      type="button"
+                      onClick={() => setAskStudent(st)}
+                      className="flex w-full items-baseline gap-2 rounded-xl bg-slate-50 px-3 py-2 text-left text-sm hover:bg-slate-100"
+                    >
+                      <span className="font-bold text-slate-800">{st.name}</span>
+                      {st.name_en && <span className="text-xs text-slate-400">{st.name_en}</span>}
+                      <span className="ml-auto text-xs text-slate-400">
+                        {[st.grade, st.class_name].filter(Boolean).join(" ")}
+                      </span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+
           {!student ? (
             <div className="flex flex-1 flex-col items-center justify-center text-center">
               <p className="text-5xl">🪪</p>
@@ -855,6 +979,97 @@ export default function ScanClient({
               >
                 {t("목록 비우기")}
               </button>
+            )}
+          </div>
+
+          {/* ── 책 찾기 ───────────────────────────────────────────────── */}
+          <div className="mb-2 shrink-0">
+            <div className="flex items-center gap-2">
+              <span className="text-sm">📚</span>
+              <div className="relative min-w-0 flex-1">
+                <input
+                  value={bookQ}
+                  onChange={(e) => {
+                    setBookQ(e.target.value);
+                    setAskBook(null);
+                  }}
+                  placeholder={t("책 제목 · 지은이로 찾기")}
+                  className="w-full rounded-xl border border-slate-300 py-2 pr-8 pl-3 text-sm"
+                  autoComplete="off"
+                />
+                {bookQ && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setBookQ("");
+                      setBookHits([]);
+                      setAskBook(null);
+                    }}
+                    title={t("찾기 지우기")}
+                    className="absolute top-1/2 right-1.5 -translate-y-1/2 rounded-full bg-slate-200 px-1.5 text-xs font-bold text-slate-600"
+                  >
+                    ✕
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {askBook && (
+              <div className="mt-2 rounded-xl bg-amber-50 px-3 py-2.5 ring-1 ring-amber-300">
+                <p className="text-sm text-amber-900">
+                  <b>{askBook.title}</b>
+                  {askBook.author && <span className="text-xs"> · {askBook.author}</span>}
+                  {" — "}
+                  {t("이 책 맞습니까?")}
+                </p>
+                <div className="mt-1.5 flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const book = askBook;
+                      setAskBook(null);
+                      setBookQ("");
+                      setBookHits([]);
+                      addFromHit(book);
+                    }}
+                    className="rounded-lg bg-gia-navy px-3 py-1.5 text-xs font-bold text-white"
+                  >
+                    {t("네, 목록에 담기")}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setAskBook(null)}
+                    className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-600"
+                  >
+                    {t("아니요")}
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {!askBook && bookQ.trim().length >= 2 && (
+              <ul className="mt-2 max-h-60 space-y-1 overflow-y-auto">
+                {bookHits.length === 0 && (
+                  <li className="px-1 py-1.5 text-xs text-slate-400">
+                    {t("그 제목의 책이 없습니다.")}
+                  </li>
+                )}
+                {bookHits.map((b) => (
+                  <li key={b.id}>
+                    <button
+                      type="button"
+                      onClick={() => setAskBook(b)}
+                      className="flex w-full items-baseline gap-2 rounded-xl bg-slate-50 px-3 py-2 text-left text-sm hover:bg-slate-100"
+                    >
+                      <span className="min-w-0 truncate font-semibold text-slate-800">{b.title}</span>
+                      {b.author && <span className="shrink-0 text-xs text-slate-400">{b.author}</span>}
+                      <span className="ml-auto shrink-0 text-xs font-semibold text-slate-500">
+                        {b.shelf?.code ?? t("자리 없음")}
+                      </span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
             )}
           </div>
 
