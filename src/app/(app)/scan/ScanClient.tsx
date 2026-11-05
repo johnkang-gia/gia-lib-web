@@ -187,11 +187,11 @@ export default function ScanClient({
    * 그때 제자리로 보냅니다 - 이름이 비슷한 학생을 잘못 띄우면 그 아이 대출 기록에 남습니다.
    */
   const [stuQ, setStuQ] = useState("");
-  const [stuHits, setStuHits] = useState<LibStudent[]>([]);
+  const [stuHits, setStuHits] = useState<(LibStudent & { photoUrl?: string | null })[]>([]);
   const [bookQ, setBookQ] = useState("");
   const [bookHits, setBookHits] = useState<LibBookWithShelf[]>([]);
   /** 「이 학생/이 책 맞습니까」를 묻는 중인 것. */
-  const [askStudent, setAskStudent] = useState<LibStudent | null>(null);
+  const [askStudent, setAskStudent] = useState<(LibStudent & { photoUrl?: string | null }) | null>(null);
   const [askBook, setAskBook] = useState<LibBookWithShelf | null>(null);
   const send = useCallback(
     async (code: string, opts: { mode?: "cart"; action?: "return" } = {}) => {
@@ -221,7 +221,9 @@ export default function ScanClient({
           const res = await fetch(`/api/find?as=student&q=${encodeURIComponent(q)}`, {
             cache: "no-store",
           });
-          const j = (await res.json()) as { students?: LibStudent[] };
+          const j = (await res.json()) as {
+            students?: (LibStudent & { photoUrl?: string | null })[];
+          };
           setStuHits(j.students ?? []);
         } catch {
           setStuHits([]);
@@ -723,7 +725,20 @@ export default function ScanClient({
 
             {/* 고른 학생이 맞는지 한 번 묻습니다 - 이름이 비슷한 아이를 잘못 띄우면 그 아이 기록에 남습니다. */}
             {askStudent && (
-              <div className="mt-2 rounded-xl bg-amber-50 px-3 py-2.5 ring-1 ring-amber-300">
+              <div className="mt-2 flex items-start gap-3 rounded-xl bg-amber-50 px-3 py-2.5 ring-1 ring-amber-300">
+                {askStudent.photoUrl ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={askStudent.photoUrl}
+                    alt=""
+                    className="h-20 w-16 shrink-0 rounded-xl object-cover ring-1 ring-amber-200"
+                  />
+                ) : (
+                  <span className="flex h-20 w-16 shrink-0 items-center justify-center rounded-xl bg-amber-100 text-3xl text-amber-300">
+                    🙂
+                  </span>
+                )}
+                <div className="min-w-0">
                 <p className="text-sm text-amber-900">
                   <b className="text-base">{askStudent.name}</b>{" "}
                   <span className="text-xs">
@@ -755,6 +770,7 @@ export default function ScanClient({
                     {t("아니요")}
                   </button>
                 </div>
+                </div>
               </div>
             )}
 
@@ -770,11 +786,28 @@ export default function ScanClient({
                     <button
                       type="button"
                       onClick={() => setAskStudent(st)}
-                      className="flex w-full items-baseline gap-2 rounded-xl bg-slate-50 px-3 py-2 text-left text-sm hover:bg-slate-100"
+                      className="flex w-full items-center gap-2.5 rounded-xl bg-slate-50 px-3 py-2 text-left text-sm hover:bg-slate-100"
                     >
-                      <span className="font-bold text-slate-800">{st.name}</span>
-                      {st.name_en && <span className="text-xs text-slate-400">{st.name_en}</span>}
-                      <span className="ml-auto text-xs text-slate-400">
+                      {/* 얼굴이 보이면 같은 이름·형제도 가립니다. */}
+                      {st.photoUrl ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img
+                          src={st.photoUrl}
+                          alt=""
+                          className="h-11 w-9 shrink-0 rounded-lg object-cover ring-1 ring-slate-200"
+                        />
+                      ) : (
+                        <span className="flex h-11 w-9 shrink-0 items-center justify-center rounded-lg bg-slate-200 text-lg text-slate-400">
+                          🙂
+                        </span>
+                      )}
+                      <span className="min-w-0">
+                        <span className="block font-bold text-slate-800">{st.name}</span>
+                        {st.name_en && (
+                          <span className="block text-xs text-slate-400">{st.name_en}</span>
+                        )}
+                      </span>
+                      <span className="ml-auto shrink-0 text-xs text-slate-400">
                         {[st.grade, st.class_name].filter(Boolean).join(" ")}
                       </span>
                     </button>
@@ -1015,7 +1048,20 @@ export default function ScanClient({
             </div>
 
             {askBook && (
-              <div className="mt-2 rounded-xl bg-amber-50 px-3 py-2.5 ring-1 ring-amber-300">
+              <div className="mt-2 flex items-start gap-3 rounded-xl bg-amber-50 px-3 py-2.5 ring-1 ring-amber-300">
+                {askBook.cover_url ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={askBook.cover_url}
+                    alt=""
+                    className="h-24 w-16 shrink-0 rounded-lg object-cover ring-1 ring-amber-200"
+                  />
+                ) : (
+                  <span className="flex h-24 w-16 shrink-0 items-center justify-center rounded-lg bg-amber-100 text-3xl text-amber-300">
+                    📕
+                  </span>
+                )}
+                <div className="min-w-0">
                 <p className="text-sm text-amber-900">
                   <b>{askBook.title}</b>
                   {askBook.author && <span className="text-xs"> · {askBook.author}</span>}
@@ -1044,6 +1090,7 @@ export default function ScanClient({
                     {t("아니요")}
                   </button>
                 </div>
+                </div>
               </div>
             )}
 
@@ -1059,10 +1106,25 @@ export default function ScanClient({
                     <button
                       type="button"
                       onClick={() => setAskBook(b)}
-                      className="flex w-full items-baseline gap-2 rounded-xl bg-slate-50 px-3 py-2 text-left text-sm hover:bg-slate-100"
+                      className="flex w-full items-center gap-2.5 rounded-xl bg-slate-50 px-3 py-2 text-left text-sm hover:bg-slate-100"
                     >
-                      <span className="min-w-0 truncate font-semibold text-slate-800">{b.title}</span>
-                      {b.author && <span className="shrink-0 text-xs text-slate-400">{b.author}</span>}
+                      {/* 표지가 있으면 함께 — 같은 제목이 여럿일 때 손에 든 책과 맞춰 볼 수 있습니다. */}
+                      {b.cover_url ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img
+                          src={b.cover_url}
+                          alt=""
+                          className="h-12 w-9 shrink-0 rounded object-cover ring-1 ring-slate-200"
+                        />
+                      ) : (
+                        <span className="flex h-12 w-9 shrink-0 items-center justify-center rounded bg-slate-200 text-base text-slate-400">
+                          📕
+                        </span>
+                      )}
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate font-semibold text-slate-800">{b.title}</span>
+                        {b.author && <span className="block text-xs text-slate-400">{b.author}</span>}
+                      </span>
                       <span className="ml-auto shrink-0 text-xs font-semibold text-slate-500">
                         {b.shelf?.code ?? t("자리 없음")}
                       </span>

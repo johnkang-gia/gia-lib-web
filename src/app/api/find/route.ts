@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { withDepartment } from "@/lib/department";
+import { getStudentPhotoUrls } from "@/lib/server/photos";
 import type { LibBookWithShelf, LibStudent } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -39,7 +40,20 @@ export async function GET(request: Request) {
       .order("name", { ascending: true })
       .limit(20);
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-    return NextResponse.json({ students: withDepartment((data ?? []) as LibStudent[]), books: [] });
+    const students = withDepartment((data ?? []) as LibStudent[]);
+    /*
+      ── 얼굴을 함께 보여 줍니다 ───────────────────────────────────────────
+      요청: "학생 검색하면 학생 사진 띄워줘."
+
+      이름만으로는 고를 수 없는 경우가 실제로 많습니다 - 같은 반에 같은 이름, 형제, 영문 이름이
+      같은 아이. 얼굴이 보이면 건너편에서도 가립니다. 사진 버킷은 비공개라 한 시간짜리 서명
+      주소를 그때그때 받습니다(아이 얼굴이라 공개 주소를 만들지 않습니다).
+    */
+    const photos = await getStudentPhotoUrls(supabase, students);
+    return NextResponse.json({
+      students: students.map((st) => ({ ...st, photoUrl: photos[st.student_no] ?? null })),
+      books: [],
+    });
   }
 
   /*
