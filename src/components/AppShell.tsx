@@ -5,6 +5,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { APP_VERSION } from "@/lib/version";
 import { LangProvider, setLang, useLang, useT } from "@/lib/i18n/client";
+import { TranslateOverlay } from "@/lib/i18n/overlay";
 import type { Lang } from "@/lib/i18n";
 
 /**
@@ -192,6 +193,11 @@ export default function AppShell({
   */
   return (
     <LangProvider lang={lang}>
+      {/*
+        영어로 볼 때, 아직 t() 로 감싸지 않은 글귀도 사전에 있으면 바꿔 줍니다. 한국어일 때는
+        아무 일도 하지 않습니다(lib/i18n/overlay.tsx 에 이유를 적어 두었습니다).
+      */}
+      <TranslateOverlay />
       <Shell libraryName={libraryName} email={email}>
         {children}
       </Shell>
