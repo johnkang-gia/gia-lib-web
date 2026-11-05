@@ -1,5 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
 import PrintButton from "@/components/PrintButton";
+import { TranslateOverlay } from "@/lib/i18n/overlay";
 import { getLocations } from "@/lib/server/library";
 import { todayKst } from "@/lib/dates";
 import { hasProductCodeAsId } from "@/lib/scan";
@@ -101,6 +102,7 @@ export default async function ProductCodeListPage({
 
   return (
     <div className="mx-auto max-w-4xl p-6 print:p-0">
+      <TranslateOverlay standalone />
       <div className="no-print mb-5 flex items-center gap-3">
         <div>
           <h1 className="text-lg font-bold">상품코드 책 확인 목록</h1>

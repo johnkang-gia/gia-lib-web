@@ -1,5 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
 import PrintButton from "@/components/PrintButton";
+import { TranslateOverlay } from "@/lib/i18n/overlay";
 import { todayKst } from "@/lib/dates";
 import { fetchAll } from "@/lib/server/fetchAll";
 import type { MovePlanRow } from "@/lib/types";
@@ -53,6 +54,7 @@ export default async function MoveListPage({
 
   return (
     <div className="mx-auto max-w-4xl p-6 print:p-0">
+      <TranslateOverlay standalone />
       <div className="mb-5 flex items-center gap-3 no-print">
         <div>
           <h1 className="text-lg font-bold">도서 이동 목록</h1>

@@ -2,6 +2,7 @@ import { labelCode } from "@/lib/scan";
 import Barcode from "@/components/Barcode";
 import { code128Modules } from "@/lib/code128";
 import PrintButton from "@/components/PrintButton";
+import { TranslateOverlay } from "@/lib/i18n/overlay";
 import RecordPrintJob from "@/components/RecordPrintJob";
 import { createClient } from "@/lib/supabase/server";
 import type { LibBook } from "@/lib/types";
@@ -148,6 +149,7 @@ export default async function PrintLabelsPage({
 
   return (
     <div className="min-h-screen bg-slate-100 py-6">
+      <TranslateOverlay standalone />
       <RecordPrintJob kind="labels" title={jobTitle} targets={books.map((b) => b.id)} />
       <style>{`@page { size: A4; margin: 10mm; }`}</style>
 

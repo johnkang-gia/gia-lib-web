@@ -12,7 +12,13 @@
  *
  * 띄어쓰기·문장부호까지 똑같아야 찾힙니다. 왼쪽을 고칠 때는 화면 쪽도 함께 고쳐야 합니다.
  */
-export const EN: Record<string, string> = {
+import { EN_GENERATED } from "@/lib/i18n/generated";
+
+/**
+ * 손으로 적은 말. **일괄 번역분(generated.ts)보다 이쪽이 먼저입니다** - 기계가 옮긴 말이
+ * 어색하면 여기에 적어 덮어 쓰면 됩니다.
+ */
+const EN_MANUAL: Record<string, string> = {
   // ── 메뉴(새로 생긴 것들) ────────────────────────────────────────────────
   "재등록 · 라벨 뽑기": "Re-register · print labels",
   "상품코드 책을 ISBN으로 바꿔 적고 라벨 담기": "Swap product codes for ISBNs and queue labels",
@@ -335,3 +341,8 @@ export const EN: Record<string, string> = {
     "Nothing borrowed right now. What shall we read today?",
   "이번 달 목표까지 {n}권 남았어요.": "{n} more books to hit this month's goal.",
 };
+
+/**
+ * 화면이 쓰는 사전. 일괄 번역분 위에 손으로 적은 말을 덮습니다.
+ */
+export const EN: Record<string, string> = { ...EN_GENERATED, ...EN_MANUAL };

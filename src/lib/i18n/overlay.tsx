@@ -42,8 +42,18 @@ function pick(value: string) {
   return many ?? value;
 }
 
-export function TranslateOverlay() {
-  const lang = useLang();
+export function TranslateOverlay({ standalone = false }: { standalone?: boolean }) {
+  const provided = useLang();
+  /*
+    인쇄 화면(/print/…)은 메뉴 밖에 있어서 말 제공자가 없습니다. 그 화면도 영어로 보여야 하니
+    (방문자에게 구역 라벨·도서카드를 보여 줄 수 있습니다) 쿠키를 직접 읽습니다.
+  */
+  const lang =
+    standalone && typeof document !== "undefined"
+      ? document.cookie.includes("gia-lang=en")
+        ? "en"
+        : "ko"
+      : provided;
 
   useEffect(() => {
     if (lang !== "en") return;

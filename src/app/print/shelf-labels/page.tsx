@@ -1,5 +1,6 @@
 import Barcode from "@/components/Barcode";
 import PrintButton from "@/components/PrintButton";
+import { TranslateOverlay } from "@/lib/i18n/overlay";
 import { createClient } from "@/lib/supabase/server";
 import { locationBarcode } from "@/lib/scan";
 import type { LibLocation } from "@/lib/types";
@@ -97,6 +98,7 @@ export default async function PrintShelfLabelsPage({
 
   return (
     <div className="min-h-screen bg-slate-100 py-6">
+      <TranslateOverlay standalone />
       <div className="no-print mx-auto mb-6 max-w-[210mm] rounded-xl bg-white p-4 text-sm shadow-sm">
         <div className="flex items-center justify-between">
           <div>

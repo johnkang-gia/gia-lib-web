@@ -1,4 +1,5 @@
 import PrintButton from "@/components/PrintButton";
+import { TranslateOverlay } from "@/lib/i18n/overlay";
 import StudentCard from "@/components/StudentCard";
 import StudentCardBack from "@/components/StudentCardBack";
 import { createClient } from "@/lib/supabase/server";
@@ -133,6 +134,7 @@ function FoldPiece({
   const dim = CARD[size];
   return (
     <div style={{ position: "relative", width: `${dim.w}mm`, height: `${dim.h * 2}mm` }}>
+      <TranslateOverlay standalone />
       {/*
         위 칸은 뒷면을 **180도 돌려서** 넣습니다. 가운데를 접어 뒤로 넘기면 그때 바로 서기
         때문입니다. 돌리지 않으면 뒷면 글씨가 거꾸로 선 카드가 나옵니다.
