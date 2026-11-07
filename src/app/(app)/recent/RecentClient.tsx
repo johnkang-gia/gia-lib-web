@@ -7,6 +7,8 @@ import { createClient } from "@/lib/supabase/client";
 import { formatIsbn } from "@/lib/scan";
 import { dayKeyOf, dayLabel, groupByRegistration, rangeLabel } from "@/lib/registerBatches";
 import type { LibBookWithShelf, LibLocation } from "@/lib/types";
+import { useT } from "@/lib/i18n/client";
+import { rich } from "@/lib/i18n/rich";
 
 /**
  * 최근 등록 - 방금 넣은 책들을 "그때 한 번에 넣은 묶음"으로 보고 바로 고치는 화면.
@@ -28,6 +30,8 @@ export default function RecentClient({
   locations: LibLocation[];
   onLoan: string[];
 }) {
+  /* 화면 글귀는 전부 이 t() 를 지납니다. */
+  const t = useT();
   const router = useRouter();
   const supabase = createClient();
   const [open, setOpen] = useState<Set<string>>(new Set());
@@ -79,10 +83,13 @@ export default function RecentClient({
       <header>
         <h1 className="text-2xl font-bold text-gia-navy">최근 등록</h1>
         <p className="mt-1.5 text-sm leading-relaxed text-slate-500">
-          한 번에 쭉 찍어 넣은 책들이 <b>등록한 시각별로</b> 묶여 있습니다. 구역을 잘못 골랐으면
-          묶음째 옮기고, 한 권만 이상하면 그 줄에서 바로 고치세요. 최근 {books.length}권까지
-          보여줍니다
-          {todayCount > 0 && <> · 오늘 등록 <b>{todayCount}권</b></>}.
+          {rich(
+            t(
+              "한 번에 쭉 찍어 넣은 책들이 **등록한 시각별로** 묶여 있습니다. 구역을 잘못 골랐으면 묶음째 옮기고, 한 권만 이상하면 그 줄에서 바로 고치세요. 최근 {n}권까지 보여줍니다",
+              { n: books.length }
+            )
+          )}
+          {todayCount > 0 && <> · {rich(t("오늘 등록 **{n}권**", { n: todayCount }))}</>}.
         </p>
       </header>
 

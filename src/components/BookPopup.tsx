@@ -2,6 +2,7 @@
 
 import { formatIsbn } from "@/lib/scan";
 import type { LibBookWithShelf, LibLoan, LibLocation } from "@/lib/types";
+import { useT } from "@/lib/i18n/client";
 
 export type BookPopupState =
   | {
@@ -55,6 +56,8 @@ export default function BookPopup({
   /** 연장 규칙이 켜져 있고 아직 연장 횟수가 남았는지. */
   canRenew: boolean;
 }) {
+  /* 화면 글귀는 전부 이 t() 를 지납니다. */
+  const t = useT();
   const known = state.kind === "known" ? state : null;
   const book = known?.book;
   const onLoan = known ? known.activeLoans.length : 0;
@@ -172,7 +175,10 @@ export default function BookPopup({
                     </span>
                   )}
                   <span className="rounded-lg bg-slate-100 px-3 py-1.5 text-sm font-semibold text-slate-600">
-                    보유 {book.total_copies}권 · 대출 가능 {known.available}권
+                    {t("보유 {a}권 · 대출 가능 {b}권", {
+                      a: book.total_copies,
+                      b: known.available,
+                    })}
                   </span>
                 </div>
 

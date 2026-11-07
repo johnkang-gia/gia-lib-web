@@ -196,8 +196,13 @@ export default function TidyClient({ levels }: { levels: LibLabelLevel[] }) {
       if (!res.ok) throw new Error(json?.error ?? "바꾸지 못했습니다.");
       setAudit(json.audit as TidyAudit);
       setMessage(
-        `${zone?.code ?? "이 칸"} 을 ${json.after.copies}권으로 바꿨습니다` +
-          ` (전에는 ${json.before.copies}권${json.removed > 0 ? ` · 떠난 책 ${json.removed}종을 지웠습니다` : ""})`
+        t("{zone} 을 {after}권으로 바꿨습니다", {
+          zone: zone?.code ?? t("이 칸"),
+          after: json.after.copies,
+        }) +
+          ` (${t("전에는 {n}권", { n: json.before.copies })}${
+            json.removed > 0 ? ` · ${t("떠난 책 {n}종을 지웠습니다", { n: json.removed })}` : ""
+          })`
       );
       try {
         window.localStorage.removeItem(`gia-tidy-${zoneId}`);
@@ -288,9 +293,9 @@ export default function TidyClient({ levels }: { levels: LibLabelLevel[] }) {
                   mode === "rescan" ? "bg-gia-navy text-white ring-gia-navy" : "bg-white text-slate-700 ring-slate-300"
                 }`}
               >
-                🔄 {level}등급 책장을 지금 다시 찍기
+                {t("🔄 {lv}등급 책장을 지금 다시 찍기", { lv: level })}
                 <span className="block text-[11px] font-medium opacity-75">
-                  칸마다 통째로 바꿉니다 — 떠난 책이 기록에서 사라집니다
+                  {t("칸마다 통째로 바꿉니다 — 떠난 책이 기록에서 사라집니다")}
                 </span>
               </button>
             </div>
@@ -343,8 +348,10 @@ export default function TidyClient({ levels }: { levels: LibLabelLevel[] }) {
                         {z.code}
                       </span>
                       <span className="text-sm text-slate-700">
-                        지금 기록 <b>{z.copies}권</b>
-                        <span className="ml-1 text-xs text-slate-400">({z.titles}종)</span>
+                        {rich(t("지금 기록 **{n}권**", { n: z.copies }))}
+                        <span className="ml-1 text-xs text-slate-400">
+                          {t("({n}종)", { n: z.titles })}
+                        </span>
                       </span>
                       <span className="text-xs text-slate-400">
                         {z.lastCheckedAt
@@ -406,8 +413,11 @@ export default function TidyClient({ levels }: { levels: LibLabelLevel[] }) {
                           <div className="mt-2 rounded-xl bg-rose-50 px-3 py-2.5">
                             <p className="text-sm font-bold text-rose-800">등록되지 않은 번호입니다</p>
                             <p className="mt-0.5 text-xs text-rose-700">
-                              장서에 없는 책입니다 — <Link href="/relabel" className="underline">재등록 · 라벨 뽑기</Link>
-                              에서 먼저 등록하고 오세요. 찍은 목록은 그대로 있습니다.
+                              {t("장서에 없는 책입니다 —")}{" "}
+                              <Link href="/relabel" className="underline">
+                                {t("재등록 · 라벨 뽑기")}
+                              </Link>
+                              {t("에서 먼저 등록하고 오세요. 찍은 목록은 그대로 있습니다.")}
                             </p>
                           </div>
                         )}
@@ -428,8 +438,13 @@ export default function TidyClient({ levels }: { levels: LibLabelLevel[] }) {
                                   }}
                                   className="rounded-lg bg-white px-3 py-1.5 text-sm font-semibold ring-1 ring-amber-300"
                                 >
-                                  {b.label_level ?? "등급없음"}등급 · {b.title}
-                                  <span className="ml-1 text-xs text-slate-400">장서 {b.total_copies}권</span>
+                                  {b.label_level != null
+                                    ? t("{lv}등급", { lv: b.label_level })
+                                    : t("등급없음")}{" "}
+                                  · {b.title}
+                                  <span className="ml-1 text-xs text-slate-400">
+                                    {t("장서 {n}권", { n: b.total_copies })}
+                                  </span>
                                 </button>
                               ))}
                             </div>
@@ -437,11 +452,15 @@ export default function TidyClient({ levels }: { levels: LibLabelLevel[] }) {
                         )}
 
                         <p className="mt-2.5 text-sm text-slate-600">
-                          지금까지 <b className="text-gia-navy">{pickedCopies}권</b>
-                          <span className="ml-1 text-xs text-slate-400">({picked.length}종)</span>
+                          {rich(t("지금까지 **{n}권**", { n: pickedCopies }), "text-gia-navy")}
+                          <span className="ml-1 text-xs text-slate-400">
+                            {t("({n}종)", { n: picked.length })}
+                          </span>
                           {strangersInPicked.length > 0 && (
                             <span className="ml-2 text-xs font-semibold text-amber-700">
-                              남의 등급 {strangersInPicked.length}종 섞여 있습니다
+                              {t("남의 등급 {n}종 섞여 있습니다", {
+                                n: strangersInPicked.length,
+                              })}
                             </span>
                           )}
                         </p>
@@ -488,7 +507,10 @@ export default function TidyClient({ levels }: { levels: LibLabelLevel[] }) {
                             disabled={busy}
                             className="rounded-xl bg-emerald-600 px-4 py-2.5 text-sm font-bold text-white disabled:opacity-50"
                           >
-                            ✓ 이 칸 다 찍었습니다 — {z.copies}권 → {pickedCopies}권으로 바꿉니다
+                            {t("✓ 이 칸 다 찍었습니다 — {a}권 → {b}권으로 바꿉니다", {
+                              a: z.copies,
+                              b: pickedCopies,
+                            })}
                           </button>
                           <button
                             type="button"
@@ -503,7 +525,9 @@ export default function TidyClient({ levels }: { levels: LibLabelLevel[] }) {
                         </div>
                         {picked.length === 0 && (
                           <p className="mt-1.5 text-xs text-amber-700">
-                            한 권도 안 찍은 채로 누르면 이 칸을 <b>빈 칸으로</b> 바꿉니다 — 칸을 비웠을 때만 쓰세요.
+                            {rich(
+                              t("한 권도 안 찍은 채로 누르면 이 칸을 **빈 칸으로** 바꿉니다 — 칸을 비웠을 때만 쓰세요.")
+                            )}
                           </p>
                         )}
                       </div>
@@ -517,7 +541,9 @@ export default function TidyClient({ levels }: { levels: LibLabelLevel[] }) {
           {/* ── ④ 장서와 대조 ────────────────────────────────────────── */}
           {audit && (
             <section className={card}>
-              <h2 className="text-sm font-bold text-slate-500">④ {level}등급 장서와 대조</h2>
+              <h2 className="text-sm font-bold text-slate-500">
+                {t("④ {lv}등급 장서와 대조", { lv: level })}
+              </h2>
               {(() => {
                 const diff = audit.catalog.copies - audit.onLevel.copies - audit.loansOut;
                 return (
@@ -526,9 +552,18 @@ export default function TidyClient({ levels }: { levels: LibLabelLevel[] }) {
                       diff === 0 ? "bg-emerald-50 text-emerald-800" : "bg-amber-50 text-amber-900"
                     }`}
                   >
-                    장서 {audit.catalog.copies}권 · 이 등급 칸에서 찍힘 {audit.onLevel.copies}권
-                    {audit.loansOut > 0 && ` · 대출 중 ${audit.loansOut}권`}
-                    {diff === 0 ? " → 다 맞습니다" : ` → ${Math.abs(diff)}권 ${diff > 0 ? "모자랍니다" : "더 나왔습니다"}`}
+                    {t("장서 {a}권 · 이 등급 칸에서 찍힘 {b}권", {
+                      a: audit.catalog.copies,
+                      b: audit.onLevel.copies,
+                    })}
+                    {audit.loansOut > 0 && ` · ${t("대출 중 {n}권", { n: audit.loansOut })}`}
+                    {diff === 0
+                      ? ` ${t("→ 다 맞습니다")}`
+                      : ` ${
+                          diff > 0
+                            ? t("→ {n}권 모자랍니다", { n: Math.abs(diff) })
+                            : t("→ {n}권 더 나왔습니다", { n: Math.abs(diff) })
+                        }`}
                     {audit.strangerCopies > 0 && (
                       <span className="mt-1 block text-xs font-medium opacity-80">
                         {rich(
@@ -546,7 +581,7 @@ export default function TidyClient({ levels }: { levels: LibLabelLevel[] }) {
               {audit.notFound.length > 0 && (
                 <div className="mt-3">
                   <h3 className="text-xs font-bold text-amber-800">
-                    이 등급 칸에서 안 나온 책 {audit.notFound.length}종
+                    {t("이 등급 칸에서 안 나온 책 {n}종", { n: audit.notFound.length })}
                   </h3>
                   <p className="mt-0.5 text-[11px] leading-relaxed text-slate-500">
                     {rich(
@@ -560,7 +595,8 @@ export default function TidyClient({ levels }: { levels: LibLabelLevel[] }) {
                       <li key={b.id} className="flex flex-wrap items-baseline gap-x-2">
                         <span className="text-slate-800">{b.title}</span>
                         <span className="text-xs text-slate-400">
-                          장서 {b.copies}권 · 여기 {b.onLevel}권{b.out > 0 && ` · 대출 ${b.out}권`}
+                          {t("장서 {a}권 · 여기 {b}권", { a: b.copies, b: b.onLevel })}
+                          {b.out > 0 && ` · ${t("대출 {n}권", { n: b.out })}`}
                         </span>
                         <span className="ml-auto text-xs font-semibold text-amber-700">
                           {b.elsewhere.length > 0
@@ -576,7 +612,9 @@ export default function TidyClient({ levels }: { levels: LibLabelLevel[] }) {
               {audit.strangers.length > 0 && (
                 <div className="mt-3">
                   <h3 className="text-xs font-bold text-violet-800">
-                    이 등급 칸에 꽂혀 있는 남의 등급 책 {audit.strangers.length}종
+                    {t("이 등급 칸에 꽂혀 있는 남의 등급 책 {n}종", {
+                      n: audit.strangers.length,
+                    })}
                   </h3>
                   <p className="mt-0.5 text-[11px] leading-relaxed text-slate-500">
                     {t(
@@ -602,7 +640,9 @@ export default function TidyClient({ levels }: { levels: LibLabelLevel[] }) {
               {audit.overCounted.length > 0 && (
                 <div className="mt-3">
                   <h3 className="text-xs font-bold text-rose-800">
-                    찍힌 권수가 장서보다 많은 책 {audit.overCounted.length}종
+                    {t("찍힌 권수가 장서보다 많은 책 {n}종", {
+                      n: audit.overCounted.length,
+                    })}
                   </h3>
                   <p className="mt-0.5 text-[11px] leading-relaxed text-slate-500">
                     실제로 책장에서 나온 숫자가 맞습니다 — 장서 숫자가 모자랍니다.{" "}
@@ -616,7 +656,7 @@ export default function TidyClient({ levels }: { levels: LibLabelLevel[] }) {
                       <li key={b.id} className="flex flex-wrap items-baseline gap-x-2">
                         <span className="text-slate-800">{b.title}</span>
                         <span className="ml-auto text-xs font-semibold text-rose-700">
-                          장서 {b.copies}권 → 찍힘 {b.onLevel}권
+                          {t("장서 {a}권 → 찍힘 {b}권", { a: b.copies, b: b.onLevel })}
                         </span>
                       </li>
                     ))}
@@ -638,7 +678,7 @@ export default function TidyClient({ levels }: { levels: LibLabelLevel[] }) {
                   href={`/plan?level=${level}`}
                   className="rounded-xl bg-gia-navy px-5 py-3 text-sm font-black text-white"
                 >
-                  ▶ {level}등급 정리 시작 — 시리즈 · 알파벳 · 렉사일 순으로
+                  {t("▶ {lv}등급 정리 시작 — 시리즈 · 알파벳 · 렉사일 순으로", { lv: level })}
                 </Link>
                 <button
                   type="button"

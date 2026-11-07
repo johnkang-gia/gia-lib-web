@@ -453,9 +453,9 @@ export default function LocationsClient({
               checked={rows.length > 0 && picked.length === rows.length}
               onChange={(e) => setPicked(e.target.checked ? rows.map((l) => l.id) : [])}
               className="h-4 w-4"
-              aria-label="전체 선택"
+              aria-label={t("전체 선택")}
             />
-            구역 목록 ({rows.length}개)
+            {t("구역 목록 ({n}개)", { n: rows.length })}
             <button
               type="button"
               disabled={busy}
@@ -587,7 +587,7 @@ export default function LocationsClient({
               글자를 읽지 않고도 찾습니다.
             */}
             <span className="flex items-center gap-1.5 text-sm">
-              라벨색
+              {t("라벨색")}
               {levels.map((lv) => (
                 <button
                   key={`lv-${lv}`}
@@ -604,7 +604,7 @@ export default function LocationsClient({
             </span>
 
             <span className="flex items-center gap-1.5 text-sm">
-              색
+              {t("색")}
               {COLORS.map((c) => (
                 <button
                   key={c}
@@ -845,9 +845,9 @@ export default function LocationsClient({
                       type="button"
                       onClick={() => void save(loc.id, { capacity: counts[loc.id] ?? 0 })}
                       className="rounded border border-slate-300 px-1.5 py-1 text-[11px] font-semibold text-slate-600 hover:bg-slate-50"
-                      title="이 칸에 지금 들어 있는 권수를 이 칸의 수용량으로 기록합니다"
+                      title={t("이 칸에 지금 들어 있는 권수를 이 칸의 수용량으로 기록합니다")}
                     >
-                      ← {counts[loc.id]}권으로
+                      {t("← {n}권으로", { n: counts[loc.id] })}
                     </button>
                   )}
                 </span>

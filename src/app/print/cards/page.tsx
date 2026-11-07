@@ -369,9 +369,15 @@ export default async function PrintCardsPage({
         <div className="flex items-center justify-between gap-4">
           <div>
             <p className="font-bold">
-              도서카드 {students.length}장 · {paper} {orientation === "landscape" ? "가로" : "세로"}{" "}
-              {sheetCount}장 · {CARD[size].label}
-              {wantPhoto ? " · 사진 포함" : ""} · {fold ? "접이식(앞뒤 한 장)" : "양면(따로 두 장)"}
+              {t("도서카드 {n}장 · {paper} {dir} {sheets}장 · {card}", {
+                n: students.length,
+                paper,
+                dir: orientation === "landscape" ? t("가로") : t("세로"),
+                sheets: sheetCount,
+                card: t(CARD[size].label),
+              })}
+              {wantPhoto ? ` · ${t("사진 포함")}` : ""} ·{" "}
+              {fold ? t("접이식(앞뒤 한 장)") : t("양면(따로 두 장)")}
             </p>
             <p className="mt-1 text-xs leading-relaxed text-slate-500">
               {rich(

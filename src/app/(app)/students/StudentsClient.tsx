@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { formatDay, formatTime, overdueDays, todayKst } from "@/lib/dates";
 import type { LibLoanWithBook, LibStudent, StudentStat } from "@/lib/types";
+import { useT } from "@/lib/i18n/client";
 
 export default function StudentsClient({
   students,
@@ -12,6 +13,8 @@ export default function StudentsClient({
   students: LibStudent[];
   stats: Record<string, StudentStat>;
 }) {
+  /* 화면 글귀는 전부 이 t() 를 지납니다. */
+  const t = useT();
   const [keyword, setKeyword] = useState("");
   const [picked, setPicked] = useState<LibStudent | null>(null);
   const [history, setHistory] = useState<LibLoanWithBook[] | null>(null);
@@ -88,7 +91,7 @@ export default function StudentsClient({
                         <span className="text-slate-300">-</span>
                       )}
                     </td>
-                    <td className="px-3 py-2 text-slate-500">{stat.total}회</td>
+                    <td className="px-3 py-2 text-slate-500">{t("{n}회", { n: stat.total })}</td>
                   </tr>
                 );
               })}

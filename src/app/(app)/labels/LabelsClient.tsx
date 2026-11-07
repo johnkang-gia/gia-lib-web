@@ -105,11 +105,11 @@ export default function LabelsClient({
           )}
         </p>
         <p className="mt-3 text-sm text-slate-500">
-          라벨이 적힌 책 <b>{totalLabeled}종</b>
+          {rich(t("라벨이 적힌 책 **{n}종**", { n: totalLabeled }))}
           {unlabeled > 0 && (
             <>
               {" · "}
-              라벨 없이 등록된 책 <b>{unlabeled}종</b>
+              {rich(t("라벨 없이 등록된 책 **{n}종**", { n: unlabeled }))}
             </>
           )}
         </p>
@@ -200,7 +200,7 @@ export default function LabelsClient({
                 {r.noNumber}종
                 {r.dupCount > 0 && (
                   <span className="ml-2 text-xs font-normal text-red-600">
-                    번호 겹침 {r.dupCount}건
+                    {t("번호 겹침 {n}건", { n: r.dupCount })}
                   </span>
                 )}
               </Box>

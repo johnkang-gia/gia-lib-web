@@ -3,6 +3,8 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { levelColor } from "@/lib/bookLevels";
+import { useT } from "@/lib/i18n/client";
+import { rich } from "@/lib/i18n/rich";
 
 /** 뷰 한 줄. 계산은 DB(lib_holdings_recount)에서 끝났고 여기서는 보여만 줍니다. */
 export type Mismatch = {
@@ -46,6 +48,8 @@ export default function RecountClient({
   mismatched: Mismatch[];
   batches: FixBatch[];
 }) {
+  /* 화면 글귀는 전부 이 t() 를 지납니다. */
+  const t = useT();
   const router = useRouter();
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState<string | null>(null);
@@ -83,7 +87,7 @@ export default function RecountClient({
     <div className="mx-auto max-w-5xl p-4 sm:p-6">
       <h1 className="text-2xl font-black text-gia-navy">장서 권수 맞추기</h1>
       <p className="mt-1 text-sm text-slate-500">
-        자리 등록에서 <b>찍어서 센 권수</b>를 참인 값으로 보고 장서의 보유 권수를 맞춥니다.
+        {rich(t("자리 등록에서 **찍어서 센 권수**를 참인 값으로 보고 장서의 보유 권수를 맞춥니다."))}
       </p>
 
       {/*
@@ -93,21 +97,27 @@ export default function RecountClient({
       <div className="mt-4 rounded-2xl bg-slate-50 p-4 text-sm leading-relaxed text-slate-700 ring-1 ring-slate-200">
         <p className="font-bold">맞출 권수 = 센 권수 + 찍기 전부터 대출 중이던 권수</p>
         <p className="mt-1 text-xs text-slate-500">
-          3권짜리 책이 책장에서 세 권 나오는 것은 새로운 사실이 아닙니다. 그런데 세는 동안
-          &lsquo;장서추가&rsquo;를 누른 만큼 보유 권수가 부풀었습니다. 찍기 <b>전부터</b> 대출
-          나가 있던 책은 칸에 없었으니 세어지지 않았고, 그 몫만 더해 줍니다(찍은 뒤에 나간 책은
-          이미 세어졌습니다). 대출 중인 권수보다 적게는 내리지 않습니다.
+          {rich(
+            t(
+              "3권짜리 책이 책장에서 세 권 나오는 것은 새로운 사실이 아닙니다. 그런데 세는 동안 ‘장서추가’를 누른 만큼 보유 권수가 부풀었습니다. 찍기 **전부터** 대출 나가 있던 책은 칸에 없었으니 세어지지 않았고, 그 몫만 더해 줍니다(찍은 뒤에 나간 책은 이미 세어졌습니다). 대출 중인 권수보다 적게는 내리지 않습니다."
+            )
+          )}
         </p>
         <p className="mt-2 text-xs text-slate-500">
-          자리 등록에서 <b>한 번도 안 찍은 책은 건드리지 않습니다.</b> 아직 안 돈 칸에 같은 책이
-          더 있으면 그 칸을 찍는 순간 적힌 권수를 넘으므로, 앱이 그때 &lsquo;장서추가&rsquo;를
-          물어봅니다.
+          {rich(
+            t(
+              "자리 등록에서 **한 번도 안 찍은 책은 건드리지 않습니다.** 아직 안 돈 칸에 같은 책이 더 있으면 그 칸을 찍는 순간 적힌 권수를 넘으므로, 앱이 그때 ‘장서추가’를 물어봅니다."
+            )
+          )}
         </p>
       </div>
 
       <div className="mt-4 flex flex-wrap items-center gap-3">
         <span className="rounded-xl bg-white px-4 py-2 text-sm font-bold ring-1 ring-slate-200">
-          찍어서 센 책 <b className="text-gia-navy">{counted.toLocaleString()}</b>종
+          {rich(
+            t("찍어서 센 책 **{n}종**", { n: counted.toLocaleString() }),
+            "text-gia-navy"
+          )}
         </span>
         <span
           className={`rounded-xl px-4 py-2 text-sm font-bold ring-1 ${
@@ -116,7 +126,9 @@ export default function RecountClient({
               : "bg-emerald-50 text-emerald-800 ring-emerald-200"
           }`}
         >
-          {mismatched.length > 0 ? `어긋난 책 ${mismatched.length.toLocaleString()}종` : "전부 맞습니다"}
+          {mismatched.length > 0
+            ? t("어긋난 책 {n}종", { n: mismatched.length.toLocaleString() })
+            : t("전부 맞습니다")}
         </span>
         {mismatched.length > 0 && (
           <button
@@ -125,7 +137,7 @@ export default function RecountClient({
             onClick={() => void run({ action: "apply" })}
             className="rounded-xl bg-gia-navy px-5 py-2.5 text-sm font-bold text-white disabled:opacity-50"
           >
-            🧮 {mismatched.length}종 전부 맞추기
+            {t("🧮 {n}종 전부 맞추기", { n: mismatched.length })}
           </button>
         )}
       </div>
@@ -138,7 +150,7 @@ export default function RecountClient({
 
       {mismatched.length > 0 && (
         <p className="mt-4 text-xs text-slate-500">
-          내릴 책 {down.length}종 · 올릴 책 {up.length}종
+          {t("내릴 책 {a}종 · 올릴 책 {b}종", { a: down.length, b: up.length })}
         </p>
       )}
 
@@ -171,10 +183,11 @@ export default function RecountClient({
                     </span>
                   </p>
                   <p className="mt-1.5 text-xs text-slate-600">
-                    찍어서 센 권수 <b>{r.counted_copies}권</b>
+                    {rich(t("찍어서 센 권수 **{n}권**", { n: r.counted_copies }))}
                     {r.shelves ? ` — ${r.shelves}` : ""}
-                    {r.loans_before > 0 && ` · 찍기 전부터 대출 ${r.loans_before}권`}
-                    {r.loans_out > 0 && ` · 지금 대출 중 ${r.loans_out}권`}
+                    {r.loans_before > 0 &&
+                      ` · ${t("찍기 전부터 대출 {n}권", { n: r.loans_before })}`}
+                    {r.loans_out > 0 && ` · ${t("지금 대출 중 {n}권", { n: r.loans_out })}`}
                   </p>
                 </div>
                 <div className="shrink-0 text-right">

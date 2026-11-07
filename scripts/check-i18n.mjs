@@ -57,14 +57,13 @@ function stripComments(src) {
 }
 
 /**
- * `--split` 을 주면 **값이 끼어들어 토막난 글귀**까지 함께 봅니다.
+ * **값이 끼어들어 토막난 글귀**도 함께 봅니다 — 「담긴 책 {n}권」처럼 값 앞뒤로 글자가 붙은
+ * 자리입니다. 한때 282곳이었고 지금은 0곳이라, 기본으로 막습니다. 다시 늘어나기 시작하면
+ * 그 자리에서 걸립니다.
  *
- * 왜 기본으로 막지 않는가: 「담긴 책 {n}권」처럼 값 앞뒤로 글자가 붙은 자리는 수백 곳이고,
- * 토막 자체는 사전에 올려도 뜻이 통하는 것이 많습니다(「권」 → books). 빌드를 막으면 고칠
- * 겨를 없이 배포가 멈춥니다. 그래서 **통째로 하나인 글귀**만 막고, 토막은 목록으로 보여
- * 차례차례 줄여 갑니다.
+ * `--quiet-split` 을 주면 이 검사를 건너뜁니다(큰 작업 중간에 잠시 쓰는 용도).
  */
-const SPLIT = process.argv.includes("--split");
+const SPLIT = !process.argv.includes("--quiet-split");
 
 const misses = [];
 const split = [];
@@ -115,7 +114,9 @@ for (const file of files) {
       if (skipped(i + 1)) return;
       // 코드 줄은 화면 글이 아닙니다 - 헛걸리면 사람이 검사기를 꺼 버립니다.
       if (/^\s*(const|let|var|return|import|export|if|else|case|type|interface)\b/.test(raw)) return;
-      if (/=>|\.test\(|\?\?|\bawait\b/.test(raw)) return;
+      if (/=>|\.test\(|\?\?|\bawait\b|\.split\(|\/\[/.test(raw)) return;
+      // 여러 줄 템플릿 문자열의 한 줄(역따옴표 짝이 안 맞음) - 코드의 말입니다.
+      if ((raw.match(/`/g) ?? []).length % 2 === 1) return;
       let line = raw;
       // 따옴표·역따옴표 안은 코드의 말이지 화면 글이 아닙니다(t() 열쇠가 여기 들어 있습니다).
       line = line.replace(/`(?:[^`\\]|\\.)*`/g, " ").replace(/"(?:[^"\\]|\\.)*"/g, " ").replace(/'(?:[^'\\]|\\.)*'/g, " ");
@@ -126,6 +127,8 @@ for (const file of files) {
       if (!text || !KO.test(text)) return;
       if (keys.has(text)) return;
       if (/^[\s·,:;.\-—()[\]{}]*$/.test(text)) return;
+      // 객체의 열쇠(「찾는중: ,」처럼 값만 걷혀 나간 줄)는 화면 글이 아닙니다.
+      if (/^[^:]{1,20}:\s*,?$/.test(text)) return;
       split.push({ rel, line: i + 1, text });
     });
   }
@@ -139,18 +142,8 @@ for (const file of files) {
   });
 }
 
-if (SPLIT && split.length > 0) {
-  console.log(`\n· 값이 끼어들어 토막난 글귀 ${split.length}곳 (빌드를 막지는 않습니다)\n`);
-  const byFile = new Map();
-  for (const s of split) {
-    if (!byFile.has(s.rel)) byFile.set(s.rel, []);
-    byFile.get(s.rel).push(s);
-  }
-  for (const [rel, rows] of [...byFile].sort((a, b) => b[1].length - a[1].length)) {
-    console.log(`  ${rel}  (${rows.length})`);
-    for (const r of rows) console.log(`    ${r.line}: ${r.text.slice(0, 90)}`);
-  }
-  console.log("");
+for (const row of split) {
+  misses.push({ rel: row.rel, line: row.line, text: row.text, where: "값이 끼어든 글귀" });
 }
 
 if (misses.length === 0) {

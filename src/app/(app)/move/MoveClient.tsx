@@ -6,6 +6,7 @@ import BarcodeScanner from "@/components/BarcodeScanner";
 import { isBookBarcode, normalizeScan } from "@/lib/scan";
 import type { MoveResult } from "@/lib/types";
 import { useScanFocus } from "@/lib/useScanFocus";
+import { useT } from "@/lib/i18n/client";
 
 type Done = {
   key: string;
@@ -178,6 +179,8 @@ export default function MoveClient({ remaining }: { remaining: number }) {
 }
 
 function ResultPanel({ result }: { result: MoveResult }) {
+  /* 화면 글귀는 전부 이 t() 를 지납니다. */
+  const t = useT();
   if (result.kind === "move") {
     return (
       <div
@@ -202,7 +205,9 @@ function ResultPanel({ result }: { result: MoveResult }) {
       <div className="gia-pop rounded-3xl bg-emerald-500 px-8 py-10 text-center text-white">
         <p className="truncate text-xl font-semibold opacity-80">{result.book.title}</p>
         <p className="mt-3 text-5xl font-black">그대로 두세요</p>
-        <p className="mt-2 text-2xl font-semibold">이미 {result.to.code} 칸입니다</p>
+        <p className="mt-2 text-2xl font-semibold">
+          {t("이미 {zone} 칸입니다", { zone: result.to.code })}
+        </p>
       </div>
     );
   }

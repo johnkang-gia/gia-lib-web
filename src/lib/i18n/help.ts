@@ -10,6 +10,574 @@
  * 말이 한국어와 같은 자리에 있을 이유가 없습니다.
  */
 export const EN_HELP: Record<string, string> = {
+  "{zone} 칸으로 모음":
+    "gathered into slot {zone}",
+  "합치는 중…":
+    "Merging…",
+  "합칠 줄을 고르세요":
+    "Pick the rows to merge",
+  "{rows}줄 합치기 → {n}권":
+    "Merge {rows} rows → {n} copies",
+  "{zone} 칸으로":
+    "to slot {zone}",
+  "새로 등록 {n}권":
+    "{n} newly registered",
+  "복본 추가 {n}권":
+    "{n} copies added",
+  "방금 등록한 책 라벨 {n}장 인쇄":
+    "Print {n} labels for the books just registered",
+  "모아둔 {a}장과 합쳐 {b}장 인쇄":
+    "Print {b} by adding to the {a} already collected",
+  "다 뽑았음 — 모아둔 {n}장 비우기":
+    "All printed — clear the {n} collected",
+  "표지에서 읽은 제목":
+    "Title read from the cover",
+  "(틀렸으면 고쳐주세요)":
+    "(correct it if it is wrong)",
+  "{n}번 더 찍혔습니다.":
+    "Scanned {n} more times.",
+  "잘못해서 두 번 찍으신 건가요, 아니면 같은 책이 여러 권 있나요?":
+    "Was that a double scan by mistake, or are there several copies of the same book?",
+  "같은 책이 여러 권 — {n}권 추가":
+    "Several copies of the same book — add {n}",
+  "담긴 책 {n}권":
+    "{n} books in the list",
+  "(등록 준비 {n}권)":
+    "({n} ready to register)",
+  "라벨 {lv}-":
+    "Label {lv}-",
+  "자리 등록에서 **찍어서 센 권수**를 참인 값으로 보고 장서의 보유 권수를 맞춥니다.":
+    "Takes **the count scanned in Record locations** as the truth and brings the catalog's held count into line.",
+  "3권짜리 책이 책장에서 세 권 나오는 것은 새로운 사실이 아닙니다. 그런데 세는 동안 ‘장서추가’를 누른 만큼 보유 권수가 부풀었습니다. 찍기 **전부터** 대출 나가 있던 책은 칸에 없었으니 세어지지 않았고, 그 몫만 더해 줍니다(찍은 뒤에 나간 책은 이미 세어졌습니다). 대출 중인 권수보다 적게는 내리지 않습니다.":
+    "Finding three copies of a three-copy book on the shelf is not news. But the held count grew by every press of ‘Add to catalog’ during the counting. Books already on loan **before** the scanning were not in the slots and so were never counted; only those are added back (books that went out after being scanned are already counted). The count is never lowered below the number on loan.",
+  "자리 등록에서 **한 번도 안 찍은 책은 건드리지 않습니다.** 아직 안 돈 칸에 같은 책이 더 있으면 그 칸을 찍는 순간 적힌 권수를 넘으므로, 앱이 그때 ‘장서추가’를 물어봅니다.":
+    "**Books never scanned in Record locations are left alone.** If more copies sit in a slot you have not reached, scanning that slot will exceed the recorded count, and the app will ask about ‘Add to catalog’ then.",
+  "찍어서 센 책 **{n}종**":
+    "**{n} titles** counted by scanning",
+  "어긋난 책 {n}종":
+    "{n} titles out of step",
+  "전부 맞습니다":
+    "Everything matches",
+  "🧮 {n}종 전부 맞추기":
+    "🧮 Reconcile all {n} titles",
+  "내릴 책 {a}종 · 올릴 책 {b}종":
+    "{a} titles to lower · {b} to raise",
+  "찍어서 센 권수 **{n}권**":
+    "**{n}** counted by scanning",
+  "찍기 전부터 대출 {n}권":
+    "{n} on loan before the scanning",
+  "지금 대출 중 {n}권":
+    "{n} on loan now",
+  "{n}종의 제목을 바꿨습니다.":
+    "Changed the title of {n} books.",
+  "{n}종은 바꾸지 못했습니다: {why}":
+    "{n} could not be changed: {why}",
+  "그대로 둘 것 {n}종":
+    "{n} to leave as they are",
+  "더 자세한 제목 있음 {n}종":
+    "{n} with a fuller title available",
+  "사람이 봐야 함 {n}종":
+    "{n} need a person to look",
+  "조회처가 못 찾음 {n}종":
+    "{n} not found by any source",
+  "이미 바꿈 {n}종":
+    "{n} already changed",
+  "① 덜 적힌 제목 {n}종 — 묶어서 바꿔도 됩니다":
+    "① {n} incomplete titles — these can be changed in one go",
+  "② 지금 제목과 겹치지 않는 것 {n}종 — 하나씩 봐주세요":
+    "② {n} that do not overlap the current title — please check one by one",
+  "고른 것만 바꾸기 ({n}종)":
+    "Change only the selected ({n})",
+  "고칠 제목이 남아 있지 않습니다.":
+    "No titles left to fix.",
+  "조회처가 못 찾은 {n}종은 「처음부터 다시」로 한 번 더 물어볼 수 있습니다.":
+    "The {n} no source could find can be asked about once more with «Start over».",
+  "바꾼 제목 (최근 {n}종)":
+    "Titles changed (last {n})",
+  "제목이 같은 줄끼리 묶어 **이름순**으로 늘어놓습니다. 장서 {all}종 중 **{g}묶음** · 합치면 {rows}줄이 줄어듭니다.":
+    "Rows with the same title are grouped and listed **by name**. **{g} groups** out of {all} catalog titles · merging removes {rows} rows.",
+  "합치면 → {zone} 칸으로 모읍니다":
+    "On merge → gathered into slot {zone}",
+  "— 합쳤습니다":
+    "— merged",
+  "{rows}줄 · 합치면 {n}권":
+    "{rows} rows · {n} copies once merged",
+  "학생 고유번호(GIA-2026-0001)가 바코드로 들어간 카드를 신용카드 크기(86 × 54mm)로 인쇄합니다. A4 한 장에 10장씩 나오며, 두꺼운 종이에 인쇄해 자르고 코팅하면 됩니다.":
+    "Prints cards at credit-card size (86 × 54mm) with the student number (GIA-2026-0001) as a barcode. Ten per A4 sheet — print on heavy stock, cut and laminate.",
+  "한 장에 **{n}명분**":
+    "**{n} cards** per sheet",
+  "(일부는 눕혀서)":
+    "(some laid on their side)",
+  "선택한 {n}명이면 {sheets}장":
+    "{n} selected means {sheets} sheets",
+  "선택한 {n}명의 이름 표기를":
+    "Set the name style of the {n} selected to",
+  "📷 사진 있는 {n}명만 선택":
+    "📷 Select only the {n} with photos",
+  "선택한 {n}명 카드 인쇄":
+    "Print cards for the {n} selected",
+  "구역 목록 ({n}개)":
+    "Zone list ({n})",
+  "라벨색":
+    "Label colour",
+  "색":
+    "Colour",
+  "← {n}권으로":
+    "← set to {n}",
+  "전체 선택":
+    "Select all",
+  "이 칸에 지금 들어 있는 권수를 이 칸의 수용량으로 기록합니다":
+    "Records the number now in this slot as the slot's capacity",
+  "무엇이 언제 바뀌었는지 최신 순으로 보여줍니다. 새로 배포한 뒤 이 숫자가 올라가 있으면 반영이 끝난 것입니다. 그대로라면 아직 올라가는 중이거나, 브라우저가 옛 화면을 쥐고 있는 것입니다(Ctrl + Shift + R 로 새로고침).":
+    "Shows what changed and when, newest first. If this number has gone up after a deploy, the deploy has landed. If it has not, the deploy is still going up, or the browser is holding an old page (refresh with Ctrl + Shift + R).",
+  "지금 보고 있는 화면은 **{now}** 인데 기록의 맨 위는 **{top}** 입니다. 배포가 아직 끝나지 않았을 수 있습니다.":
+    "The screen you are looking at is **{now}**, but the top of the log is **{top}**. The deploy may not have finished.",
+  "인쇄 기록 표를 아직 읽을 수 없습니다 — 운영앱(gia-ops)의 마이그레이션이 아직 적용되지 않았을 수 있습니다. 적용되면 이 화면이 바로 동작합니다.":
+    "The print-records table cannot be read yet — the admin app's (gia-ops) migration may not have been applied. Once it is, this screen works straight away.",
+  "{n}장 모아두는 중 · A4 한 장에 27장":
+    "{n} collected so far · 27 per A4 sheet",
+  "{when}에 마지막으로 열었습니다":
+    "last opened {when}",
+  "✓ {when}에 뽑았다고 표시됨":
+    "✓ marked as printed {when}",
+  "{n}건":
+    "{n}",
+  "학생 명부는 운영앱(gia-ops)에서 관리합니다. 이 앱은 같은 데이터베이스의 학생 고유번호와 이름·학년·반만 읽어 씁니다. 학생이 새로 들어오면 운영앱에 등록한 뒤 도서카드를 인쇄하세요.":
+    "The student roll is managed in the admin app (gia-ops). This app only reads the student number, name, grade and class from the same database. When a new student arrives, register them in the admin app, then print a library card.",
+  "통째로 {ak}종 {ac}권 · 일부만 {bk}종 {bc}권 — 모두 {all}권":
+    "Entirely missing: {ak} titles, {ac} copies · partly missing: {bk} titles, {bc} copies — {all} copies in all",
+  "모두 {n}권":
+    "{n} copies in all",
+  "{k}종 {c}권":
+    "{k} titles, {c} copies",
+  "{k}종 · 기록상 {c}권 · 줄에 적힌 자리 {z}곳":
+    "{k} titles · {c} copies on record · {z} locations noted on the rows",
+  "{k}종 · 기록상 {c}권":
+    "{k} titles · {c} copies on record",
+  "임시 자리: {zone}":
+    "Temporary location: {zone}",
+  "(줄에 적힌 자리)":
+    "(the location noted on the row)",
+  "라벨이 적힌 책 **{n}종**":
+    "**{n} titles** with a label number",
+  "라벨 없이 등록된 책 **{n}종**":
+    "**{n} titles** registered without a label",
+  "번호 겹침 {n}건":
+    "{n} duplicate numbers",
+  "그중 재등록에서 지나간 책 **{n}종**":
+    "of which **{n} titles** were passed over during re-registering",
+  "장서 **{n}권**":
+    "**{n}** in catalog",
+  "책장 **{n}권**":
+    "**{n}** on shelf",
+  "한 번에 쭉 찍어 넣은 책들이 **등록한 시각별로** 묶여 있습니다. 구역을 잘못 골랐으면 묶음째 옮기고, 한 권만 이상하면 그 줄에서 바로 고치세요. 최근 {n}권까지 보여줍니다":
+    "Books scanned in one run are grouped **by the time they were registered**. If the zone was wrong, move the whole group; if just one book is off, fix it on its row. Shows the most recent {n}",
+  "오늘 등록 **{n}권**":
+    "**{n}** registered today",
+  "모두 **{n}권**":
+    "**{n}** in all",
+  "영어책 {n}권":
+    "{n} in English",
+  "{by}로 정리":
+    "grouped by {by}",
+  "{n}권":
+    "{n} books",
+  "GIA 도서관":
+    "GIA Library",
+  "{day} 출력":
+    "printed {day}",
+  "{n}월":
+    "{n}",
+  "반별 —":
+    "By class —",
+  "권수만 보면 큰 반이 늘 1등입니다. 오른쪽이 한 사람당 권수입니다.":
+    "By raw count the biggest class always wins. The figure on the right is per student.",
+  "그중 한 번도 나간 적 없음 {n}종":
+    "of which {n} titles have never gone out",
+  "옮길 책 {n}권 · 지금 꽂힌 칸 {z}곳":
+    "{n} books to move · {z} slots they sit in now",
+  "({n}권)":
+    "({n} copies)",
+  "모두 **{n}칸**":
+    "**{n} slots** in all",
+  "— 이제 **여러 권 등록**에서 칸을 고르고 바코드를 찍으면 됩니다.":
+    "— now pick the slot in **Batch register** and start scanning.",
+  "— 지금 {n}권":
+    "— {n} now",
+  "{a}로":
+    "to {a}",
+  "책장 구역 라벨 {n}장 · A4 {p}장":
+    "{n} shelf zone labels · {p} A4 sheets",
+  "**{n}칸이 아직 「임시」입니다** — 정리를 마치고 **정식 책장으로 등록**한 뒤에 뽑으시면 아래 범위가 그대로 맞습니다(정리 계획 화면 ⑤). 지금 뽑으면 정리 뒤에 다시 뽑아야 할 수 있습니다.":
+    "**{n} slots are still «temporary»** — print these after the tidying is done and the shelves are **registered as permanent**, and the ranges below will be right (tidy plan screen ⑤). Printing now may mean printing again after the tidy.",
+  "({n}회 연장)":
+    "({n} renewals)",
+  "이미 {zone} 칸입니다":
+    "Already in slot {zone}",
+  "{n}회":
+    "{n}",
+  "v{v} · 버전 기록":
+    "v{v} · change log",
+  "보유 {a}권 · 대출 가능 {b}권":
+    "{a} held · {b} available",
+  "없는 칸 {n}개 보기":
+    "Show the {n} missing slots",
+  "도서카드 {n}장 · {paper} {dir} {sheets}장 · {card}":
+    "{n} library cards · {sheets} sheets of {paper} {dir} · {card}",
+  "사진 포함":
+    "with photos",
+  "접이식(앞뒤 한 장)":
+    "fold-over (front and back on one piece)",
+  "양면(따로 두 장)":
+    "double-sided (two separate sheets)",
+  "책 바코드 라벨 {n}장":
+    "{n} book barcode labels",
+  "{zone} 을 {after}권으로 바꿨습니다":
+    "{zone} is now recorded as {after}",
+  "전에는 {n}권":
+    "was {n}",
+  "떠난 책 {n}종을 지웠습니다":
+    "removed {n} titles that had left",
+  "🔄 {lv}등급 책장을 지금 다시 찍기":
+    "🔄 Rescan the level-{lv} shelves now",
+  "칸마다 통째로 바꿉니다 — 떠난 책이 기록에서 사라집니다":
+    "Each slot is replaced wholesale — books that left disappear from the record",
+  "지금 기록 **{n}권**":
+    "On record now: **{n}**",
+  "({n}종)":
+    "({n} titles)",
+  "장서에 없는 책입니다 —":
+    "This book is not in the catalog —",
+  "재등록 · 라벨 뽑기":
+    "Re-register · print labels",
+  "에서 먼저 등록하고 오세요. 찍은 목록은 그대로 있습니다.":
+    " — register it there first and come back. What you have scanned stays.",
+  "등급없음":
+    "no level",
+  "장서 {n}권":
+    "{n} in catalog",
+  "지금까지 **{n}권**":
+    "**{n}** so far",
+  "남의 등급 {n}종 섞여 있습니다":
+    "{n} titles from other levels are mixed in",
+  "✓ 이 칸 다 찍었습니다 — {a}권 → {b}권으로 바꿉니다":
+    "✓ This slot is done — changing {a} to {b}",
+  "한 권도 안 찍은 채로 누르면 이 칸을 **빈 칸으로** 바꿉니다 — 칸을 비웠을 때만 쓰세요.":
+    "Pressing this with nothing scanned marks the slot **empty** — only use it when you really have emptied it.",
+  "④ {lv}등급 장서와 대조":
+    "④ Cross-check against the level-{lv} catalog",
+  "장서 {a}권 · 이 등급 칸에서 찍힘 {b}권":
+    "{a} in catalog · {b} scanned in this level's slots",
+  "→ 다 맞습니다":
+    "→ everything matches",
+  "→ {n}권 모자랍니다":
+    "→ {n} short",
+  "→ {n}권 더 나왔습니다":
+    "→ {n} more than expected",
+  "이 등급 칸에서 안 나온 책 {n}종":
+    "{n} titles that did not turn up in this level's slots",
+  "장서 {a}권 · 여기 {b}권":
+    "{a} in catalog · {b} here",
+  "대출 {n}권":
+    "{n} on loan",
+  "이 등급 칸에 꽂혀 있는 남의 등급 책 {n}종":
+    "{n} titles from other levels shelved in this level's slots",
+  "찍힌 권수가 장서보다 많은 책 {n}종":
+    "{n} titles where more were scanned than the catalog holds",
+  "장서 {a}권 → 찍힘 {b}권":
+    "catalog {a} → scanned {b}",
+  "▶ {lv}등급 정리 시작 — 시리즈 · 알파벳 · 렉사일 순으로":
+    "▶ Start tidying level {lv} — by series, alphabet, then Lexile",
+  "{k}종 · {c}권":
+    "{k} titles · {c} copies",
+  "— 대출 중 {out}권 · **책장에 있어야 할 {on}권**":
+    "— {out} on loan · **{on} should be on the shelf**",
+  "찍음 {k}종 · {c}권":
+    "Scanned {k} titles · {c} copies",
+  "기록 {k}종 · {c}권":
+    "On record {k} titles · {c} copies",
+  "먼저 손봐야 합니다 — {n}개":
+    "Needs fixing first — {n}",
+  "같은 ISBN이 등급별로 {n}줄 — 어느 쪽인지 골라주세요":
+    "The same ISBN has {n} rows, one per level — pick which one",
+  "기록에 있는데 안 나왔습니다 — {n}종":
+    "On record but did not turn up — {n} titles",
+  "📕 대출 중 {n}권":
+    "📕 {n} on loan",
+  "나왔는데 기록보다 많습니다 — {n}종":
+    "Turned up more than the record says — {n} titles",
+  "맞는 책 {n}종. 다 찍으셨으면 아래에서 이 칸의 기록을 바꿉니다.":
+    "{n} titles match. Once everything is scanned, update this slot's record below.",
+  "실제 책장과 권수가 다르면 여기서 고칩니다. **−1권**은 두 번 찍힌 것, **빼기**는 애초에 이 칸 책이 아니었던 것입니다. 어디서부터 어긋났는지 모르겠으면 **✅ 대조 검사**로 칸을 비우고 다시 찍어 맞춰 보세요.":
+    "Where the count differs from the actual shelf, fix it here. **−1** is for a double scan; **Remove** is for a book that never belonged in this slot. If you cannot tell where things went wrong, use **✅ Cross-check**: empty the slot and scan it again.",
+  "새 버전 v{next} 이 나왔습니다 — 이 화면은 v{now} 입니다.":
+    "Version v{next} is out — this screen is v{now}.",
+  "{zone} 칸에 적은 책 {n}권":
+    "{n} books recorded in slot {zone}",
+  "📥 인쇄 대기 {n}장 — 칸을 다 돌고 「인쇄 기록」에서 한꺼번에 뽑으세요.":
+    "📥 {n} labels waiting to print — finish the slots, then print them together from «Print records».",
+  "이 칸에서 {n}권째":
+    "copy {n} in this slot",
+  "지금 {lv}등급":
+    "currently level {lv}",
+  "지금 등급 없음":
+    "no level yet",
+  "🧮 장서를 찾은 {n}권으로":
+    "🧮 Set the catalog to the {n} found",
+  "📗 이 권만 {lv}등급으로 떼기":
+    "📗 Split just this copy off to level {lv}",
+  "{lv}등급 줄로 한 권 옮깁니다 — 없으면 새로 만듭니다":
+    "Moves one copy to the level-{lv} row — creating it if there is none",
+  "✏️ 이 줄 전체를 {lv}등급으로":
+    "✏️ Move this whole row to level {lv}",
+  "{n}권 모두 — 등급이 잘못 적혀 있던 경우":
+    "All {n} copies — for when the level was recorded wrongly",
+  "📗 이 권만 {lv}등급으로":
+    "📗 Just this copy to level {lv}",
+  "{n}권 모두":
+    "All {n} copies",
+  "✂ {n}줄로 따로 떼기":
+    "✂ Split into {n} rows",
+  "장서에 {a}권 · 지금까지 {b}권 찾음":
+    "{a} in the catalog · {b} found so far",
+  "({zone}에 {n}권)":
+    "({n} in {zone})",
+  "({zone}에 있던 책)":
+    "(was in {zone})",
+  "**{zones}** 에 세어 둔 책입니다. 지금 손에 든 이 책이 **거기서 옮겨 온 그 책**인가요, **기록에 없던 또 한 권**인가요?":
+    "This book is counted in **{zones}**. Is the one in your hand **that same book, moved here**, or **another copy that was never on record**?",
+  "그 칸에 가 보니 없다면 「여기로 옮겨 왔습니다」입니다 — 그 칸 기록에서 한 권을 빼고 이 칸에 적습니다(장서 권수는 그대로).":
+    "If it is not in that slot when you go and look, it is «moved here» — one copy comes off that slot's record and goes on this one (the catalog count stays).",
+  "적힌 권수는 이미 다 찾았습니다. 지금 손에 든 책이 **아까 그 책**인가요, **기록에 없던 한 권**인가요?":
+    "Every recorded copy has already been found. Is the book in your hand **the one from before**, or **a copy that was never on record**?",
+  "📍 {zone} 에서 여기로 옮겨 왔습니다":
+    "📍 Moved here from {zone}",
+  "{zone} 기록에서 한 권 빼고 이 칸에 적습니다 · 장서 권수는 그대로":
+    "Takes one copy off {zone}'s record and puts it on this slot · the catalog count stays",
+  "➕ 장서추가 — {n}권째":
+    "➕ Add to catalog — copy {n}",
+  "장서도 {a} → {b}권":
+    "Catalog goes {a} → {b}",
+  "표지에서 읽은 제목: **{title}** — 위 칸에 넣어 두었습니다. 아래 후보 중 손에 든 책이 있으면 누르세요(ISBN까지 함께 들어갑니다).":
+    "Title read from the cover: **{title}** — it has been put in the field above. If the book in your hand is among the candidates below, press it (the ISBN comes with it).",
+  "새로 등록 **{n}권**":
+    "**{n}** newly registered",
+  "책장에 없던 한 권 더함 **{n}권**":
+    "**{n}** added that were not on the shelf record",
+  "보유 {n}권":
+    "{n} held",
+  "표지에 적힌 ISBN 13자리":
+    "The 13-digit ISBN printed on the cover",
+  "ISBN 칸을 비워 두면 **도서관 라벨 번호(GIA-B-…)**를 새로 발급해 그 번호로 바코드를 만듭니다 — 붙이고 나면 그 책도 스캐너로 한 번에 찾힙니다. ISBN을 함께 적으면 그 번호가 라벨에 들어가고, 제목은 적으신 것을 씁니다(조회처 제목보다 표지가 맞습니다).":
+    "Leave the ISBN field empty and a **library label number (GIA-B-…)** is issued and turned into a barcode — once it is on, the scanner finds that book in one go. Enter an ISBN and that number goes on the label, while the title used is the one you typed (the cover beats the lookup sources).",
+  "다른 조회처는 「{titles}」라고 답했습니다 — 등록한 뒤 한 번 눌러 바꿀 수 있습니다.":
+    "Other sources answered «{titles}» — you can switch to one with a press after registering.",
+  "조회처가 이 번호를 모릅니다. 아래에 **표지의 제목**을 적으면 그 제목으로 등록합니다.":
+    "The lookup sources do not know this number. Type **the title on the cover** below and it is registered under that title.",
+  "장서에 적힌 보유 **{n}권**":
+    "**{n}** held per the catalog",
+  "책장등록에서 찍힌 **{n}권**":
+    "**{n}** scanned in shelf recording",
+  "대출 중 {n}권":
+    "{n} on loan",
+  "라벨에 찍히는 번호는 **{code}** 입니다":
+    "The number printed on the label is **{code}**",
+  "없음":
+    "none",
+  "(도서관 라벨 번호). 뽑아서 붙이는 일이고, 기록은 바뀌지 않습니다 — ISBN 은 이미 적혀 있습니다.":
+    "(library label number). This only prints and sticks; no record changes — the ISBN is already on file.",
+  "(ISBN). 뽑아서 붙이는 일이고, 기록은 바뀌지 않습니다.":
+    "(ISBN). This only prints and sticks; no record changes.",
+  "장서에는 {a}권인데 책장에서는 {b}권만 찍혔습니다 — **{left}권이 아직 책장 밖**에 있다는 뜻이고, 손에 든 이 책이 그 한 권입니다. **장서 숫자는 그대로 둡니다**(여기서 늘리면 없는 책이 한 권 생깁니다).":
+    "The catalog says {a} but only {b} were scanned on the shelves — meaning **{left} are still off the shelf**, and the book in your hand is one of them. **The catalog number is left alone** (raising it here would invent a book that does not exist).",
+  "넘기면 **책장 미등록 장서**에 적어 둡니다. 라벨을 붙여 책장에 꽂은 뒤":
+    "Skip and it is noted under **Catalog not yet shelved**. After the label is on and the book is shelved,",
+  "장서 {n}권 그대로 — **책장 미등록 장서**에 적어 둡니다":
+    "Catalog stays at {n} — noted under **Catalog not yet shelved**",
+  "아니요 — 이것 말고 **또 한 권**이 더 있습니다":
+    "No — there is **another copy** besides this one",
+  "장서를 {a}권 → {b}권으로":
+    "Take the catalog from {a} to {b}",
+  "아직 모르겠습니다 — **넘기기** (자리에 가서 확인하고 다시 찍으면 됩니다)":
+    "Not sure yet — **skip** (go and check the slot, then scan it again)",
+  "등록되어 있지 않던 번호입니다 — 바꾼 것이 아니라 **새로 등록**했습니다.":
+    "This number was not on file — nothing was changed; it was **newly registered**.",
+  "— {src}에서 가져온 제목입니다":
+    "— title taken from {src}",
+  "남은 권수는 상품코드 {code} 줄에 **{n}권** 그대로 있습니다 — 같은 번호를 또 찍으면 또 한 권이 떨어져 나옵니다.":
+    "The remaining copies stay on product-code row {code} — **{n} of them**. Scanning the same number again splits off another copy.",
+  "되돌리기와 다시 등록을 **한 번에** 합니다. 되돌릴 수 없는 경우(그 뒤에 같은 상품코드를 또 재등록한 경우)에는 아무것도 바꾸지 않고 그 이유를 말합니다. 잘못 담긴 라벨은 모아뽑기에서 함께 빼 드립니다.":
+    "Undoes and re-registers **in one step**. Where it cannot be undone (because the same product code was re-registered again afterwards) nothing is changed and the reason is given. Labels added by mistake are removed from the print batch at the same time.",
+  "라벨 뽑기 ({n}장)":
+    "Print labels ({n})",
+  "(상품코드도 함께 뗍니다)":
+    "(the product codes come off too)",
+  "{n}장":
+    "{n} sheets",
+  "뽑은 기록 {n}묶음":
+    "{n} printed batches",
+  "재등록한 기록 {n}건":
+    "{n} re-registrations",
+  "책 {n}권을 칸에 나눠 담는 중…":
+    "Dividing {n} books into slots…",
+  "지금 쓰는 임시구역을 그대로 정리 대상으로":
+    "Use the temporary zones as they are",
+  "({n}칸)":
+    "({n} slots)",
+  "칸 폭 {n}cm":
+    "Slot width {n}cm",
+  "이 등급 책을 꽂는 데 **{need}cm** 가 들고, 칸은 모두 **{have}cm** 입니다":
+    "Shelving this level takes **{need}cm**, and the slots come to **{have}cm** in all",
+  "재어 둔 칸 {z}개로 종이 두께를 바로잡았습니다(가늠 × {f}).":
+    "Calibrated the paper thickness against {z} measured slots (estimate × {f}).",
+  "**쪽수를 모르는 책 {n}권**은 {mm}mm 로 봅니다 — 「쪽수 채우기」를 돌리면 그만큼 정확해집니다.":
+    "**{n} books with no page count** are taken as {mm}mm — running «Fill in page counts» makes this that much more accurate.",
+  "먼저 손보면 좋은 것:":
+    "Worth fixing first:",
+  "대상 연령이 비어 있는 책 **{n}권**":
+    "**{n} books** with no audience age",
+  "분류가 ‘기타’거나 비어 있는 책 **{n}권**":
+    "**{n} books** whose category is ‘other’ or blank",
+  ". 장서관리 화면에서 채우면 훨씬 깔끔하게 나뉩니다. 지금 확정해도 이 책들은 맨 뒤 칸에 모입니다.":
+    ". Filling these in on the Catalog screen divides them much more cleanly. Confirm now and these books simply gather in the last slot.",
+  "용량이 정해지지 않은 칸이 {n}개 있습니다 — 그런 칸은 ‘얼마든지 들어감’으로 계산합니다. 임시구역에 책을 다 등록한 뒤 구역 관리에서 ‘등록된 권수를 용량으로’를 누르면 실제 수용량이 잡힙니다.":
+    "{n} slots have no capacity set — those are treated as ‘holds any number’. Once every book in the temporary zones is recorded, press ‘Use recorded count as capacity’ in Manage zones and the real capacity is set.",
+  "{a} / {b} 칸":
+    "slot {a} / {b}",
+  "다 하면 **{n}권**":
+    "**{n} books** when done",
+  "(약 {n}cm)":
+    "(about {n}cm)",
+  "그대로 {a} · 빼낼 {b} · 채울 {c}":
+    "stay {a} · out {b} · in {c}",
+  "세트 {n}권":
+    "{n} in sets",
+  "① 그대로 둘 책 {n}권 — 건드리지 마세요":
+    "① {n} books that stay — leave them alone",
+  "② 빼 둔 책부터 꽂습니다 {n}권 — 앞 칸에서 이미 뺀 책(가지 않아도 됩니다)":
+    "② Shelve the books you set aside first, {n} of them — already pulled from earlier slots (no walking needed)",
+  "③ 칸마다 한 번만 갑니다 — 칸 {z}곳 · 보낼 {out}권 · 받을 {inn}권":
+    "③ One trip per slot — {z} slots · {out} out · {inn} in",
+  "맞교환 {n}권":
+    "{n} swapped",
+  "보낼 {out} · 받을 {inn}":
+    "out {out} · in {inn}",
+  "④ 자리를 모르는 책 {n}권 — 찾아서 꽂아야 합니다":
+    "④ {n} books with no known location — these have to be found and shelved",
+  "세트로 묶을 책 {n}권":
+    "{n} books to group as a set",
+  "이 칸 정원을 {n}권으로 적고 다음 칸으로":
+    "Record this slot's capacity as {n} and move on",
+  "모두 **{n}권** · {steps}단계":
+    "**{n} books** in all · {steps} steps",
+  "↔ 맞교환 {n}":
+    "↔ {n} swaps",
+  "→ 생긴 자리로 {n}":
+    "→ {n} into freed space",
+  "사람이 정한 자리 **{n}권** 이 계획 위에 덮여 있습니다.":
+    "**{n} books** placed by hand override this plan.",
+  "가서 보고 정해 주세요 — {zone} 에 {n}권이 더 들어가나요?":
+    "Go and look, then decide — will {n} more fit in {zone}?",
+  "이 칸":
+    "this slot",
+  "✓ {n}권 다 들어갑니다":
+    "✓ All {n} fit",
+  "**안 들어간다면 2안** —":
+    "**If they do not fit, plan B** —",
+  "{zone} 에 {n}권":
+    "{n} to {zone}",
+  "(그래도 {n}권은 갈 곳이 없습니다)":
+    "({n} still have nowhere to go)",
+  "+ {lv}등급 칸 하나 더 만들기":
+    "+ Add one more level-{lv} slot",
+  "…그리고 {n}권 더":
+    "…and {n} more",
+  "남은 {n}단계 더 보기":
+    "Show the remaining {n} steps",
+  "아직 갈 곳이 없는 책 {n}권":
+    "{n} books still with nowhere to go",
+  "**여유가 남은 칸으로 보낼 수 있습니다** —":
+    "**They can go to slots with room** —",
+  "({n}권은 그래도 남습니다)":
+    "({n} still remain)",
+  "**책이 가장 덜 움직이는 칸부터** 세워 두었습니다. 한 칸만 골라 끝내고 싶을 때 보세요.":
+    "Ordered **from the slot that moves the fewest books**. Use this when you want to finish just one slot.",
+  "**{n}권**만 움직이면 됩니다":
+    "Only **{n} books** to move",
+  "가져올 {n}권":
+    "{n} to bring in",
+  "먼저 빼냅니다 — 이 칸에 있지만 다른 칸으로 갈 책 {n}권":
+    "Take out first — {n} books in this slot that belong elsewhere",
+  "그다음 가져옵니다 — 이 칸에 와야 하는 책 {n}권 (꽂을 차례대로)":
+    "Then bring in — {n} books that belong in this slot (in shelving order)",
+  "{n}쪽":
+    "{n} pages",
+  "나머지 {n}권은 이미 이 칸이 제자리입니다 — 그대로 두세요.":
+    "The other {n} are already in their place here — leave them.",
+  "세트로 묶을 단서가 없는 책 {n}권 — 🤖 AI 로 채우기 · 눈에 띌 때 묶기":
+    "{n} books with nothing to group them by — 🤖 fill with AI · group them as you notice them",
+  "제안 {n}권":
+    "{n} suggested",
+  "제외 {n}권":
+    "{n} excluded",
+  "아직 {n}권 남음":
+    "{n} still to go",
+  "✓ {n}권 적용":
+    "✓ Apply {n}",
+  "렉사일 **{n}L**":
+    "Lexile **{n}L**",
+  "고른 {n}권에 적기":
+    "Apply to the {n} selected",
+  "같은 책이 **두 줄로 등록**되어 있으면(전체 68종) 이제 같은 칸으로 묶이기는 하지만, 권수가 갈라져 있어 셈이 어긋납니다 —":
+    "Where one book is **registered as two rows** (68 titles in all) they now group into the same slot, but the copies are split between the rows, so the counts do not add up —",
+  "확정해야 **이동 목록 인쇄**가 채워집니다(지금 비어 있는 이유입니다). 위의 정리 순서는 확정하지 않아도 보입니다.":
+    "**Print move list** only fills up once the plan is confirmed (which is why it is empty now). The tidy order above shows without confirming.",
+  "(확정 뒤)":
+    "(after confirming)",
+  "{lv}등급 칸이 **정식**이 됩니다 — **구역 라벨**을 뽑아 코팅해 붙일 수 있습니다":
+    "Level-{lv} slots become **permanent** — you can print **zone labels**, laminate them and stick them on",
+  "칸마다 **정리를 마친 시각**이 남습니다":
+    "Each slot keeps **the time its tidying finished**",
+  "{lv}등급 {total}권 중 **{placed}권**이 이 등급 칸에 찍혀 있습니다":
+    "**{placed}** of {total} level-{lv} books are scanned into this level's slots",
+  "아직 {n}권이 밖에 있습니다":
+    "{n} are still out",
+  "✓ {lv}등급 정식 책장으로 등록":
+    "✓ Register level {lv} as permanent shelving",
+  "🖨 {lv}등급 구역 라벨 인쇄":
+    "🖨 Print level-{lv} zone labels",
+  "‘{q}’ 검색 결과 — 누르면 대출 예정 목록에 담깁니다":
+    "Results for ‘{q}’ — press one to add it to the checkout list",
+  "🔁 예전에 빌림 — {day}":
+    "🔁 Borrowed before — {day}",
+  "제목이나 지은이를 치면 그 책이 **어느 칸**에 있는지 알려줍니다.":
+    "Type a title or an author and it tells you **which slot** the book is in.",
+  "이 책들은 아직 구역이 정해지지 않았습니다. ‘구역 배정’ 탭에서 자리를 정해주세요.":
+    "These books have no zone yet. Give them a place on the ‘Assign zones’ tab.",
+  "카드 목록을 읽지 못했습니다 — {err}. 운영앱 쪽 표가 아직 안 만들어졌을 수 있습니다(몇 분 뒤 다시 열어보세요).":
+    "The card list could not be read — {err}. The table on the admin-app side may not exist yet (try again in a few minutes).",
+  "표지 없는 책만 ({n})":
+    "Only books with no cover ({n})",
+  "🏷 라벨 필요 {kinds}종 · {sheets}장 인쇄":
+    "🏷 {kinds} need labels · print {sheets}",
+  "바로 인쇄 ({n}장)":
+    "Print now ({n})",
+  "⚠ 판매코드로 등록된 책 {n}종":
+    "⚠ {n} titles registered under a sales code",
+  "총 {n}권 · 이 번호로는 시리즈 몇 권째인지 알 수 없습니다":
+    "{n} copies in all · this number cannot say which volume of the series it is",
+  "📥 모아둔 라벨 {n}장":
+    "📥 {n} labels in the batch",
+  "A4 한 장에 27장 — 한 장 넘게 찼습니다":
+    "27 per A4 sheet — more than a full sheet now",
+  "A4 한 장에 27장 — {n}장 더 모으면 한 장":
+    "27 per A4 sheet — {n} more makes a full sheet",
+  "모아둔 {n}장 인쇄":
+    "Print the {n} collected",
+  "같은 책 {n}권 —":
+    "{n} copies of this book —",
+  "{a} / {b}권":
+    "{a} / {b}",
   "책장등록은 칸을 하나씩 비워 가며 **책을 한 권씩 손에 들고 찍은** 기록입니다. 그러니 장서에 있는데 책장등록에 안 나온 책은 **지금 책장 밖에 있는 책**입니다 — 없어진 것이 아니라 상품코드 더미, 라벨 없는 더미, 책상 위에 있습니다. 이 종이는 그 책들을 찾아 **재등록 · 라벨 뽑기** 화면에서 마무리하기 위한 목록입니다. 한 권 끝낼 때마다 왼쪽 네모에 표시하세요.":
     "Shelf recording is a record of emptying one slot at a time and **scanning every book by hand**. So a book the catalog holds but shelf recording does not is **a book currently off the shelf** — not lost, but in the product-code pile, the unlabelled pile, or on the desk. This sheet is the list for finding those books and finishing them on the **Re-register · Print labels** screen. Tick the box on the left as you finish each one.",
   "책장등록에 **한 번도** 나오지 않았습니다. 더미에서 찾아야 합니다 — 「상품코드」 표가 붙은 책은 상품코드 더미에 있습니다.":
@@ -46,8 +614,6 @@ export const EN_HELP: Record<string, string> = {
     "The range comes from **the confirmed tidy plan** (before confirmation, from the books currently shelved) — print these after the tidying is done and confirmed and the range will be right.",
   "여기서 바꾸면 **실제 대출 규칙도 함께 바뀝니다.** 이미 뽑아 둔 카드에는 옛 숫자가 그대로 적혀 있으니, 크게 바꾸실 때는 카드를 다시 뽑는 편이 낫습니다.":
     "Changing it here **changes the actual lending rules too.** Cards already printed still show the old numbers, so for a large change it is better to reprint them.",
-  "로":
-    "",
   "인쇄를 마치셨으면 **발급 기록**을 남겨 주세요 — 누가 카드를 받았는지, 잃어버려 다시 뽑았는지가 남습니다.":
     "Once printing is done, leave an **issue record** — it keeps who received a card, and whether it was reprinted after a loss.",
   "이 목록에서 **{n}명**은 아직 사진이 없어 카드를 뽑을 수 없습니다. 운영앱 학생 관리에서 사진을 올리면 바로 뽑을 수 있고, 사진 칸의 **+사진**을 눌러 도서관에서 직접 올릴 수도 있습니다.":

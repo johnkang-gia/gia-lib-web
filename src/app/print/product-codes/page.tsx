@@ -111,7 +111,11 @@ export default async function ProductCodeListPage({
         <div>
           <h1 className="text-lg font-bold">상품코드 책 확인 목록</h1>
           <p className="text-sm text-slate-500">
-            {picked.length}종 · 기록상 {copies}권 · 줄에 적힌 자리 {ordered.length}곳
+            {t("{k}종 · 기록상 {c}권 · 줄에 적힌 자리 {z}곳", {
+              k: picked.length,
+              c: copies,
+              z: ordered.length,
+            })}
           </p>
         </div>
         <span className="ml-auto">
@@ -129,7 +133,7 @@ export default async function ProductCodeListPage({
             <h2 className="text-xl font-black">상품코드 책 확인 목록</h2>
             <span className="text-sm text-slate-500">{today}</span>
             <span className="ml-auto text-sm text-slate-500">
-              {picked.length}종 · 기록상 {copies}권
+              {t("{k}종 · 기록상 {c}권", { k: picked.length, c: copies })}
             </span>
           </div>
 
@@ -167,9 +171,9 @@ export default async function ProductCodeListPage({
               <h3 className="mb-1.5 bg-slate-100 px-3 py-1.5 text-base font-bold">
                 {zone ? (
                   <>
-                    임시 자리: {zone.code}
+                    {t("임시 자리: {zone}", { zone: zone.code })}
                     <span className="ml-1 text-xs font-normal text-slate-500">
-                      (줄에 적힌 자리)
+                      {t("(줄에 적힌 자리)")}
                     </span>
                     {zone.name && (
                       <span className="ml-1.5 text-sm font-normal text-slate-500">{zone.name}</span>
@@ -209,7 +213,7 @@ export default async function ProductCodeListPage({
                         {book.title}
                         {book.label_level != null && (
                           <span className="ml-1 text-[11px] text-slate-500">
-                            ({book.label_level}등급
+                            ({t("{lv}등급", { lv: book.label_level })}
                             {book.label_no ? ` ${book.label_no}` : ""})
                           </span>
                         )}

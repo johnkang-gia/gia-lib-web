@@ -385,7 +385,7 @@ function Shell({
                 onClick={() => go("/changelog")}
                 className="mt-2 rounded-lg border border-gia-gold/40 px-2 py-0.5 font-mono text-[10px] text-gia-gold-soft transition hover:bg-white/10"
               >
-                v{APP_VERSION} · 버전 기록
+                {t("v{v} · 버전 기록", { v: APP_VERSION })}
               </button>
             </div>
 

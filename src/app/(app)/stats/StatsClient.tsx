@@ -143,7 +143,9 @@ export default function StatsClient({
                 style={{ height: `${Math.max(2, (m.count / monthMax) * 100)}%` }}
                 title={`${m.month} — ${m.count}권`}
               />
-              <span className="text-[10px] text-slate-400">{m.month.slice(5)}월</span>
+              <span className="text-[10px] text-slate-400">
+                {t("{n}월", { n: m.month.slice(5) })}
+              </span>
             </div>
           ))}
         </div>
@@ -172,7 +174,10 @@ export default function StatsClient({
 
       <section className="rounded-2xl bg-white p-5 ring-1 ring-slate-200">
         <h2 className="text-sm font-bold text-slate-500">
-          반별 — <span className="font-normal">권수만 보면 큰 반이 늘 1등입니다. 오른쪽이 한 사람당 권수입니다.</span>
+          {t("반별 —")}{" "}
+          <span className="font-normal">
+            {t("권수만 보면 큰 반이 늘 1등입니다. 오른쪽이 한 사람당 권수입니다.")}
+          </span>
         </h2>
         {classes.length === 0 ? (
           <p className="py-6 text-center text-sm text-slate-400">아직 대출 기록이 없습니다.</p>
@@ -219,7 +224,9 @@ export default function StatsClient({
           <span className="ml-1 text-base font-bold text-slate-400">종</span>
           {sleeping.never > 0 && (
             <span className="ml-3 text-base font-bold text-amber-600">
-              그중 한 번도 나간 적 없음 {sleeping.never.toLocaleString()}종
+              {t("그중 한 번도 나간 적 없음 {n}종", {
+                n: sleeping.never.toLocaleString(),
+              })}
             </span>
           )}
         </p>

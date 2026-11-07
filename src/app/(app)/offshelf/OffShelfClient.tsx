@@ -131,7 +131,10 @@ export default function OffShelfClient() {
           <span className="text-lg font-bold text-amber-700">{data.totals.copies}권</span>
           {data.totals.touched > 0 && (
             <span className="text-sm text-slate-600">
-              그중 재등록에서 지나간 책 <b className="text-emerald-700">{data.totals.touched}종</b>
+              {rich(
+                t("그중 재등록에서 지나간 책 **{n}종**", { n: data.totals.touched }),
+                "text-emerald-700"
+              )}
             </span>
           )}
           <Link
@@ -194,10 +197,14 @@ export default function OffShelfClient() {
                 {r.code && <span className="font-mono text-xs text-slate-500">{r.code}</span>}
                 {r.author && <span className="text-xs text-slate-500">{r.author}</span>}
                 <span className="ml-auto text-sm">
-                  장서 <b className="text-gia-navy">{r.copies}권</b>
+                  {rich(t("장서 **{n}권**", { n: r.copies }), "text-gia-navy")}
                   <span className="mx-1 text-slate-300">·</span>
-                  책장 <b className="text-emerald-700">{r.shelf}권</b>
-                  {r.loansOut > 0 && <span className="ml-1 text-xs text-slate-500">대출 {r.loansOut}권</span>}
+                  {rich(t("책장 **{n}권**", { n: r.shelf }), "text-emerald-700")}
+                  {r.loansOut > 0 && (
+                    <span className="ml-1 text-xs text-slate-500">
+                      {t("대출 {n}권", { n: r.loansOut })}
+                    </span>
+                  )}
                   <span className="mx-1 text-slate-300">·</span>
                   <b className="text-amber-700">{r.gap}권 밖에</b>
                 </span>

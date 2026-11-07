@@ -98,8 +98,10 @@ export default function StaffCardsClient({
 
       {error && (
         <p className="rounded-xl bg-amber-50 px-4 py-3 text-sm text-amber-900 ring-1 ring-amber-200">
-          카드 목록을 읽지 못했습니다 — {error}. 운영앱 쪽 표가 아직 안 만들어졌을 수 있습니다
-          (몇 분 뒤 다시 열어보세요).
+          {t(
+            "카드 목록을 읽지 못했습니다 — {err}. 운영앱 쪽 표가 아직 안 만들어졌을 수 있습니다(몇 분 뒤 다시 열어보세요).",
+            { err: error }
+          )}
         </p>
       )}
 

@@ -1,5 +1,7 @@
 import { getChangelogEntries, type ChangelogEntry } from "@/lib/changelog";
 import { APP_VERSION } from "@/lib/version";
+import { getT } from "@/lib/i18n/server";
+import { rich } from "@/lib/i18n/rich";
 
 export const dynamic = "force-dynamic";
 
@@ -99,7 +101,9 @@ function EntryCard({ entry, latest }: { entry: ChangelogEntry; latest: boolean }
   );
 }
 
-export default function ChangelogPage() {
+export default async function ChangelogPage() {
+  /* 화면 글귀는 전부 이 t() 를 지납니다. */
+  const t = await getT();
   const entries = getChangelogEntries();
   const current = `v${APP_VERSION}`;
   // 목록 맨 위와 지금 도는 버전이 다르면, 배포가 아직 안 끝났거나 브라우저가 옛 화면을
@@ -115,15 +119,19 @@ export default function ChangelogPage() {
         </span>
       </div>
       <p className="mb-5 text-xs leading-relaxed text-slate-500">
-        무엇이 언제 바뀌었는지 최신 순으로 보여줍니다. 새로 배포한 뒤 이 숫자가 올라가 있으면
-        반영이 끝난 것입니다. 그대로라면 아직 올라가는 중이거나, 브라우저가 옛 화면을 쥐고
-        있는 것입니다(Ctrl + Shift + R 로 새로고침).
+        {t(
+          "무엇이 언제 바뀌었는지 최신 순으로 보여줍니다. 새로 배포한 뒤 이 숫자가 올라가 있으면 반영이 끝난 것입니다. 그대로라면 아직 올라가는 중이거나, 브라우저가 옛 화면을 쥐고 있는 것입니다(Ctrl + Shift + R 로 새로고침)."
+        )}
       </p>
 
       {stale && (
         <p className="mb-4 rounded-xl bg-amber-50 px-4 py-3 text-sm leading-relaxed text-amber-900">
-          지금 보고 있는 화면은 <b>{current}</b> 인데 기록의 맨 위는 <b>{entries[0].version}</b>{" "}
-          입니다. 배포가 아직 끝나지 않았을 수 있습니다.
+          {rich(
+            t("지금 보고 있는 화면은 **{now}** 인데 기록의 맨 위는 **{top}** 입니다. 배포가 아직 끝나지 않았을 수 있습니다.", {
+              now: current,
+              top: entries[0].version,
+            })
+          )}
         </p>
       )}
 

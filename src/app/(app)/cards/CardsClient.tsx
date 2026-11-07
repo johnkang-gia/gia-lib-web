@@ -366,8 +366,9 @@ export default function CardsClient({
           <div className="min-w-[280px] flex-1">
             <h1 className="text-lg font-bold">도서카드 인쇄</h1>
             <p className="mt-1 text-sm leading-relaxed text-slate-500">
-              학생 고유번호(GIA-2026-0001)가 바코드로 들어간 카드를 신용카드 크기(86 × 54mm)로
-              인쇄합니다. A4 한 장에 10장씩 나오며, 두꺼운 종이에 인쇄해 자르고 코팅하면 됩니다.
+              {t(
+                "학생 고유번호(GIA-2026-0001)가 바코드로 들어간 카드를 신용카드 크기(86 × 54mm)로 인쇄합니다. A4 한 장에 10장씩 나오며, 두꺼운 종이에 인쇄해 자르고 코팅하면 됩니다."
+              )}
             </p>
 
             {/* 디자인 고르기 - 기본은 GIA 디자인입니다. */}
@@ -494,9 +495,13 @@ export default function CardsClient({
               </div>
               {layout.fits ? (
                 <span className="text-xs text-slate-500">
-                  한 장에 <b className="text-slate-700">{sheetCapacity}명분</b>
-                  {layout.mixed && " (일부는 눕혀서)"}
-                  {selectedList.length > 0 && ` · 선택한 ${selectedList.length}명이면 ${sheetsNeeded}장`}
+                  {rich(t("한 장에 **{n}명분**", { n: sheetCapacity }), "text-slate-700")}
+                  {layout.mixed && ` ${t("(일부는 눕혀서)")}`}
+                  {selectedList.length > 0 &&
+                    ` · ${t("선택한 {n}명이면 {sheets}장", {
+                      n: selectedList.length,
+                      sheets: sheetsNeeded,
+                    })}`}
                 </span>
               ) : (
                 <span className="text-xs font-semibold text-amber-700">
@@ -811,7 +816,9 @@ export default function CardsClient({
 
         {selectedList.length > 0 && (
           <span className="flex items-center gap-1 rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-xs">
-            <span className="text-slate-500">선택한 {selectedList.length}명을</span>
+            <span className="text-slate-500">
+              {t("선택한 {n}명의 이름 표기를", { n: selectedList.length })}
+            </span>
             {CARD_NAME_STYLES.map((opt) => (
               <button
                 key={opt.key}
@@ -830,7 +837,6 @@ export default function CardsClient({
                 {opt.key === "ko" ? t("한글") : opt.key === "en" ? t("영어+한글") : t("영어만")}
               </button>
             ))}
-            <span className="text-slate-400">{t("로")}</span>
           </span>
         )}
 
@@ -841,7 +847,7 @@ export default function CardsClient({
           className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium hover:bg-slate-50 disabled:opacity-40"
           title="사진이 없는 학생은 빼고 고릅니다"
         >
-          📷 사진 있는 {photoReady}명만 선택
+          {t("📷 사진 있는 {n}명만 선택", { n: photoReady })}
         </button>
 
         <button
@@ -859,7 +865,7 @@ export default function CardsClient({
           }
           className="ml-auto rounded-lg bg-slate-900 px-5 py-2 text-sm font-semibold text-white hover:bg-slate-800 disabled:opacity-40"
         >
-          선택한 {selectedList.length}명 카드 인쇄
+          {t("선택한 {n}명 카드 인쇄", { n: selectedList.length })}
         </button>
       </div>
 

@@ -355,8 +355,9 @@ export default function AssignClient() {
                         {row.pickable.map((l) => (
                           <option key={l.id} value={l.id}>
                             {l.code}
-                            {l.name ? ` · ${l.name}` : ""} — 지금 {l.copies}권
-                            {l.capacity != null ? ` / ${l.capacity}권` : ""}
+                            {l.name ? ` · ${l.name}` : ""}{" "}
+                            {t("— 지금 {n}권", { n: l.copies })}
+                            {l.capacity != null ? ` / ${t("{n}권", { n: l.capacity })}` : ""}
                           </option>
                         ))}
                       </select>

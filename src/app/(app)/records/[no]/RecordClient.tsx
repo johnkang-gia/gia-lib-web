@@ -93,10 +93,12 @@ export default function RecordClient({
             <span className="ml-auto text-sm text-slate-500">{today} 기준</span>
           </div>
           <p className="mt-1.5 text-sm text-slate-600">
-            모두 <b className="text-base text-gia-navy">{all.count}권</b>
-            {all.english > 0 && ` · 영어책 ${all.english}권`}
+            {rich(t("모두 **{n}권**", { n: all.count }), "text-base text-gia-navy")}
+            {all.english > 0 && ` · ${t("영어책 {n}권", { n: all.english })}`}
             {first && last && ` · ${first} ~ ${last}`}
-            {` · ${TABS.find((t) => t.key === by)?.label}로 정리`}
+            {` · ${t("{by}로 정리", {
+              by: t(TABS.find((tab) => tab.key === by)?.label ?? ""),
+            })}`}
           </p>
           {all.categories.length > 0 && (
             <p className="mt-1 flex flex-wrap gap-1.5">
@@ -125,9 +127,13 @@ export default function RecordClient({
               <section key={group.key} className="mb-5 break-inside-avoid">
                 <div className="mb-1.5 flex flex-wrap items-baseline gap-2 bg-slate-100 px-3 py-1.5 print:bg-slate-100">
                   <h2 className="text-base font-black">{group.label}</h2>
-                  <span className="text-sm font-bold text-gia-navy">{sum.count}권</span>
+                  <span className="text-sm font-bold text-gia-navy">
+                    {t("{n}권", { n: sum.count })}
+                  </span>
                   {sum.english > 0 && (
-                    <span className="text-xs text-slate-500">영어책 {sum.english}권</span>
+                    <span className="text-xs text-slate-500">
+                      {t("영어책 {n}권", { n: sum.english })}
+                    </span>
                   )}
                   {group.note && (
                     <span className="ml-auto text-[11px] text-slate-400">{group.note}</span>
@@ -191,7 +197,8 @@ export default function RecordClient({
         )}
 
         <p className="mt-6 border-t border-slate-200 pt-2 text-center text-[11px] text-slate-400">
-          GIA 도서관 · {student.student_no} · {formatDay(today)} 출력
+          {t("GIA 도서관")} · {student.student_no} ·{" "}
+          {t("{day} 출력", { day: formatDay(today) })}
         </p>
       </div>
     </div>

@@ -541,7 +541,7 @@ export default function PlaceClient({
           <span className="min-w-0 flex-1 text-sm font-bold text-slate-600">
             {list ? (
               <>
-                {list.titles}종 · {list.copies}권
+                {t("{k}종 · {c}권", { k: list.titles, c: list.copies })}
                 {/*
                   "다 맞는데 왜 71권이지?"의 답이 보통 여기 있습니다. 찍을 때는 칸에 있었지만
                   그 뒤에 빌려 나간 책은 기록에 남고 책장에는 없습니다. 손으로 센 숫자와
@@ -549,8 +549,13 @@ export default function PlaceClient({
                 */}
                 {list.onLoan > 0 && (
                   <span className="ml-2 font-normal text-slate-500">
-                    — 대출 중 {list.onLoan}권 ·{" "}
-                    <b className="text-gia-navy">책장에 있어야 할 {list.onShelf}권</b>
+                    {rich(
+                      t("— 대출 중 {out}권 · **책장에 있어야 할 {on}권**", {
+                        out: list.onLoan,
+                        on: list.onShelf,
+                      }),
+                      "text-gia-navy"
+                    )}
                   </span>
                 )}
               </>
@@ -629,10 +634,13 @@ export default function PlaceClient({
                   />
                   <p className="mt-2 flex flex-wrap items-center gap-3 text-sm">
                     <span className="font-bold text-emerald-700">
-                      찍음 {audit.size}종 · {scannedCopies}권
+                      {t("찍음 {k}종 · {c}권", { k: audit.size, c: scannedCopies })}
                     </span>
                     <span className="text-slate-400">
-                      기록 {list?.titles ?? 0}종 · {list?.copies ?? 0}권
+                      {t("기록 {k}종 · {c}권", {
+                        k: list?.titles ?? 0,
+                        c: list?.copies ?? 0,
+                      })}
                     </span>
                     {auditNote && <span className="truncate text-xs text-slate-500">{auditNote}</span>}
                   </p>
@@ -646,18 +654,18 @@ export default function PlaceClient({
                   {auditTodo.length > 0 && (
                     <section>
                       <p className="sticky top-0 bg-rose-600 px-5 py-1.5 text-xs font-bold text-white">
-                        먼저 손봐야 합니다 — {auditTodo.length}개
+                        {t("먼저 손봐야 합니다 — {n}개", { n: auditTodo.length })}
                       </p>
                       <ul className="divide-y divide-slate-100">
-                        {auditTodo.map((t) => (
-                          <li key={t.code} className="px-5 py-2.5">
-                            {t.kind === "unknown" ? (
+                        {auditTodo.map((row) => (
+                          <li key={row.code} className="px-5 py-2.5">
+                            {row.kind === "unknown" ? (
                               <div className="flex flex-wrap items-center gap-2">
                                 <span className="min-w-0 flex-1">
-                                  <span className="block font-mono text-sm font-bold">{t.code}</span>
+                                  <span className="block font-mono text-sm font-bold">{row.code}</span>
                                   <span className="block text-[11px] text-slate-500">
                                     장서에 없는 책입니다 —{" "}
-                                    {t.isIsbn
+                                    {row.isIsbn
                                       ? "등록하면 제목이 자동으로 채워집니다"
                                       : "등록하면 도서관 라벨을 새로 발급합니다"}
                                   </span>
@@ -666,9 +674,9 @@ export default function PlaceClient({
                                   type="button"
                                   onClick={() =>
                                     setRegister(
-                                      t.isIsbn
-                                        ? { isbn: t.code, mode: "audit" }
-                                        : { code: t.code, mode: "audit" }
+                                      row.isIsbn
+                                        ? { isbn: row.code, mode: "audit" }
+                                        : { code: row.code, mode: "audit" }
                                     )
                                   }
                                   className="rounded-lg bg-gia-navy px-3 py-1.5 text-xs font-bold text-white"
@@ -677,7 +685,7 @@ export default function PlaceClient({
                                 </button>
                                 <button
                                   type="button"
-                                  onClick={() => dropTodo(t.code)}
+                                  onClick={() => dropTodo(row.code)}
                                   className="rounded-lg px-2 py-1.5 text-xs font-semibold text-slate-500 underline"
                                 >
                                   잘못 찍음
@@ -686,19 +694,21 @@ export default function PlaceClient({
                             ) : (
                               <div>
                                 <p className="text-sm font-bold">
-                                  {t.books[0].title}
+                                  {row.books[0].title}
                                   <span className="ml-2 text-[11px] font-medium text-slate-500">
-                                    같은 ISBN이 등급별로 {t.books.length}줄 — 어느 쪽인지 골라주세요
+                                    {t("같은 ISBN이 등급별로 {n}줄 — 어느 쪽인지 골라주세요", {
+                                      n: row.books.length,
+                                    })}
                                   </span>
                                 </p>
                                 <p className="mt-1.5 flex flex-wrap gap-1.5">
-                                  {t.books.map((b) => (
+                                  {row.books.map((b) => (
                                     <button
                                       key={b.id}
                                       type="button"
                                       onClick={() => {
                                         countOne(b.id, b.title, b.label_level);
-                                        dropTodo(t.code);
+                                        dropTodo(row.code);
                                         auditRef.current?.focus();
                                       }}
                                       className="rounded-lg px-2.5 py-1 text-xs font-bold ring-1"
@@ -714,7 +724,7 @@ export default function PlaceClient({
                                   ))}
                                   <button
                                     type="button"
-                                    onClick={() => dropTodo(t.code)}
+                                    onClick={() => dropTodo(row.code)}
                                     className="rounded-lg px-2 py-1 text-xs font-semibold text-slate-500 underline"
                                   >
                                     잘못 찍음
@@ -730,7 +740,7 @@ export default function PlaceClient({
                   {missing.length > 0 && (
                     <section>
                       <p className="sticky top-0 bg-amber-100 px-5 py-1.5 text-xs font-bold text-amber-900">
-                        기록에 있는데 안 나왔습니다 — {missing.length}종
+                        {t("기록에 있는데 안 나왔습니다 — {n}종", { n: missing.length })}
                       </p>
                       <ul className="divide-y divide-slate-100">
                         {missing.map((r) => (
@@ -738,7 +748,7 @@ export default function PlaceClient({
                             <span className="min-w-0 flex-1 truncate">{r.title}</span>
                             {r.onLoan > 0 && (
                               <span className="shrink-0 rounded bg-sky-50 px-1.5 py-0.5 text-[11px] font-bold text-sky-700">
-                                📕 대출 중 {r.onLoan}권
+                                {t("📕 대출 중 {n}권", { n: r.onLoan })}
                               </span>
                             )}
                             <span className="shrink-0 text-xs text-slate-500">
@@ -777,7 +787,7 @@ export default function PlaceClient({
                   {extra.length > 0 && (
                     <section>
                       <p className="sticky top-0 bg-rose-100 px-5 py-1.5 text-xs font-bold text-rose-900">
-                        나왔는데 기록보다 많습니다 — {extra.length}종
+                        {t("나왔는데 기록보다 많습니다 — {n}종", { n: extra.length })}
                       </p>
                       <ul className="divide-y divide-slate-100">
                         {extra.map(([id, c]) => (
@@ -794,7 +804,9 @@ export default function PlaceClient({
                     </section>
                   )}
                   <p className="px-5 py-3 text-xs text-slate-400">
-                    맞는 책 {same.length}종. 다 찍으셨으면 아래에서 이 칸의 기록을 바꿉니다.
+                    {t("맞는 책 {n}종. 다 찍으셨으면 아래에서 이 칸의 기록을 바꿉니다.", {
+                      n: same.length,
+                    })}
                   </p>
                 </div>
 
@@ -834,9 +846,11 @@ export default function PlaceClient({
         ) : (
           <>
             <p className="bg-amber-50 px-5 py-2.5 text-xs leading-relaxed text-amber-900">
-              실제 책장과 권수가 다르면 여기서 고칩니다. <b>−1권</b>은 두 번 찍힌 것,{" "}
-              <b>빼기</b>는 애초에 이 칸 책이 아니었던 것입니다. 어디서부터 어긋났는지 모르겠으면{" "}
-              <b>✅ 대조 검사</b>로 칸을 비우고 다시 찍어 맞춰 보세요.
+              {rich(
+                t(
+                  "실제 책장과 권수가 다르면 여기서 고칩니다. **−1권**은 두 번 찍힌 것, **빼기**는 애초에 이 칸 책이 아니었던 것입니다. 어디서부터 어긋났는지 모르겠으면 **✅ 대조 검사**로 칸을 비우고 다시 찍어 맞춰 보세요."
+                )
+              )}
             </p>
 
             <ul className="min-h-0 flex-1 divide-y divide-slate-100 overflow-y-auto">
@@ -1018,7 +1032,10 @@ export default function PlaceClient({
       {stale && (
         <div className="flex flex-wrap items-center gap-3 rounded-2xl bg-rose-600 px-5 py-3 text-white">
           <span className="min-w-0 flex-1 text-sm font-bold">
-            새 버전 v{stale} 이 나왔습니다 — 이 화면은 v{APP_VERSION} 입니다.
+            {t("새 버전 v{next} 이 나왔습니다 — 이 화면은 v{now} 입니다.", {
+              next: stale,
+              now: APP_VERSION,
+            })}
             <span className="block text-xs font-normal opacity-90">
               {t(
                 "새로고침하기 전에는 새로 생긴 버튼이 안 보입니다. 찍은 것은 이미 저장돼 있으니 지금 눌러도 잃는 것은 없습니다."
@@ -1216,7 +1233,7 @@ export default function PlaceClient({
       {done.length > 0 && (
         <section className="overflow-hidden rounded-2xl bg-white shadow-sm ring-1 ring-slate-200">
           <p className="border-b border-slate-100 px-4 py-2.5 text-sm font-bold text-slate-500">
-            {here.code} 칸에 적은 책 {done.length}권
+            {t("{zone} 칸에 적은 책 {n}권", { zone: here.code, n: done.length })}
           </p>
           <ul className="max-h-80 divide-y divide-slate-100 overflow-y-auto">
             {done.map((item) => (
@@ -1257,7 +1274,9 @@ export default function PlaceClient({
 
       {pile && pile.count > 0 && (
         <p className="rounded-xl bg-slate-50 px-4 py-3 text-sm text-slate-600 ring-1 ring-slate-200">
-          📥 인쇄 대기 {pile.count}장 — 칸을 다 돌고 「인쇄 기록」에서 한꺼번에 뽑으세요.
+          {t("📥 인쇄 대기 {n}장 — 칸을 다 돌고 「인쇄 기록」에서 한꺼번에 뽑으세요.", {
+            n: pile.count,
+          })}
         </p>
       )}
     </div>
@@ -1310,6 +1329,8 @@ function ResultBody({
   onStash: (bookId: string) => void;
   onSplit: (book: LibBookWithShelf) => void;
 }) {
+  /* 이 아래 글귀도 사전을 지납니다 - 결과 패널은 따로 그려지는 조각입니다. */
+  const t = useT();
   /*
     '여기 그냥 두기'가 실제로 끝나는 동작이 되려면 그 안내가 사라져야 합니다. 누르고도
     그대로 남아 있으면 끝낸 것인지 아닌지 알 수 없고, 다음 책을 찍을 때까지 눈에 걸립니다.
@@ -1375,7 +1396,7 @@ function ResultBody({
             </p>
             {result.copiesHere > 1 && (
               <p className="mt-1 text-sm font-bold text-slate-500">
-                이 칸에서 {result.copiesHere}권째
+                {t("이 칸에서 {n}권째", { n: result.copiesHere })}
               </p>
             )}
             {/*
@@ -1411,7 +1432,9 @@ function ResultBody({
             <span className="text-xs font-bold text-slate-500">
               이 책의 등급
               <span className="ml-1 font-normal text-slate-400">
-                지금 {result.book.label_level != null ? `${result.book.label_level}등급` : "등급 없음"}
+                {result.book.label_level != null
+                  ? t("지금 {lv}등급", { lv: result.book.label_level })
+                  : t("지금 등급 없음")}
               </span>
             </span>
             {[2, 3, 4, 5, 6].map((lv) => (
@@ -1443,7 +1466,7 @@ function ResultBody({
                 onClick={() => onFixCount(result.book.id)}
                 className="rounded-lg border border-amber-400 bg-white px-2.5 py-1 text-xs font-bold text-amber-800 disabled:opacity-50"
               >
-                🧮 장서를 찾은 {result.foundTotal}권으로
+                {t("🧮 장서를 찾은 {n}권으로", { n: result.foundTotal })}
               </button>
             )}
             <button
@@ -1472,9 +1495,9 @@ function ResultBody({
                   }}
                   className="rounded-lg bg-gia-navy px-3 py-1.5 text-left text-xs font-bold text-white disabled:opacity-50"
                 >
-                  📗 이 권만 {levelPick}등급으로 떼기
+                  {t("📗 이 권만 {lv}등급으로 떼기", { lv: levelPick })}
                   <span className="block text-[10px] font-medium opacity-80">
-                    {levelPick}등급 줄로 한 권 옮깁니다 — 없으면 새로 만듭니다
+                    {t("{lv}등급 줄로 한 권 옮깁니다 — 없으면 새로 만듭니다", { lv: levelPick })}
                   </span>
                 </button>
                 <button
@@ -1487,9 +1510,9 @@ function ResultBody({
                   }}
                   className="rounded-lg border border-slate-400 bg-white px-3 py-1.5 text-left text-xs font-bold text-slate-700 disabled:opacity-50"
                 >
-                  ✏️ 이 줄 전체를 {levelPick}등급으로
+                  {t("✏️ 이 줄 전체를 {lv}등급으로", { lv: levelPick })}
                   <span className="block text-[10px] font-medium opacity-70">
-                    {result.book.total_copies}권 모두 — 등급이 잘못 적혀 있던 경우
+                    {t("{n}권 모두 — 등급이 잘못 적혀 있던 경우", { n: result.book.total_copies })}
                   </span>
                 </button>
               </span>
@@ -1540,7 +1563,7 @@ function ResultBody({
                       onClick={() => onLevel(result.book.id, n.levelTo!, "copy")}
                       className="rounded-lg bg-gia-navy px-3 py-1.5 text-left text-xs font-bold text-white disabled:opacity-50"
                     >
-                      📗 이 권만 {n.levelTo}등급으로
+                      {t("📗 이 권만 {lv}등급으로", { lv: n.levelTo })}
                       <span className="block text-[10px] font-medium opacity-80">
                         이 칸 등급으로 한 권만 뗍니다
                       </span>
@@ -1551,9 +1574,9 @@ function ResultBody({
                       onClick={() => onLevel(result.book.id, n.levelTo!, "row")}
                       className="rounded-lg border border-slate-400 bg-white px-3 py-1.5 text-left text-xs font-bold text-slate-700 disabled:opacity-50"
                     >
-                      ✏️ 이 줄 전체를 {n.levelTo}등급으로
+                      {t("✏️ 이 줄 전체를 {lv}등급으로", { lv: n.levelTo })}
                       <span className="block text-[10px] font-medium opacity-70">
-                        {result.book.total_copies}권 모두
+                        {t("{n}권 모두", { n: result.book.total_copies })}
                       </span>
                     </button>
                     <button
@@ -1572,7 +1595,7 @@ function ResultBody({
                     onClick={() => onSplit(result.book)}
                     className="mt-2 rounded-lg border border-amber-400 bg-white px-3 py-1.5 text-xs font-bold text-amber-800"
                   >
-                    ✂ {result.book.total_copies}줄로 따로 떼기
+                    {t("✂ {n}줄로 따로 떼기", { n: result.book.total_copies })}
                   </button>
                 )}
               </li>
@@ -1596,9 +1619,15 @@ function ResultBody({
         <p className="text-sm font-bold text-amber-700">{result.message}</p>
         <p className="mt-1 text-xl font-bold text-amber-950">{result.book.title}</p>
         <p className="mt-1 text-xs text-amber-800">
-          장서에 {result.recordedCopies}권 · 지금까지 {result.foundTotal}권 찾음
-          {result.copiesHere > 0 && ` (${result.locationCode}에 ${result.copiesHere}권)`}
-          {result.copiesHere === 0 && result.homeCode && ` (${result.homeCode}에 있던 책)`}
+          {t("장서에 {a}권 · 지금까지 {b}권 찾음", {
+            a: result.recordedCopies,
+            b: result.foundTotal,
+          })}
+          {result.copiesHere > 0 &&
+            ` ${t("({zone}에 {n}권)", { zone: result.locationCode, n: result.copiesHere })}`}
+          {result.copiesHere === 0 &&
+            result.homeCode &&
+            ` ${t("({zone}에 있던 책)", { zone: result.homeCode })}`}
         </p>
         {/*
           같은 칸에서 또 찍힌 것과, 다른 칸에 세어 둔 책이 여기서 나온 것은 묻는 말이 다릅니다.
@@ -1607,17 +1636,23 @@ function ResultBody({
         <p className="mt-3 text-sm text-amber-900">
           {result.elsewhere.length > 0 ? (
             <>
-              <b>{result.elsewhere.map((e) => e.code).join(" · ")}</b> 에 세어 둔 책입니다. 지금 손에 든 이 책이{" "}
-              <b>거기서 옮겨 온 그 책</b>인가요, <b>기록에 없던 또 한 권</b>인가요?
+              {rich(
+                t(
+                  "**{zones}** 에 세어 둔 책입니다. 지금 손에 든 이 책이 **거기서 옮겨 온 그 책**인가요, **기록에 없던 또 한 권**인가요?",
+                  { zones: result.elsewhere.map((e) => e.code).join(" · ") }
+                )
+              )}
               <span className="mt-1 block text-xs text-amber-800">
-                그 칸에 가 보니 없다면 「여기로 옮겨 왔습니다」입니다 — 그 칸 기록에서 한 권을 빼고 이 칸에
-                적습니다(장서 권수는 그대로).
+                {t(
+                  "그 칸에 가 보니 없다면 「여기로 옮겨 왔습니다」입니다 — 그 칸 기록에서 한 권을 빼고 이 칸에 적습니다(장서 권수는 그대로)."
+                )}
               </span>
             </>
           ) : (
             <>
-              적힌 권수는 이미 다 찾았습니다. 지금 손에 든 책이 <b>아까 그 책</b>인가요,{" "}
-              <b>기록에 없던 한 권</b>인가요?
+              {rich(
+                t("적힌 권수는 이미 다 찾았습니다. 지금 손에 든 책이 **아까 그 책**인가요, **기록에 없던 한 권**인가요?")
+              )}
             </>
           )}
         </p>
@@ -1637,9 +1672,9 @@ function ResultBody({
               onClick={() => onCame(result.book.id, e.id)}
               className="rounded-xl border border-amber-400 bg-white px-4 py-2.5 text-left text-sm font-bold text-amber-900 disabled:opacity-50"
             >
-              📍 {e.code} 에서 여기로 옮겨 왔습니다
+              {t("📍 {zone} 에서 여기로 옮겨 왔습니다", { zone: e.code })}
               <span className="block text-[11px] font-medium opacity-75">
-                {e.code} 기록에서 한 권 빼고 이 칸에 적습니다 · 장서 권수는 그대로
+                {t("{zone} 기록에서 한 권 빼고 이 칸에 적습니다 · 장서 권수는 그대로", { zone: e.code })}
               </span>
             </button>
           ))}
@@ -1678,9 +1713,12 @@ function ResultBody({
             onClick={() => onAdd(result.book.id)}
             className="rounded-xl bg-amber-600 px-4 py-2.5 text-left text-sm font-bold text-white disabled:opacity-50"
           >
-            ➕ 장서추가 — {result.foundTotal + 1}권째
+            {t("➕ 장서추가 — {n}권째", { n: result.foundTotal + 1 })}
             <span className="block text-[11px] font-medium opacity-85">
-              장서도 {result.recordedCopies} → {result.recordedCopies + 1}권
+              {t("장서도 {a} → {b}권", {
+                a: result.recordedCopies,
+                b: result.recordedCopies + 1,
+              })}
             </span>
           </button>
           {/*

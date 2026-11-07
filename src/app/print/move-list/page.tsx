@@ -4,6 +4,7 @@ import { TranslateOverlay } from "@/lib/i18n/overlay";
 import { todayKst } from "@/lib/dates";
 import { fetchAll } from "@/lib/server/fetchAll";
 import type { MovePlanRow } from "@/lib/types";
+import { getT } from "@/lib/i18n/server";
 
 export const dynamic = "force-dynamic";
 
@@ -21,6 +22,8 @@ export default async function MoveListPage({
 }: {
   searchParams: Promise<{ from?: string }>;
 }) {
+  /* 화면 글귀는 전부 이 t() 를 지납니다. */
+  const t = await getT();
   const params = await searchParams;
   const supabase = await createClient();
 
@@ -59,7 +62,10 @@ export default async function MoveListPage({
         <div>
           <h1 className="text-lg font-bold">도서 이동 목록</h1>
           <p className="text-sm text-slate-500">
-            옮길 책 {rows.length}권 · 지금 꽂힌 칸 {groups.size}곳
+            {t("옮길 책 {n}권 · 지금 꽂힌 칸 {z}곳", {
+              n: rows.length,
+              z: groups.size,
+            })}
           </p>
         </div>
         <span className="ml-auto"><PrintButton /></span>
@@ -74,7 +80,9 @@ export default async function MoveListPage({
           <div className="mb-4 flex items-baseline gap-3 border-b-2 border-slate-800 pb-2">
             <h2 className="text-xl font-black">도서 이동 목록</h2>
             <span className="text-sm text-slate-500">{today}</span>
-            <span className="ml-auto text-sm text-slate-500">모두 {rows.length}권</span>
+            <span className="ml-auto text-sm text-slate-500">
+              {t("모두 {n}권", { n: rows.length })}
+            </span>
           </div>
 
           {[...groups.entries()].map(([fromCode, list]) => (
@@ -111,7 +119,7 @@ export default async function MoveListPage({
                         {row.title}
                         {(row.total_copies ?? 1) > 1 && (
                           <span className="ml-1 text-[11px] text-slate-500">
-                            ({row.total_copies}권)
+                            {t("({n}권)", { n: row.total_copies ?? 1 })}
                           </span>
                         )}
                       </td>

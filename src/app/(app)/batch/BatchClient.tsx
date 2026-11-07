@@ -750,8 +750,8 @@ export default function BatchClient({ locations }: { locations: LibLocation[] })
       <div className="mx-auto max-w-lg space-y-4 pt-6 text-center">
         <p className="text-5xl">✅</p>
         <p className="text-2xl font-bold">
-          새로 등록 {done.added}권
-          {done.moved > 0 && ` · 복본 추가 ${done.moved}권`}
+          {t("새로 등록 {n}권", { n: done.added })}
+          {done.moved > 0 && ` · ${t("복본 추가 {n}권", { n: done.moved })}`}
         </p>
         {location && (
           <p className="text-lg" style={{ color: location.color }}>
@@ -802,7 +802,7 @@ export default function BatchClient({ locations }: { locations: LibLocation[] })
               onClick={() => window.open(`/print/labels?ids=${done.ids.join(",")}`, "_blank")}
               className="w-full rounded-2xl bg-slate-900 px-4 py-3.5 text-base font-bold text-white"
             >
-              방금 등록한 책 라벨 {done.ids.length}장 인쇄
+              {t("방금 등록한 책 라벨 {n}장 인쇄", { n: done.ids.length })}
             </button>
           )}
 
@@ -863,7 +863,10 @@ export default function BatchClient({ locations }: { locations: LibLocation[] })
                   }}
                   className="flex-[2] rounded-2xl bg-amber-600 px-4 py-3 text-sm font-bold text-white disabled:opacity-40"
                 >
-                  모아둔 {pile.count}장과 합쳐 {pile.count + done.ids.length}장 인쇄
+                  {t("모아둔 {a}장과 합쳐 {b}장 인쇄", {
+                    a: pile.count,
+                    b: pile.count + done.ids.length,
+                  })}
                 </button>
               )}
             </div>
@@ -895,7 +898,7 @@ export default function BatchClient({ locations }: { locations: LibLocation[] })
               }}
               className="w-full rounded-2xl px-4 py-2 text-xs font-semibold text-slate-400 disabled:opacity-40"
             >
-              다 뽑았음 — 모아둔 {pile.count}장 비우기
+              {t("다 뽑았음 — 모아둔 {n}장 비우기", { n: pile.count })}
             </button>
           )}
           <button
@@ -1164,7 +1167,8 @@ export default function BatchClient({ locations }: { locations: LibLocation[] })
                   </div>
                   <div className="min-w-0 flex-1">
                     <p className="text-xs font-semibold text-slate-500">
-                      표지에서 읽은 제목 <span className="font-normal">(틀렸으면 고쳐주세요)</span>
+                      {t("표지에서 읽은 제목")}{" "}
+                      <span className="font-normal">{t("(틀렸으면 고쳐주세요)")}</span>
                     </p>
                     <div className="mt-0.5 flex flex-wrap items-center gap-2">
                       <input
@@ -1320,8 +1324,8 @@ export default function BatchClient({ locations }: { locations: LibLocation[] })
             이 책은 이미 담겨 있습니다 — {dupAsk.title}
           </p>
           <p className="mt-1 text-sm text-amber-800">
-            {dupAsk.times > 1 && <b>{dupAsk.times}번 더 찍혔습니다. </b>}
-            잘못해서 두 번 찍으신 건가요, 아니면 같은 책이 여러 권 있나요?
+            {dupAsk.times > 1 && <b>{t("{n}번 더 찍혔습니다.", { n: dupAsk.times })} </b>}
+            {t("잘못해서 두 번 찍으신 건가요, 아니면 같은 책이 여러 권 있나요?")}
           </p>
           <div className="mt-3 flex flex-wrap gap-2">
             <button
@@ -1329,7 +1333,7 @@ export default function BatchClient({ locations }: { locations: LibLocation[] })
               onClick={() => addCopies(dupAsk.code, dupAsk.times)}
               className="rounded-xl bg-amber-600 px-5 py-2.5 text-sm font-bold text-white"
             >
-              같은 책이 여러 권 — {dupAsk.times}권 추가
+              {t("같은 책이 여러 권 — {n}권 추가", { n: dupAsk.times })}
             </button>
             <button
               type="button"
@@ -1345,7 +1349,8 @@ export default function BatchClient({ locations }: { locations: LibLocation[] })
       {/* ── 담긴 목록 ─────────────────────────────────────────────────── */}
       <div className="flex flex-wrap items-center gap-2">
         <span className="text-sm font-semibold text-slate-500">
-          담긴 책 {items.length}권 {items.length > 0 && `(등록 준비 ${ready}권)`}
+          {t("담긴 책 {n}권", { n: items.length })}{" "}
+          {items.length > 0 && t("(등록 준비 {n}권)", { n: ready })}
         </span>
         {items.length > 0 && (
           <button
@@ -1464,7 +1469,7 @@ export default function BatchClient({ locations }: { locations: LibLocation[] })
                     )}
                     {labelLevel && item.status !== "복본" && (
                       <span className="flex items-center gap-1 text-[11px] text-slate-400">
-                        라벨 {labelLevel}-
+                        {t("라벨 {lv}-", { lv: labelLevel })}
                         <input
                           value={item.labelNo}
                           onChange={(e) => patchItem(item.key, { labelNo: e.target.value })}

@@ -107,7 +107,10 @@ export default async function PrintShelfLabelsPage({
         <div className="flex items-center justify-between">
           <div>
             <p className="font-bold">
-              책장 구역 라벨 {locations.length}장 · A4 {pages.length}장
+              {t("책장 구역 라벨 {n}장 · A4 {p}장", {
+                n: locations.length,
+                p: pages.length,
+              })}
             </p>
             {/*
               아직 임시인 칸의 라벨을 코팅해 붙이면, 정리 뒤에 또 떼야 합니다. 그래서 몇 칸이
@@ -115,11 +118,12 @@ export default async function PrintShelfLabelsPage({
             */}
             {locations.some((l) => l.kind === "임시") && (
               <p className="mt-1 rounded-lg bg-amber-50 px-2.5 py-1.5 text-xs leading-relaxed text-amber-900">
-                <b>
-                  {locations.filter((l) => l.kind === "임시").length}칸이 아직 「임시」입니다
-                </b>{" "}
-                — 정리를 마치고 <b>정식 책장으로 등록</b>한 뒤에 뽑으시면 아래 범위가 그대로 맞습니다(정리 계획
-                화면 ⑤). 지금 뽑으면 정리 뒤에 다시 뽑아야 할 수 있습니다.
+                {rich(
+                  t(
+                    "**{n}칸이 아직 「임시」입니다** — 정리를 마치고 **정식 책장으로 등록**한 뒤에 뽑으시면 아래 범위가 그대로 맞습니다(정리 계획 화면 ⑤). 지금 뽑으면 정리 뒤에 다시 뽑아야 할 수 있습니다.",
+                    { n: locations.filter((l) => l.kind === "임시").length }
+                  )
+                )}
               </p>
             )}
             <p className="mt-1 text-xs leading-relaxed text-slate-500">

@@ -97,8 +97,9 @@ export default function PrintJobsClient({
 
       {loadError && (
         <p className="rounded-2xl bg-amber-50 px-5 py-4 text-sm leading-relaxed text-amber-900 ring-1 ring-amber-200">
-          인쇄 기록 표를 아직 읽을 수 없습니다 — 운영앱(gia-ops)의 마이그레이션이 아직 적용되지
-          않았을 수 있습니다. 적용되면 이 화면이 바로 동작합니다.
+          {t(
+            "인쇄 기록 표를 아직 읽을 수 없습니다 — 운영앱(gia-ops)의 마이그레이션이 아직 적용되지 않았을 수 있습니다. 적용되면 이 화면이 바로 동작합니다."
+          )}
           <span className="mt-1 block font-mono text-xs text-amber-700">{loadError}</span>
         </p>
       )}
@@ -186,14 +187,14 @@ export default function PrintJobsClient({
 
                   <p className="mt-1 text-xs text-slate-500">
                     {isPile
-                      ? `${count}장 모아두는 중 · A4 한 장에 27장 · `
-                      : `${count}장 · `}
-                    {when(job.opened_at)}에 마지막으로 열었습니다
+                      ? `${t("{n}장 모아두는 중 · A4 한 장에 27장", { n: count })} · `
+                      : `${t("{n}장", { n: count })} · `}
+                    {t("{when}에 마지막으로 열었습니다", { when: when(job.opened_at) })}
                     {job.created_by ? ` · ${job.created_by}` : ""}
                   </p>
                   {job.printed_at && (
                     <p className="mt-0.5 text-xs font-semibold text-emerald-700">
-                      ✓ {when(job.printed_at)}에 뽑았다고 표시됨
+                      {t("✓ {when}에 뽑았다고 표시됨", { when: when(job.printed_at) })}
                     </p>
                   )}
                 </div>

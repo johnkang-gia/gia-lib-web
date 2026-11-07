@@ -288,8 +288,9 @@ export default function ShelveClient({
 
                       {!group.location && (
                         <p className="mt-1 text-xs text-amber-700">
-                          이 책들은 아직 구역이 정해지지 않았습니다. &lsquo;구역 배정&rsquo; 탭에서
-                          자리를 정해주세요.
+                          {t(
+                            "이 책들은 아직 구역이 정해지지 않았습니다. ‘구역 배정’ 탭에서 자리를 정해주세요."
+                          )}
                         </p>
                       )}
                     </li>

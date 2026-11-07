@@ -108,7 +108,10 @@ export default function KioskClient({
 
       {keyword.trim() === "" && (
         <p className="rounded-3xl bg-white/10 px-6 py-10 text-center text-lg font-semibold text-white/70">
-          제목이나 지은이를 치면 그 책이 <b className="text-white">어느 칸</b>에 있는지 알려줍니다.
+          {rich(
+            t("제목이나 지은이를 치면 그 책이 **어느 칸**에 있는지 알려줍니다."),
+            "text-white"
+          )}
         </p>
       )}
 

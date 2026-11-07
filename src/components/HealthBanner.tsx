@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useT } from "@/lib/i18n/client";
 
 type Health = {
   ok: boolean;
@@ -19,6 +20,8 @@ type Health = {
  * 아무 문제가 없으면 아무것도 그리지 않습니다.
  */
 export default function HealthBanner() {
+  /* 화면 글귀는 전부 이 t() 를 지납니다. */
+  const t = useT();
   const [health, setHealth] = useState<Health | null>(null);
 
   useEffect(() => {
@@ -48,7 +51,7 @@ export default function HealthBanner() {
       <p className="mt-1.5 text-sm leading-relaxed text-red-700">{health.hint}</p>
       <details className="mt-2">
         <summary className="cursor-pointer text-sm font-semibold text-red-700">
-          없는 칸 {items.length}개 보기
+          {t("없는 칸 {n}개 보기", { n: items.length })}
         </summary>
         <p className="mt-2 rounded-lg bg-white/70 px-3 py-2 font-mono text-xs leading-relaxed text-red-800">
           {items.join(", ")}

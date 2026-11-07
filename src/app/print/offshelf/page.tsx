@@ -168,7 +168,13 @@ export default async function OffShelfListPage() {
         <div>
           <h1 className="text-lg font-bold">책장에 없는 책 목록</h1>
           <p className="text-sm text-slate-500">
-            통째로 {never.length}종 {sum(never)}권 · 일부만 {partly.length}종 {sum(partly)}권 — 모두 {totalMissing}권
+            {t("통째로 {ak}종 {ac}권 · 일부만 {bk}종 {bc}권 — 모두 {all}권", {
+              ak: never.length,
+              ac: sum(never),
+              bk: partly.length,
+              bc: sum(partly),
+              all: totalMissing,
+            })}
           </p>
         </div>
         <span className="ml-auto">
@@ -185,7 +191,9 @@ export default async function OffShelfListPage() {
           <div className="mb-3 flex items-baseline gap-3 border-b-2 border-slate-800 pb-2">
             <h2 className="text-xl font-black">책장에 없는 책 목록</h2>
             <span className="text-sm text-slate-500">{today}</span>
-            <span className="ml-auto text-sm text-slate-500">모두 {totalMissing}권</span>
+            <span className="ml-auto text-sm text-slate-500">
+              {t("모두 {n}권", { n: totalMissing })}
+            </span>
           </div>
 
           <p className="mb-4 bg-amber-50 px-3 py-2 text-xs leading-relaxed text-amber-900">
@@ -201,7 +209,7 @@ export default async function OffShelfListPage() {
               <h3 className="mb-1.5 bg-slate-100 px-3 py-1.5 text-base font-bold">
                 통째로 책장에 없는 책
                 <span className="ml-2 text-sm font-normal text-slate-500">
-                  {never.length}종 {sum(never)}권
+                  {t("{k}종 {c}권", { k: never.length, c: sum(never) })}
                 </span>
               </h3>
               <p className="mb-2 text-xs leading-relaxed text-slate-600">
@@ -220,7 +228,7 @@ export default async function OffShelfListPage() {
               <h3 className="mb-1.5 bg-slate-100 px-3 py-1.5 text-base font-bold">
                 일부만 책장에 없는 책
                 <span className="ml-2 text-sm font-normal text-slate-500">
-                  {partly.length}종 {sum(partly)}권
+                  {t("{k}종 {c}권", { k: partly.length, c: sum(partly) })}
                 </span>
               </h3>
               <p className="mb-2 text-xs leading-relaxed text-slate-600">

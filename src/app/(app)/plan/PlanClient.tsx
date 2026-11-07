@@ -1099,7 +1099,7 @@ export default function PlanClient({
 
         {computed === null && !planError && (
           <p className="mt-3 rounded-xl bg-slate-50 px-3 py-2 text-sm font-semibold text-slate-500">
-            책 {targetBooks.length.toLocaleString()}권을 칸에 나눠 담는 중…
+            {t("책 {n}권을 칸에 나눠 담는 중…", { n: targetBooks.length.toLocaleString() })}
           </p>
         )}
         {planError && (
@@ -1116,8 +1116,8 @@ export default function PlanClient({
               onChange={(e) => setUseTempZones(e.target.checked)}
               className="h-4 w-4"
             />
-            지금 쓰는 임시구역을 그대로 정리 대상으로
-            <span className="text-xs text-slate-400">({tempZones.length}칸)</span>
+            {t("지금 쓰는 임시구역을 그대로 정리 대상으로")}
+            <span className="text-xs text-slate-400">{t("({n}칸)", { n: tempZones.length })}</span>
           </label>
 
           <label className="flex items-center gap-2 text-sm text-slate-600">
@@ -1250,7 +1250,7 @@ export default function PlanClient({
             {savedWidthCm != null && !editWidth ? (
               <>
                 <span className="rounded-lg bg-white px-3 py-1.5 text-sm font-bold text-gia-navy ring-1 ring-slate-300">
-                  칸 폭 {savedWidthCm.toFixed(0)}cm
+                  {t("칸 폭 {n}cm", { n: savedWidthCm.toFixed(0) })}
                 </span>
                 <span className="text-[11px] text-slate-500">
                   적어 둔 값입니다 — 고칠 때까지 그대로 씁니다.
@@ -1314,8 +1314,13 @@ export default function PlanClient({
 
           {widthZones > 0 && (
             <p className="mt-2 text-xs leading-relaxed text-slate-600">
-              이 등급 책을 꽂는 데 <b className="text-gia-navy">{widthNeeded.toFixed(0)}cm</b> 가 들고, 칸은 모두{" "}
-              <b className="text-gia-navy">{widthHave.toFixed(0)}cm</b> 입니다
+              {rich(
+                t("이 등급 책을 꽂는 데 **{need}cm** 가 들고, 칸은 모두 **{have}cm** 입니다", {
+                  need: widthNeeded.toFixed(0),
+                  have: widthHave.toFixed(0),
+                }),
+                "text-gia-navy"
+              )}
               {widthHave > 0 && (
                 <>
                   {" "}
@@ -1334,15 +1339,21 @@ export default function PlanClient({
               {cal.zones > 0 && (
                 <>
                   {" "}
-                  재어 둔 칸 {cal.zones}개로 종이 두께를 바로잡았습니다(가늠 ×
-                  {cal.factor.toFixed(2)}).
+                  {t("재어 둔 칸 {z}개로 종이 두께를 바로잡았습니다(가늠 × {f}).", {
+                    z: cal.zones,
+                    f: cal.factor.toFixed(2),
+                  })}
                 </>
               )}
               {pagesLeft > 0 && (
                 <>
                   {" "}
-                  <b>쪽수를 모르는 책 {pagesLeft}권</b>은 {Math.round(14)}mm 로 봅니다 — 「쪽수 채우기」를 돌리면
-                  그만큼 정확해집니다.
+                  {rich(
+                    t(
+                      "**쪽수를 모르는 책 {n}권**은 {mm}mm 로 봅니다 — 「쪽수 채우기」를 돌리면 그만큼 정확해집니다.",
+                      { n: pagesLeft, mm: 14 }
+                    )
+                  )}
                 </>
               )}
             </p>
@@ -1435,22 +1446,23 @@ export default function PlanClient({
 
         {(plan.noAudience > 0 || plan.uncategorized > 0) && (
           <div className="mt-3 rounded-xl bg-amber-50 px-4 py-3 text-sm leading-relaxed text-amber-900">
-            먼저 손보면 좋은 것:
+            {t("먼저 손보면 좋은 것:")}
             {plan.noAudience > 0 && (
               <>
                 {" "}
-                대상 연령이 비어 있는 책 <b>{plan.noAudience}권</b>
+                {rich(t("대상 연령이 비어 있는 책 **{n}권**", { n: plan.noAudience }))}
               </>
             )}
             {plan.noAudience > 0 && plan.uncategorized > 0 && " ·"}
             {plan.uncategorized > 0 && (
               <>
                 {" "}
-                분류가 &lsquo;기타&rsquo;거나 비어 있는 책 <b>{plan.uncategorized}권</b>
+                {rich(t("분류가 ‘기타’거나 비어 있는 책 **{n}권**", { n: plan.uncategorized }))}
               </>
             )}
-            . 장서관리 화면에서 채우면 훨씬 깔끔하게 나뉩니다. 지금 확정해도 이 책들은 맨 뒤 칸에
-            모입니다.
+            {t(
+              ". 장서관리 화면에서 채우면 훨씬 깔끔하게 나뉩니다. 지금 확정해도 이 책들은 맨 뒤 칸에 모입니다."
+            )}
           </div>
         )}
 
@@ -1467,9 +1479,10 @@ export default function PlanClient({
 
         {noCapacity > 0 && (
           <p className="mt-3 text-xs leading-relaxed text-slate-400">
-            용량이 정해지지 않은 칸이 {noCapacity}개 있습니다 — 그런 칸은 &lsquo;얼마든지
-            들어감&rsquo;으로 계산합니다. 임시구역에 책을 다 등록한 뒤 구역 관리에서 &lsquo;등록된
-            권수를 용량으로&rsquo;를 누르면 실제 수용량이 잡힙니다.
+            {t(
+              "용량이 정해지지 않은 칸이 {n}개 있습니다 — 그런 칸은 ‘얼마든지 들어감’으로 계산합니다. 임시구역에 책을 다 등록한 뒤 구역 관리에서 ‘등록된 권수를 용량으로’를 누르면 실제 수용량이 잡힙니다.",
+              { n: noCapacity }
+            )}
           </p>
         )}
       </section>
@@ -1621,7 +1634,7 @@ export default function PlanClient({
             <div className="flex flex-wrap items-center gap-2">
               <h2 className="text-sm font-bold text-slate-500">③ 한 칸씩 채우기</h2>
               <span className="text-xs text-slate-400">
-                {at + 1} / {ordered.length} 칸
+                {t("{a} / {b} 칸", { a: at + 1, b: ordered.length })}
               </span>
               <div className="ml-auto flex gap-1.5">
                 <button
@@ -1653,13 +1666,23 @@ export default function PlanClient({
             <div className="mt-2 flex flex-wrap items-center gap-2">
               {chip(zp.zone.id)}
               <span className="text-sm text-slate-700">
-                다 하면 <b className="text-gia-navy">{cps(zp.books)}권</b>
-                {widthZones > 0 && <span className="ml-1 text-xs text-slate-500">(약 {mm.toFixed(0)}cm)</span>}
+                {rich(t("다 하면 **{n}권**", { n: cps(zp.books) }), "text-gia-navy")}
+                {widthZones > 0 && (
+                  <span className="ml-1 text-xs text-slate-500">
+                    {t("(약 {n}cm)", { n: mm.toFixed(0) })}
+                  </span>
+                )}
               </span>
               <span className="text-xs text-slate-500">
-                그대로 {cps(stay)} · 빼낼 {sendTotal} · 채울 {cps(incoming)}
+                {t("그대로 {a} · 빼낼 {b} · 채울 {c}", {
+                  a: cps(stay),
+                  b: sendTotal,
+                  c: cps(incoming),
+                })}
               </span>
-              {setsFirst.length > 0 && <span className="text-xs text-violet-700">세트 {setsFirst.length}권</span>}
+              {setsFirst.length > 0 && <span className="text-xs text-violet-700">
+                  {t("세트 {n}권", { n: setsFirst.length })}
+                </span>}
               {(zp.zone.capacity_mm ?? 0) > 0 && (
                 <span className="text-xs text-slate-400">칸 폭 {((zp.zone.capacity_mm ?? 0) / 10).toFixed(0)}cm</span>
               )}
@@ -1668,7 +1691,7 @@ export default function PlanClient({
             <div className="mt-2 space-y-2 text-sm">
               <details open className="rounded-xl bg-emerald-50/60 px-3 py-2">
                 <summary className="cursor-pointer text-xs font-bold text-emerald-800">
-                  ① 그대로 둘 책 {cps(stay)}권 — 건드리지 마세요
+                  {t("① 그대로 둘 책 {n}권 — 건드리지 마세요", { n: cps(stay) })}
                 </summary>
                 {stay.length > 0 ? (
                   <ul className="mt-1 max-h-48 space-y-0.5 overflow-auto">{stay.map((b) => row(b, "제자리"))}</ul>
@@ -1680,7 +1703,9 @@ export default function PlanClient({
               {inHand.length > 0 && (
                 <details open className="rounded-xl bg-gia-navy/5 px-3 py-2 ring-1 ring-gia-navy/20">
                   <summary className="cursor-pointer text-xs font-bold text-gia-navy">
-                    ② 빼 둔 책부터 꽂습니다 {cps(inHand)}권 — 앞 칸에서 이미 뺀 책(가지 않아도 됩니다)
+                    {t("② 빼 둔 책부터 꽂습니다 {n}권 — 앞 칸에서 이미 뺀 책(가지 않아도 됩니다)", {
+                      n: cps(inHand),
+                    })}
                   </summary>
                   <ul className="mt-1 max-h-48 space-y-0.5 overflow-auto">
                     {inHand.map((b) =>
@@ -1696,7 +1721,11 @@ export default function PlanClient({
               {partners.length > 0 && (
                 <div className="rounded-xl bg-white px-3 py-2 ring-1 ring-slate-200">
                   <p className="text-xs font-bold text-slate-600">
-                    ③ 칸마다 한 번만 갑니다 — 칸 {partners.length}곳 · 보낼 {sendTotal}권 · 받을 {takeTotal}권
+                    {t("③ 칸마다 한 번만 갑니다 — 칸 {z}곳 · 보낼 {out}권 · 받을 {inn}권", {
+                      z: partners.length,
+                      out: sendTotal,
+                      inn: takeTotal,
+                    })}
                   </p>
                   <p className="mt-0.5 text-[11px] leading-relaxed text-slate-500">
                     {rich(
@@ -1719,7 +1748,9 @@ export default function PlanClient({
                             {chip(pt.id)}
                             {both ? (
                               <span className="rounded bg-violet-200 px-1.5 text-[11px] font-bold text-violet-900">
-                                맞교환 {Math.min(cps(pt.send), cps(pt.take))}권
+                                {t("맞교환 {n}권", {
+                                  n: Math.min(cps(pt.send), cps(pt.take)),
+                                })}
                               </span>
                             ) : (
                               <span className="text-[11px] font-semibold text-slate-500">
@@ -1727,7 +1758,10 @@ export default function PlanClient({
                               </span>
                             )}
                             <span className="ml-auto text-xs text-slate-500">
-                              보낼 {cps(pt.send)} · 받을 {cps(pt.take)}
+                              {t("보낼 {out} · 받을 {inn}", {
+                                out: cps(pt.send),
+                                inn: cps(pt.take),
+                              })}
                             </span>
                           </div>
                           {both && (
@@ -1765,7 +1799,7 @@ export default function PlanClient({
               {unknown.length > 0 && (
                 <details className="rounded-xl bg-slate-50 px-3 py-2">
                   <summary className="cursor-pointer text-xs font-bold text-slate-600">
-                    ④ 자리를 모르는 책 {cps(unknown)}권 — 찾아서 꽂아야 합니다
+                    {t("④ 자리를 모르는 책 {n}권 — 찾아서 꽂아야 합니다", { n: cps(unknown) })}
                   </summary>
                   <ul className="mt-1 max-h-48 space-y-0.5 overflow-auto">
                     {unknown.map((b) => row(b, "자리 기록 없음"))}
@@ -1794,7 +1828,9 @@ export default function PlanClient({
                   같은 세트가 되어, 다음 계획에서 같은 칸으로 모입니다.
                 */}
                 <div className="flex flex-wrap items-center gap-1.5">
-                  <span className="text-xs font-bold text-gia-navy">세트로 묶을 책 {tagPick.size}권</span>
+                  <span className="text-xs font-bold text-gia-navy">
+                    {t("세트로 묶을 책 {n}권", { n: tagPick.size })}
+                  </span>
                   {[...tagPick].slice(0, 8).map((id) => {
                     const bk = books.find((x) => x.id === id);
                     return (
@@ -1916,7 +1952,7 @@ export default function PlanClient({
               >
                 ✓ 딱 맞음 — 다 들어갔습니다
                 <span className="block text-[11px] font-medium opacity-85">
-                  이 칸 정원을 {zp.books.length}권으로 적고 다음 칸으로
+                  {t("이 칸 정원을 {n}권으로 적고 다음 칸으로", { n: zp.books.length })}
                 </span>
               </button>
 
@@ -2007,10 +2043,16 @@ export default function PlanClient({
           <>
             <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-xs text-slate-500">
               <span>
-                모두 <b className="text-gia-navy">{stepCount.books}권</b> · {mergedSteps.length}단계
+                {rich(
+                  t("모두 **{n}권** · {steps}단계", {
+                    n: stepCount.books,
+                    steps: mergedSteps.length,
+                  }),
+                  "text-gia-navy"
+                )}
               </span>
-              {stepCount.swap > 0 && <span>↔ 맞교환 {stepCount.swap}</span>}
-              {stepCount.move > 0 && <span>→ 생긴 자리로 {stepCount.move}</span>}
+              {stepCount.swap > 0 && <span>{t("↔ 맞교환 {n}", { n: stepCount.swap })}</span>}
+              {stepCount.move > 0 && <span>{t("→ 생긴 자리로 {n}", { n: stepCount.move })}</span>}
               {stepCount.cycle > 0 && <span>↻ 빙 도는 고리 {stepCount.cycle}</span>}
               {stepCount.find > 0 && <span>? 자리 모름 {stepCount.find}</span>}
               {stepCount.blocked > 0 && (
@@ -2021,7 +2063,10 @@ export default function PlanClient({
             {overrides.size > 0 && (
               <p className="mt-2 flex flex-wrap items-center gap-2 rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-600">
                 <span>
-                  사람이 정한 자리 <b className="text-gia-navy">{overrides.size}권</b> 이 계획 위에 덮여 있습니다.
+                  {rich(
+                    t("사람이 정한 자리 **{n}권** 이 계획 위에 덮여 있습니다.", { n: overrides.size }),
+                    "text-gia-navy"
+                  )}
                 </span>
                 <button
                   type="button"
@@ -2098,8 +2143,10 @@ export default function PlanClient({
                   {st.blocked && (
                     <div className="mt-2 rounded-lg bg-white px-3 py-2.5 ring-1 ring-amber-200">
                       <p className="text-xs font-bold text-slate-600">
-                        가서 보고 정해 주세요 — {zoneName.get(st.zones[0]) ?? "이 칸"} 에 {st.hops.length}권이 더
-                        들어가나요?
+                        {t("가서 보고 정해 주세요 — {zone} 에 {n}권이 더 들어가나요?", {
+                          zone: zoneName.get(st.zones[0]) ?? t("이 칸"),
+                          n: st.hops.length,
+                        })}
                       </p>
                       <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
                         <button
@@ -2107,7 +2154,7 @@ export default function PlanClient({
                           onClick={() => void setCapacity(st.zones[0], st.hops.length)}
                           className="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-bold text-white"
                         >
-                          ✓ {st.hops.length}권 다 들어갑니다
+                          {t("✓ {n}권 다 들어갑니다", { n: st.hops.length })}
                         </button>
                         <span className="text-xs text-slate-400">또는</span>
                         <input
@@ -2141,12 +2188,20 @@ export default function PlanClient({
                             {second.moves.length > 0 ? (
                               <>
                                 <p className="text-xs text-slate-600">
-                                  <b>안 들어간다면 2안</b> —{" "}
+                                  {rich(t("**안 들어간다면 2안** —"))}{" "}
                                   {second.moves
-                                    .map((m) => `${zoneName.get(m.zoneId) ?? "?"} 에 ${m.books.length}권`)
+                                    .map((m) =>
+                                      t("{zone} 에 {n}권", {
+                                        zone: zoneName.get(m.zoneId) ?? "?",
+                                        n: m.books.length,
+                                      })
+                                    )
                                     .join(" · ")}
                                   {second.stillLeft > 0 && (
-                                    <span className="text-amber-700"> (그래도 {second.stillLeft}권은 갈 곳이 없습니다)</span>
+                                    <span className="text-amber-700">
+                                      {" "}
+                                      {t("(그래도 {n}권은 갈 곳이 없습니다)", { n: second.stillLeft })}
+                                    </span>
                                   )}
                                 </p>
                                 <button
@@ -2180,7 +2235,7 @@ export default function PlanClient({
                                   onClick={() => void addZone(level)}
                                   className="mt-1.5 rounded-lg border border-slate-400 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700"
                                 >
-                                  + {level}등급 칸 하나 더 만들기
+                                  {t("+ {lv}등급 칸 하나 더 만들기", { lv: level })}
                                 </button>
                               </div>
                             )}
@@ -2210,7 +2265,9 @@ export default function PlanClient({
                       </li>
                     ))}
                     {st.hops.length > 8 && (
-                      <li className="text-xs text-slate-400">…그리고 {st.hops.length - 8}권 더</li>
+                      <li className="text-xs text-slate-400">
+                        {t("…그리고 {n}권 더", { n: st.hops.length - 8 })}
+                      </li>
                     )}
                   </ul>
                 </li>
@@ -2223,7 +2280,9 @@ export default function PlanClient({
                 onClick={() => setAllSteps(true)}
                 className="mt-2 rounded-xl border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
               >
-                남은 {mergedSteps.length - shownSteps.length}단계 더 보기
+                {t("남은 {n}단계 더 보기", {
+                  n: mergedSteps.length - shownSteps.length,
+                })}
               </button>
             )}
           </>
@@ -2232,7 +2291,7 @@ export default function PlanClient({
         {stillLeftover.length > 0 && (
           <div className="mt-3 rounded-xl bg-amber-50 px-3 py-2.5 ring-1 ring-amber-200">
             <p className="text-sm font-bold text-amber-900">
-              아직 갈 곳이 없는 책 {stillLeftover.length}권
+              {t("아직 갈 곳이 없는 책 {n}권", { n: stillLeftover.length })}
             </p>
             <p className="mt-0.5 text-xs leading-relaxed text-amber-900">
               {rich(
@@ -2259,9 +2318,17 @@ export default function PlanClient({
               return second.moves.length > 0 ? (
                 <>
                   <p className="mt-2 text-xs text-amber-900">
-                    <b>여유가 남은 칸으로 보낼 수 있습니다</b> —{" "}
-                    {second.moves.map((m) => `${zoneName.get(m.zoneId) ?? "?"} 에 ${m.books.length}권`).join(" · ")}
-                    {second.stillLeft > 0 && ` (${second.stillLeft}권은 그래도 남습니다)`}
+                    {rich(t("**여유가 남은 칸으로 보낼 수 있습니다** —"))}{" "}
+                    {second.moves
+                      .map((m) =>
+                        t("{zone} 에 {n}권", {
+                          zone: zoneName.get(m.zoneId) ?? "?",
+                          n: m.books.length,
+                        })
+                      )
+                      .join(" · ")}
+                    {second.stillLeft > 0 &&
+                      ` ${t("({n}권은 그래도 남습니다)", { n: second.stillLeft })}`}
                   </p>
                   <button
                     type="button"
@@ -2273,8 +2340,9 @@ export default function PlanClient({
                 </>
               ) : (
                 <p className="mt-2 text-xs text-amber-900">
-                  여유가 남은 칸이 하나도 없습니다 — 정원을 재어 적거나, 책장을 더 놓을 자리가 실제로 있다면 칸을
-                  하나 더 만들어야 합니다(위의 자리 부족 줄에서 할 수 있습니다).
+                  {t(
+                    "여유가 남은 칸이 하나도 없습니다 — 정원을 재어 적거나, 책장을 더 놓을 자리가 실제로 있다면 칸을 하나 더 만들어야 합니다(위의 자리 부족 줄에서 할 수 있습니다)."
+                  )}
                 </p>
               );
             })()}
@@ -2288,7 +2356,9 @@ export default function PlanClient({
                 </li>
               ))}
               {stillLeftover.length > 20 && (
-                <li className="text-xs text-amber-700">…그리고 {stillLeftover.length - 20}권 더</li>
+                <li className="text-xs text-amber-700">
+                  {t("…그리고 {n}권 더", { n: stillLeftover.length - 20 })}
+                </li>
               )}
             </ul>
           </div>
@@ -2299,7 +2369,9 @@ export default function PlanClient({
             칸별로도 보기 — 어느 칸이 가장 덜 움직이는지, 그 칸에 무엇이 오고 무엇이 빠지는지
           </summary>
           <p className="mt-1 text-xs leading-relaxed text-slate-500">
-            <b>책이 가장 덜 움직이는 칸부터</b> 세워 두었습니다. 한 칸만 골라 끝내고 싶을 때 보세요.
+            {rich(
+              t("**책이 가장 덜 움직이는 칸부터** 세워 두었습니다. 한 칸만 골라 끝내고 싶을 때 보세요.")
+            )}
           </p>
 
         <ol className="mt-3 space-y-2">
@@ -2319,9 +2391,9 @@ export default function PlanClient({
                   <span className="text-sm font-semibold text-emerald-700">손댈 것 없습니다 — 이미 제자리입니다</span>
                 ) : (
                   <span className="text-sm text-slate-700">
-                    <b className="text-gia-navy">{st.moves}권</b>만 움직이면 됩니다
+                    {rich(t("**{n}권**만 움직이면 됩니다", { n: st.moves }), "text-gia-navy")}
                     <span className="ml-2 text-xs text-slate-500">
-                      {st.incoming.length > 0 && `가져올 ${st.incoming.length}권`}
+                      {st.incoming.length > 0 && t("가져올 {n}권", { n: st.incoming.length })}
                       {st.incoming.length > 0 && st.outgoing.length > 0 && " · "}
                       {st.outgoing.length > 0 && `빼낼 ${st.outgoing.length}권`}
                       {st.stay > 0 && ` · 그대로 ${st.stay}권`}
@@ -2344,7 +2416,9 @@ export default function PlanClient({
                   {st.outgoing.length > 0 && (
                     <>
                       <div className="text-xs font-bold text-amber-700">
-                        먼저 빼냅니다 — 이 칸에 있지만 다른 칸으로 갈 책 {st.outgoing.length}권
+                        {t("먼저 빼냅니다 — 이 칸에 있지만 다른 칸으로 갈 책 {n}권", {
+                          n: st.outgoing.length,
+                        })}
                       </div>
                       <ul className="mt-1 mb-2 space-y-0.5">
                         {st.outgoing.map((b) => (
@@ -2367,7 +2441,9 @@ export default function PlanClient({
                   {st.incoming.length > 0 && (
                     <>
                       <div className="text-xs font-bold text-gia-navy">
-                        그다음 가져옵니다 — 이 칸에 와야 하는 책 {st.incoming.length}권 (꽂을 차례대로)
+                        {t("그다음 가져옵니다 — 이 칸에 와야 하는 책 {n}권 (꽂을 차례대로)", {
+                          n: st.incoming.length,
+                        })}
                       </div>
                       <ol className="mt-1 space-y-0.5">
                         {st.incoming.map((b, n) => (
@@ -2382,7 +2458,9 @@ export default function PlanClient({
                             )}
                             {b.author && <span className="text-xs text-slate-500">{b.author}</span>}
                             {(b.pages ?? 0) > 0 && (
-                              <span className="text-[11px] text-slate-400">{b.pages}쪽</span>
+                              <span className="text-[11px] text-slate-400">
+                                {t("{n}쪽", { n: b.pages ?? 0 })}
+                              </span>
                             )}
                             <span className="ml-auto text-xs font-semibold text-slate-600">
                               {b.from ? `${b.from} 에서` : "자리 모름 — 찾아야 합니다"}
@@ -2394,7 +2472,9 @@ export default function PlanClient({
                   )}
                   {st.stay > 0 && (
                     <p className="mt-2 text-xs text-slate-400">
-                      나머지 {st.stay}권은 이미 이 칸이 제자리입니다 — 그대로 두세요.
+                      {t("나머지 {n}권은 이미 이 칸이 제자리입니다 — 그대로 두세요.", {
+                        n: st.stay,
+                      })}
                     </p>
                   )}
                 </div>
@@ -2424,8 +2504,10 @@ export default function PlanClient({
           <section className={card}>
             <details>
               <summary className="cursor-pointer text-sm font-bold text-slate-500">
-                세트로 묶을 단서가 없는 책 {noneCount}권 — 🤖 AI 로 채우기 · 눈에 띌 때 묶기{" "}
-                <span className="font-normal text-slate-400">(지금 정리를 막지 않습니다)</span>
+                {t("세트로 묶을 단서가 없는 책 {n}권 — 🤖 AI 로 채우기 · 눈에 띌 때 묶기", {
+                  n: noneCount,
+                })}{" "}
+                <span className="font-normal text-slate-400">{t("(지금 정리를 막지 않습니다)")}</span>
               </summary>
             <p className="mt-1 text-xs leading-relaxed text-slate-500">
               {rich(
@@ -2485,9 +2567,9 @@ export default function PlanClient({
                 <>
                   <div className="mt-2 flex flex-wrap items-center gap-2">
                     <span className="text-xs text-slate-600">
-                      제안 {ai.rows.length}권
-                      {aiDrop.size > 0 && ` · 제외 ${aiDrop.size}권`}
-                      {ai.left > 0 && ` · 아직 ${ai.left}권 남음`}
+                      {t("제안 {n}권", { n: ai.rows.length })}
+                      {aiDrop.size > 0 && ` · ${t("제외 {n}권", { n: aiDrop.size })}`}
+                      {ai.left > 0 && ` · ${t("아직 {n}권 남음", { n: ai.left })}`}
                     </span>
                     <button
                       type="button"
@@ -2495,7 +2577,7 @@ export default function PlanClient({
                       disabled={aiBusy || ai.rows.length === aiDrop.size}
                       className="rounded-lg bg-emerald-600 px-3 py-1 text-xs font-bold text-white disabled:opacity-40"
                     >
-                      ✓ {ai.rows.length - aiDrop.size}권 적용
+                      {t("✓ {n}권 적용", { n: ai.rows.length - aiDrop.size })}
                     </button>
                     <button
                       type="button"
@@ -2571,7 +2653,7 @@ export default function PlanClient({
                             )}
                             {r.lexile != null && (
                               <span>
-                                렉사일 <b className="text-gia-navy">{r.lexile}L</b>
+                                {rich(t("렉사일 **{n}L**", { n: r.lexile }), "text-gia-navy")}
                                 {r.lexile_guess !== false && (
                                   <span className="ml-0.5 text-[10px] text-slate-400">추정</span>
                                 )}
@@ -2599,7 +2681,7 @@ export default function PlanClient({
                 disabled={tagBusy || tagPick.size === 0 || !tagName.trim()}
                 className="rounded-lg bg-gia-navy px-3 py-1.5 text-xs font-bold text-white disabled:opacity-40"
               >
-                고른 {tagPick.size}권에 적기
+                {t("고른 {n}권에 적기", { n: tagPick.size })}
               </button>
               {tagPick.size > 0 && (
                 <button
@@ -2647,13 +2729,18 @@ export default function PlanClient({
               ))}
             </ul>
             {loose.length > 200 && (
-              <p className="mt-1 text-xs text-slate-400">…그리고 {loose.length - 200}권 더</p>
+              <p className="mt-1 text-xs text-slate-400">
+                {t("…그리고 {n}권 더", { n: loose.length - 200 })}
+              </p>
             )}
             <p className="mt-2 text-[11px] leading-relaxed text-slate-500">
-              같은 책이 <b>두 줄로 등록</b>되어 있으면(전체 68종) 이제 같은 칸으로 묶이기는 하지만, 권수가 갈라져
-              있어 셈이 어긋납니다 —{" "}
+              {rich(
+                t(
+                  "같은 책이 **두 줄로 등록**되어 있으면(전체 68종) 이제 같은 칸으로 묶이기는 하지만, 권수가 갈라져 있어 셈이 어긋납니다 —"
+                )
+              )}{" "}
               <a href="/duplicates" className="underline">
-                겹치는 책 합치기
+                {t("겹치는 책 합치기")}
               </a>{" "}
               에서 한 줄로 합치시면 깔끔해집니다.
             </p>
@@ -2688,8 +2775,12 @@ export default function PlanClient({
               )}
             </li>
             <li>
-              · 확정해야 <b>이동 목록 인쇄</b>가 채워집니다(지금 비어 있는 이유입니다). 위의 정리 순서는 확정하지
-              않아도 보입니다.
+              ·{" "}
+              {rich(
+                t(
+                  "확정해야 **이동 목록 인쇄**가 채워집니다(지금 비어 있는 이유입니다). 위의 정리 순서는 확정하지 않아도 보입니다."
+                )
+              )}
             </li>
             <li>
               ·{" "}
@@ -2713,7 +2804,9 @@ export default function PlanClient({
             className="rounded-xl border border-slate-300 px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50"
           >
             🖨 이동 목록 인쇄
-            <span className="ml-1 text-xs font-normal text-slate-400">(확정 뒤)</span>
+            <span className="ml-1 text-xs font-normal text-slate-400">
+              {t("(확정 뒤)")}
+            </span>
           </button>
           <button
             type="button"
@@ -2746,8 +2839,15 @@ export default function PlanClient({
             )}
           </p>
           <ul className="mt-2 space-y-1 text-xs leading-relaxed text-slate-600">
-            <li>· {onlyLevel}등급 칸이 <b>정식</b>이 됩니다 — <b>구역 라벨</b>을 뽑아 코팅해 붙일 수 있습니다</li>
-            <li>· 칸마다 <b>정리를 마친 시각</b>이 남습니다</li>
+            <li>
+              ·{" "}
+              {rich(
+                t("{lv}등급 칸이 **정식**이 됩니다 — **구역 라벨**을 뽑아 코팅해 붙일 수 있습니다", {
+                  lv: onlyLevel ?? 0,
+                })
+              )}
+            </li>
+            <li>· {rich(t("칸마다 **정리를 마친 시각**이 남습니다"))}</li>
             <li>
               ·{" "}
               {rich(
@@ -2765,9 +2865,16 @@ export default function PlanClient({
               }`}
             >
               <p className="text-sm font-bold text-slate-800">
-                {fin.level}등급 {fin.total}권 중 <b className="text-gia-navy">{fin.placed}권</b>이 이 등급 칸에
-                찍혀 있습니다
-                {fin.notPlacedCount > 0 && ` · 아직 ${fin.notPlacedCount}권이 밖에 있습니다`}
+                {rich(
+                  t("{lv}등급 {total}권 중 **{placed}권**이 이 등급 칸에 찍혀 있습니다", {
+                    lv: fin.level,
+                    total: fin.total,
+                    placed: fin.placed,
+                  }),
+                  "text-gia-navy"
+                )}
+                {fin.notPlacedCount > 0 &&
+                  ` · ${t("아직 {n}권이 밖에 있습니다", { n: fin.notPlacedCount })}`}
               </p>
               {fin.notPlacedCount > 0 ? (
                 <>
@@ -2819,7 +2926,7 @@ export default function PlanClient({
               title={fin == null ? "먼저 점검해 주세요" : undefined}
               className="rounded-xl bg-emerald-600 px-5 py-2.5 text-sm font-bold text-white disabled:opacity-40"
             >
-              ✓ {onlyLevel}등급 정식 책장으로 등록
+              {t("✓ {lv}등급 정식 책장으로 등록", { lv: onlyLevel ?? 0 })}
             </button>
             <button
               type="button"
@@ -2831,7 +2938,7 @@ export default function PlanClient({
               }
               className="rounded-xl border border-slate-300 px-4 py-2.5 text-sm font-semibold text-slate-700"
             >
-              🖨 {onlyLevel}등급 구역 라벨 인쇄
+              {t("🖨 {lv}등급 구역 라벨 인쇄", { lv: onlyLevel ?? 0 })}
             </button>
           </div>
           <p className="mt-1.5 text-[11px] text-slate-500">

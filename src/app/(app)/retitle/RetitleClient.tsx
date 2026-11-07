@@ -113,9 +113,13 @@ export default function RetitleClient() {
       if (json.error) setNote(json.error);
       else
         setNote(
-          `${json.applied}종의 제목을 바꿨습니다.${
-            json.failed?.length ? ` ${json.failed.length}종은 바꾸지 못했습니다: ${json.failed[0].message}` : ""
-          }`
+          t("{n}종의 제목을 바꿨습니다.", { n: json.applied ?? 0 }) +
+            (json.failed?.length
+              ? ` ${t("{n}종은 바꾸지 못했습니다: {why}", {
+                  n: json.failed.length,
+                  why: json.failed[0].message,
+                })}`
+              : "")
         );
       setPicked({});
       setEdited({});
@@ -208,11 +212,15 @@ export default function RetitleClient() {
         )}
         {state && (
           <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-600">
-            <span>그대로 둘 것 {state.counts.same}종</span>
-            <span className="font-semibold text-emerald-700">더 자세한 제목 있음 {more.length}종</span>
-            <span className="font-semibold text-amber-700">사람이 봐야 함 {diff.length}종</span>
-            <span>조회처가 못 찾음 {state.counts.none}종</span>
-            <span>이미 바꿈 {state.counts.applied}종</span>
+            <span>{t("그대로 둘 것 {n}종", { n: state.counts.same })}</span>
+            <span className="font-semibold text-emerald-700">
+              {t("더 자세한 제목 있음 {n}종", { n: more.length })}
+            </span>
+            <span className="font-semibold text-amber-700">
+              {t("사람이 봐야 함 {n}종", { n: diff.length })}
+            </span>
+            <span>{t("조회처가 못 찾음 {n}종", { n: state.counts.none })}</span>
+            <span>{t("이미 바꿈 {n}종", { n: state.counts.applied })}</span>
           </div>
         )}
       </div>
@@ -223,7 +231,7 @@ export default function RetitleClient() {
       {more.length > 0 && (
         <section className="mt-6">
           <h2 className="text-base font-bold text-gia-navy">
-            ① 덜 적힌 제목 {more.length}종 — 묶어서 바꿔도 됩니다
+            {t("① 덜 적힌 제목 {n}종 — 묶어서 바꿔도 됩니다", { n: more.length })}
           </h2>
           <p className="mt-1 text-xs leading-relaxed text-slate-600">
             {rich(
@@ -258,7 +266,9 @@ export default function RetitleClient() {
       {/* ── ② 사람이 봐야 하는 것 ──────────────────────────────────────── */}
       {diff.length > 0 && (
         <section className="mt-8">
-          <h2 className="text-base font-bold text-gia-navy">② 지금 제목과 겹치지 않는 것 {diff.length}종 — 하나씩 봐주세요</h2>
+          <h2 className="text-base font-bold text-gia-navy">
+            {t("② 지금 제목과 겹치지 않는 것 {n}종 — 하나씩 봐주세요", { n: diff.length })}
+          </h2>
           <p className="mt-1 text-xs leading-relaxed text-slate-600">
             {rich(
               t(
@@ -279,7 +289,9 @@ export default function RetitleClient() {
               }
               className="rounded-lg bg-gia-navy px-3 py-2 text-sm font-semibold text-white disabled:opacity-50"
             >
-              고른 것만 바꾸기 ({Object.values(picked).filter(Boolean).length}종)
+              {t("고른 것만 바꾸기 ({n}종)", {
+                n: Object.values(picked).filter(Boolean).length,
+              })}
             </button>
           </div>
           <div className="mt-3 divide-y divide-slate-100 rounded-xl border border-slate-200 bg-white">
@@ -300,14 +312,20 @@ export default function RetitleClient() {
 
       {state && state.checked > 0 && more.length === 0 && diff.length === 0 && (
         <p className="mt-6 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
-          고칠 제목이 남아 있지 않습니다. {state.counts.none > 0 && `조회처가 못 찾은 ${state.counts.none}종은 「처음부터 다시」로 한 번 더 물어볼 수 있습니다.`}
+          {t("고칠 제목이 남아 있지 않습니다.")}{" "}
+          {state.counts.none > 0 &&
+            t("조회처가 못 찾은 {n}종은 「처음부터 다시」로 한 번 더 물어볼 수 있습니다.", {
+              n: state.counts.none,
+            })}
         </p>
       )}
 
       {/* ── 바꾼 것 ────────────────────────────────────────────────────── */}
       {state && state.applied.length > 0 && (
         <section className="mt-8">
-          <h2 className="text-base font-bold text-gia-navy">바꾼 제목 (최근 {state.applied.length}종)</h2>
+          <h2 className="text-base font-bold text-gia-navy">
+            {t("바꾼 제목 (최근 {n}종)", { n: state.applied.length })}
+          </h2>
           <p className="mt-1 text-xs text-slate-600">
             {t("바꾸기 전 제목을 남겨 두었습니다. 돌리고 싶으면 그 줄의 「되돌리기」를 누르세요.")}
           </p>

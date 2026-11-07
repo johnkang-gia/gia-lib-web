@@ -160,7 +160,7 @@ export default async function PrintLabelsPage({
       <div className="no-print mx-auto mb-6 max-w-[210mm] rounded-xl bg-white p-4 text-sm shadow-sm">
         <div className="flex items-center justify-between gap-4">
           <div>
-            <p className="font-bold">책 바코드 라벨 {books.length}장</p>
+            <p className="font-bold">{t("책 바코드 라벨 {n}장", { n: books.length })}</p>
             <p className="mt-1 text-xs leading-relaxed text-slate-500">
               {rich(
                 t(

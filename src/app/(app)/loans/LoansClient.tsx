@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { formatDay, formatTime, overdueDays, todayKst } from "@/lib/dates";
 import type { LibLoanWithBook, LibSettings } from "@/lib/types";
+import { useT } from "@/lib/i18n/client";
 
 const TABS = [
   { key: "active", label: "대출중" },
@@ -24,6 +25,8 @@ export default function LoansClient({
   activeCount: number;
   overdueCount: number;
 }) {
+  /* 화면 글귀는 전부 이 t() 를 지납니다. */
+  const t = useT();
   const router = useRouter();
   const [busyId, setBusyId] = useState<string | null>(null);
   const [keyword, setKeyword] = useState("");
@@ -140,7 +143,9 @@ export default function LoansClient({
                   <td className="px-4 py-2.5">
                     {formatDay(loan.due_date)}
                     {loan.renew_count > 0 && (
-                      <span className="ml-1 text-xs text-blue-600">({loan.renew_count}회 연장)</span>
+                      <span className="ml-1 text-xs text-blue-600">
+                        {t("({n}회 연장)", { n: loan.renew_count })}
+                      </span>
                     )}
                   </td>
                   <td className="px-4 py-2.5">

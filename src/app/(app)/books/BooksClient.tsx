@@ -13,6 +13,7 @@ import { AUDIENCES } from "@/lib/audience";
 import { CATEGORIES, categoryOf } from "@/lib/categories";
 import { levelColor } from "@/lib/bookLevels";
 import type { LibBook, LibBookWithShelf, LibLocation } from "@/lib/types";
+import { useT } from "@/lib/i18n/client";
 
 export default function BooksClient({
   books,
@@ -23,6 +24,8 @@ export default function BooksClient({
   borrowed: Record<string, number>;
   locations: LibLocation[];
 }) {
+  /* 화면 글귀는 전부 이 t() 를 지납니다 - 값이 끼어든 말도 글귀 하나로 옮깁니다. */
+  const t = useT();
   const router = useRouter();
   const [keyword, setKeyword] = useState("");
   const [onlyLabel, setOnlyLabel] = useState(false);
@@ -413,7 +416,7 @@ export default function BooksClient({
             onChange={(e) => setOnlyNoCover(e.target.checked)}
             className="h-4 w-4"
           />
-          표지 없는 책만 ({noCoverCount})
+          {t("표지 없는 책만 ({n})", { n: noCoverCount })}
         </label>
 
         {splitMsg && (
@@ -436,8 +439,10 @@ export default function BooksClient({
               className="rounded-lg bg-amber-500 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-600"
               title="책에 바코드가 인쇄되어 있지 않아 라벨을 붙여야 하는 책들입니다"
             >
-              🏷 라벨 필요 {needLabelBooks.length}종 ·{" "}
-              {needLabelBooks.reduce((n, b) => n + Math.max(1, b.total_copies), 0)}장 인쇄
+              {t("🏷 라벨 필요 {kinds}종 · {sheets}장 인쇄", {
+                kinds: needLabelBooks.length,
+                sheets: needLabelBooks.reduce((n, b) => n + Math.max(1, b.total_copies), 0),
+              })}
             </button>
           )}
           {labelTargets.length > 0 && (
@@ -461,7 +466,7 @@ export default function BooksClient({
               }
               className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
             >
-              바로 인쇄 ({perCopy(labelTargets).length}장)
+              {t("바로 인쇄 ({n}장)", { n: perCopy(labelTargets).length })}
             </button>
           )}
           <button
@@ -508,7 +513,7 @@ export default function BooksClient({
             </option>
             {AUDIENCES.map((a) => (
               <option key={a} value={a} className="text-slate-900">
-                {a}로
+                {t("{a}로", { a: t(a) })}
               </option>
             ))}
             <option value="지움" className="text-slate-900">
@@ -589,11 +594,12 @@ export default function BooksClient({
         <div className="rounded-2xl border border-rose-200 bg-rose-50 p-4">
           <div className="flex flex-wrap items-center gap-2">
             <span className="text-sm font-bold text-rose-900">
-              ⚠ 판매코드로 등록된 책 {productBooks.length}종
+              {t("⚠ 판매코드로 등록된 책 {n}종", { n: productBooks.length })}
             </span>
             <span className="text-xs text-rose-800">
-              총 {productBooks.reduce((n, b) => n + b.total_copies, 0)}권 · 이 번호로는 시리즈 몇
-              권째인지 알 수 없습니다
+              {t("총 {n}권 · 이 번호로는 시리즈 몇 권째인지 알 수 없습니다", {
+                n: productBooks.reduce((acc, b) => acc + b.total_copies, 0),
+              })}
             </span>
             <button
               type="button"
@@ -674,10 +680,12 @@ export default function BooksClient({
           {pile && pile.count > 0 ? (
             <>
               <span className="text-sm font-bold text-amber-900">
-                📥 모아둔 라벨 {pile.count}장
+                {t("📥 모아둔 라벨 {n}장", { n: pile.count })}
               </span>
               <span className="text-xs text-amber-700">
-                A4 한 장에 27장 — {pile.count >= 27 ? "한 장 넘게 찼습니다" : `${27 - pile.count}장 더 모으면 한 장`}
+                {pile.count >= 27
+                  ? t("A4 한 장에 27장 — 한 장 넘게 찼습니다")
+                  : t("A4 한 장에 27장 — {n}장 더 모으면 한 장", { n: 27 - pile.count })}
               </span>
               <div className="ml-auto flex flex-wrap gap-2">
                 <button
@@ -685,7 +693,7 @@ export default function BooksClient({
                   onClick={() => window.open(`/print/labels?job=${pile.id}`, "_blank")}
                   className="rounded-lg bg-amber-600 px-4 py-2 text-sm font-bold text-white"
                 >
-                  모아둔 {pile.count}장 인쇄
+                  {t("모아둔 {n}장 인쇄", { n: pile.count })}
                 </button>
                 <button
                   type="button"
@@ -819,7 +827,7 @@ export default function BooksClient({
                         {/* 같은 책이 등급별로 나뉘어 있으면, 다 합쳐 몇 권인지 한 줄로. */}
                         {book.isbn && levelSplit.has(book.isbn) && (
                           <div className="mt-0.5 text-[11px] font-semibold text-slate-500">
-                            같은 책 {levelSplit.get(book.isbn)!.total}권 —{" "}
+                            {t("같은 책 {n}권 —", { n: levelSplit.get(book.isbn)!.total })}{" "}
                             {levelSplit
                               .get(book.isbn)!
                               .parts.map((pt) => (
@@ -887,7 +895,7 @@ export default function BooksClient({
                   </td>
                   <td className="px-3 py-2">
                     <span className={out >= book.total_copies ? "text-red-600" : ""}>
-                      {book.total_copies - out} / {book.total_copies}권
+                      {t("{a} / {b}권", { a: book.total_copies - out, b: book.total_copies })}
                     </span>
                   </td>
                   <td className="px-3 py-2">

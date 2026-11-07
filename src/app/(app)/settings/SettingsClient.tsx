@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import type { LibSettings } from "@/lib/types";
+import { useT } from "@/lib/i18n/client";
 
 /** 조회처 한 곳의 점검 결과(서버의 source-check 가 돌려주는 모양). */
 type Probe = {
@@ -27,6 +28,8 @@ export default function SettingsClient({
   bookCount: number;
   loanCount: number;
 }) {
+  /* 화면 글귀는 전부 이 t() 를 지납니다. */
+  const t = useT();
   const router = useRouter();
   const [form, setForm] = useState(settings);
   const [checking, setChecking] = useState(false);
@@ -249,7 +252,7 @@ export default function SettingsClient({
           </div>
           <div className="rounded-xl bg-slate-50 p-3">
             <dt className="text-xs text-slate-500">누적 대출</dt>
-            <dd className="mt-1 text-xl font-bold">{loanCount.toLocaleString()}건</dd>
+            <dd className="mt-1 text-xl font-bold">{t("{n}건", { n: loanCount.toLocaleString() })}</dd>
           </div>
           <div className="rounded-xl bg-slate-50 p-3">
             <dt className="text-xs text-slate-500">접속 계정</dt>
@@ -257,9 +260,9 @@ export default function SettingsClient({
           </div>
         </dl>
         <p className="mt-4 text-xs leading-relaxed text-slate-400">
-          학생 명부는 운영앱(gia-ops)에서 관리합니다. 이 앱은 같은 데이터베이스의 학생 고유번호와
-          이름·학년·반만 읽어 씁니다. 학생이 새로 들어오면 운영앱에 등록한 뒤 도서카드를
-          인쇄하세요.
+          {t(
+            "학생 명부는 운영앱(gia-ops)에서 관리합니다. 이 앱은 같은 데이터베이스의 학생 고유번호와 이름·학년·반만 읽어 씁니다. 학생이 새로 들어오면 운영앱에 등록한 뒤 도서카드를 인쇄하세요."
+          )}
         </p>
       </section>
     </div>

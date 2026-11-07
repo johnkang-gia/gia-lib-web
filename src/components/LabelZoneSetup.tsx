@@ -136,7 +136,7 @@ export default function LabelZoneSetup({ hasZones }: { hasZones: boolean }) {
 
           <div className="mt-4 flex flex-wrap items-center gap-3">
             <span className="text-sm text-slate-500">
-              모두 <b className="text-slate-700">{total}칸</b>
+              {rich(t("모두 **{n}칸**", { n: total }), "text-slate-700")}
             </span>
             <button
               type="button"
@@ -150,7 +150,7 @@ export default function LabelZoneSetup({ hasZones }: { hasZones: boolean }) {
 
           {result && (
             <p className="mt-3 rounded-lg bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
-              {result} — 이제 <b>여러 권 등록</b>에서 칸을 고르고 바코드를 찍으면 됩니다.
+              {result} {rich(t("— 이제 **여러 권 등록**에서 칸을 고르고 바코드를 찍으면 됩니다."))}
             </p>
           )}
           {error && (

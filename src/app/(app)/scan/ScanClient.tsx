@@ -703,7 +703,7 @@ export default function ScanClient({
       {hits && (
         <div className="rounded-2xl bg-white p-4 shadow-sm ring-1 ring-slate-200">
           <p className="mb-2 text-sm font-bold text-slate-500">
-            &lsquo;{hits.query}&rsquo; 검색 결과 — 누르면 대출 예정 목록에 담깁니다
+            {t("‘{q}’ 검색 결과 — 누르면 대출 예정 목록에 담깁니다", { q: hits.query })}
           </p>
           <ul className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
             {hits.books.map((b) => (
@@ -1423,8 +1423,10 @@ export default function ScanClient({
                       */}
                       {before ? (
                         <span className="rounded bg-amber-100 px-1.5 py-0.5 text-[11px] font-bold text-amber-800">
-                          🔁 예전에 빌림 — {formatDay(before.borrowedAt.slice(0, 10))}
-                          {before.times > 1 ? ` · ${before.times}번째` : ""}
+                          {t("🔁 예전에 빌림 — {day}", {
+                            day: formatDay(before.borrowedAt.slice(0, 10)),
+                          })}
+                          {before.times > 1 ? ` · ${t("{n}번째", { n: before.times })}` : ""}
                         </span>
                       ) : (
                         student && (

@@ -145,7 +145,9 @@ export default function DuplicatesClient({
       if (!res.ok) throw new Error(json.error ?? "합치지 못했습니다.");
       setDoneOf((prev) => ({
         ...prev,
-        [key]: `${json.totalCopies}권${json.movedTo ? ` · ${json.movedTo} 칸으로 모음` : ""}`,
+        [key]:
+          t("{n}권", { n: json.totalCopies ?? 0 }) +
+          (json.movedTo ? ` · ${t("{zone} 칸으로 모음", { zone: json.movedTo })}` : ""),
       }));
       router.refresh();
     } catch (e) {
@@ -160,8 +162,13 @@ export default function DuplicatesClient({
       <div className="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200">
         <h1 className="text-lg font-bold">겹치는 책 합치기</h1>
         <p className="mt-1 text-sm text-slate-500">
-          제목이 같은 줄끼리 묶어 <b>이름순</b>으로 늘어놓습니다. 장서 {totalBooks}종 중{" "}
-          <b>{groups.length}묶음</b> · 합치면 {extraRows}줄이 줄어듭니다.
+          {rich(
+            t("제목이 같은 줄끼리 묶어 **이름순**으로 늘어놓습니다. 장서 {all}종 중 **{g}묶음** · 합치면 {rows}줄이 줄어듭니다.", {
+              all: totalBooks,
+              g: groups.length,
+              rows: extraRows,
+            })
+          )}
         </p>
         <p className="mt-2 rounded-xl bg-slate-50 px-3 py-2 text-xs leading-relaxed text-slate-600">
           {rich(
@@ -197,7 +204,7 @@ export default function DuplicatesClient({
         </select>
         {here ? (
           <span className="text-sm font-semibold" style={{ color: here.color }}>
-            합치면 → {here.code} 칸으로 모읍니다
+            {t("합치면 → {zone} 칸으로 모읍니다", { zone: here.code })}
           </span>
         ) : (
           <span className="text-xs text-slate-400">
@@ -242,7 +249,7 @@ export default function DuplicatesClient({
                   key={key}
                   className="rounded-2xl bg-emerald-50 px-5 py-3 text-sm font-semibold text-emerald-800 ring-1 ring-emerald-200"
                 >
-                  ✔ {group[0].title} — 합쳤습니다 · {done}
+                  ✔ {group[0].title} {t("— 합쳤습니다")} · {done}
                 </li>
               );
             }
@@ -256,8 +263,13 @@ export default function DuplicatesClient({
                 <div className="mb-2 flex flex-wrap items-baseline gap-x-2 gap-y-1">
                   <h2 className="text-base font-bold break-words">{group[0].title}</h2>
                   <span className="text-xs text-slate-400">
-                    {group.length}줄 · 합치면{" "}
-                    {mergedCopies(keep, group.filter((b) => b.id !== keep.id))}권
+                    {t("{rows}줄 · 합치면 {n}권", {
+                      rows: group.length,
+                      n: mergedCopies(
+                        keep,
+                        group.filter((b) => b.id !== keep.id)
+                      ),
+                    })}
                   </span>
                 </div>
 
@@ -393,12 +405,13 @@ export default function DuplicatesClient({
                     className="rounded-xl bg-gia-navy px-4 py-2 text-sm font-bold text-white disabled:opacity-40"
                   >
                     {busy === key
-                      ? "합치는 중…"
+                      ? t("합치는 중…")
                       : pickedRows.length === 0
-                        ? "합칠 줄을 고르세요"
-                        : `${pickedRows.length}줄 합치기 → ${mergedCopies(keep, pickedRows)}권${
-                            here ? ` · ${here.code} 칸으로` : ""
-                          }`}
+                        ? t("합칠 줄을 고르세요")
+                        : t("{rows}줄 합치기 → {n}권", {
+                            rows: pickedRows.length,
+                            n: mergedCopies(keep, pickedRows),
+                          }) + (here ? ` · ${t("{zone} 칸으로", { zone: here.code })}` : "")}
                   </button>
                   {msg?.at === key && (
                     <span
