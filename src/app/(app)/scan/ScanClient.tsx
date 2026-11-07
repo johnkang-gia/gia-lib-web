@@ -36,6 +36,42 @@ type ReturnedItem = { key: string; title: string; shelf: LibLocation | null; lat
 
 type Tone = "ok" | "return" | "info" | "warn" | "error";
 
+/** 한 등급의 뱃지(색 라벨 등급 = 책장 색). */
+type LadderLevel = {
+  level: number;
+  badgeName: string | null;
+  badgeIcon: string | null;
+  colorName: string | null;
+  color: string;
+  goal: number;
+};
+
+/** `/api/reading` 이 돌려주는 것 — 지금 등급·등급별 진행·다음에 읽을 책. */
+type Ladder = {
+  ok?: boolean;
+  levels: LadderLevel[];
+  progress: { level: number; read: number; goal: number; done: boolean }[];
+  level: number;
+  here: LadderLevel | null;
+  readTotal: number;
+  atLevel: { level: number; read: number; goal: number; done: boolean } | null;
+  finished: number[];
+  certs: { level: number; issued_at: string; book_count: number }[];
+  recommendations: {
+    id: string;
+    title: string;
+    author: string | null;
+    series: string | null;
+    series_no: number | null;
+    cover_url: string | null;
+    shelf: string | null;
+    lexile: number | null;
+    why: string;
+    whyKey: string;
+    whyVars: Record<string, string | number>;
+  }[];
+};
+
 /**
  * 대출·반납 데스크.
  *
@@ -86,6 +122,7 @@ export default function ScanClient({
   const [dialogCode, setDialogCode] = useState<string | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [clock, setClock] = useState("");
+  const [ladder, setLadder] = useState<Ladder | null>(null);
 
   const inputRef = useRef<HTMLInputElement>(null);
   const audioRef = useRef<AudioContext | null>(null);
@@ -302,6 +339,36 @@ export default function ScanClient({
     };
   }, [student, cart]);
 
+  /*
+    ── 다음에 읽을 책 ───────────────────────────────────────────────────────
+    요청: "학생이 대여한 책들을 기준으로 같은 레벨의 도서를 몇 권 정도 추천하고(시리즈라면
+    다음 편을 우선 추천), 어느 정도 권수를 채우게 되면 다음 레벨의 도서를 추천."
+
+    학생이 화면에 오르면 한 번 묻습니다. 대출이 끝나면 loadStudent() 가 다시 돌아 읽은 권수가
+    바뀌므로, 그 숫자를 함께 보고 다시 묻습니다 - 방금 반납한 책이 바로 셈에 들어갑니다.
+  */
+  const studentNo = student?.student.student_no ?? null;
+  const readTally = student?.stats.total ?? 0;
+  useEffect(() => {
+    if (!studentNo) {
+      setLadder(null);
+      return;
+    }
+    let alive = true;
+    void (async () => {
+      try {
+        const res = await fetch(`/api/reading?no=${encodeURIComponent(studentNo)}`);
+        const json = (await res.json()) as Ladder;
+        if (alive) setLadder(json?.ok ? json : null);
+      } catch {
+        if (alive) setLadder(null);
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [studentNo, readTally]);
+
   // ── 바코드 한 번 ─────────────────────────────────────────────────────────
   const handleScan = useCallback(
     async (raw: string) => {
@@ -515,6 +582,12 @@ export default function ScanClient({
     [student?.stats.total]
   );
   const goal = useMemo(() => monthlyProgress(student?.stats.month ?? 0), [student?.stats.month]);
+  /** 지금 등급에서 몇 %를 채웠는지(막대 길이). */
+  const ladderPct = useMemo(() => {
+    const row = ladder?.atLevel;
+    if (!row) return 0;
+    return Math.min(100, Math.round((row.read / Math.max(1, row.goal)) * 100));
+  }, [ladder]);
   const cheer = useMemo(
     () =>
       student
@@ -891,6 +964,152 @@ export default function ScanClient({
                   />
                 </div>
               </div>
+
+              {/*
+                ── 독서 등급 사다리 ─────────────────────────────────────────
+                요청: "학생이 점진적으로 독서능력을 키울 수 있도록 ... 그것이 지금의 새싹등급으로
+                나뉘어져서 학생도 도전의식을 자극하고, 단계가 올라가면 등급완료증도 발급."
+
+                위 칸(「새싹 독서가」)은 **권수**만 셉니다. 이 칸은 **라벨 등급**으로 셉니다 -
+                아이가 서가에서 보는 색과 같은 말이라, 뱃지와 증명서와 책장이 한 가지를 가리킵니다.
+                그래서 「다음 등급까지 2권」이 서가에서 확인되는 약속이 됩니다.
+              */}
+              {ladder?.here && (
+                <div
+                  className="rounded-2xl px-4 py-3 ring-1"
+                  style={{
+                    background: `${ladder.here.color}0f`,
+                    borderColor: ladder.here.color,
+                    boxShadow: `inset 0 0 0 1px ${ladder.here.color}33`,
+                  }}
+                >
+                  <div className="flex items-baseline gap-2">
+                    <span className="text-2xl">{ladder.here.badgeIcon ?? "🌱"}</span>
+                    <span className="text-lg font-black" style={{ color: ladder.here.color }}>
+                      {ladder.here.badgeName ?? t("{n}등급", { n: ladder.here.level })}
+                    </span>
+                    <span className="text-xs font-semibold text-slate-400">
+                      {t("{n}등급 책", { n: ladder.here.level })}
+                    </span>
+                    <span className="ml-auto text-xs font-bold text-slate-500">
+                      {ladder.atLevel
+                        ? ladder.atLevel.done
+                          ? t("이 등급 다 읽었어요 🎉")
+                          : t("다음 등급까지 {n}권", {
+                              n: Math.max(0, ladder.atLevel.goal - ladder.atLevel.read),
+                            })
+                        : ""}
+                    </span>
+                  </div>
+
+                  <div className="mt-2 h-2.5 overflow-hidden rounded-full bg-white">
+                    <div
+                      className="h-full rounded-full transition-all duration-700"
+                      style={{ width: `${ladderPct}%`, background: ladder.here.color }}
+                    />
+                  </div>
+                  {ladder.atLevel && (
+                    <p className="mt-1.5 text-xs text-slate-500">
+                      {t("이 등급에서 {a} / {b}권", {
+                        a: ladder.atLevel.read,
+                        b: ladder.atLevel.goal,
+                      })}
+                    </p>
+                  )}
+
+                  {/*
+                    등급 줄 — 어디까지 왔는지 한눈에. 채운 등급은 색이 차고, 지금 등급은 테가
+                    굵습니다. 아래 등급을 건너뛴 아이도 있어서 '건너뜀'을 숨기지 않습니다.
+                  */}
+                  <div className="mt-2.5 flex flex-wrap gap-1.5">
+                    {ladder.progress.map((p) => {
+                      const meta = ladder.levels.find((l) => l.level === p.level);
+                      const now = p.level === ladder.level;
+                      return (
+                        <span
+                          key={p.level}
+                          title={`${p.read} / ${p.goal}`}
+                          className="rounded-full px-2 py-0.5 text-[11px] font-bold"
+                          style={{
+                            background: p.done ? (meta?.color ?? "#64748b") : "#ffffff",
+                            color: p.done ? "#ffffff" : (meta?.color ?? "#64748b"),
+                            boxShadow: `inset 0 0 0 ${now ? 2 : 1}px ${meta?.color ?? "#cbd5e1"}`,
+                          }}
+                        >
+                          {meta?.badgeIcon ?? ""} {p.level} · {p.read}/{p.goal}
+                          {p.done ? " ✓" : ""}
+                        </span>
+                      );
+                    })}
+                  </div>
+
+                  {/*
+                    추천 — 「왜 이 책인가」를 함께 보여 줍니다. 그냥 내밀면 아이가 집지 않습니다.
+                    자리(칸)를 같이 적어 두면 사서가 들고 오거나 아이가 직접 찾아갑니다.
+                  */}
+                  {ladder.recommendations.length > 0 && (
+                    <div className="mt-3">
+                      <p className="text-xs font-black text-slate-500">
+                        {t("다음에 읽으면 좋아요")}
+                      </p>
+                      <ul className="mt-1.5 space-y-1.5">
+                        {ladder.recommendations.map((r) => (
+                          <li
+                            key={r.id}
+                            className="flex items-center gap-2 rounded-xl bg-white px-2 py-1.5 ring-1 ring-slate-200"
+                          >
+                            {r.cover_url ? (
+                              // eslint-disable-next-line @next/next/no-img-element
+                              <img
+                                src={r.cover_url}
+                                alt=""
+                                className="h-12 w-9 shrink-0 rounded object-cover ring-1 ring-slate-200"
+                              />
+                            ) : (
+                              <div className="flex h-12 w-9 shrink-0 items-center justify-center rounded bg-slate-100 text-base text-slate-300">
+                                📘
+                              </div>
+                            )}
+                            <div className="min-w-0 flex-1">
+                              <p className="truncate text-sm font-bold text-gia-navy">{r.title}</p>
+                              <p className="truncate text-[11px] text-slate-400">
+                                {t(r.whyKey, r.whyVars)}
+                              </p>
+                            </div>
+                            {r.shelf && (
+                              <span className="shrink-0 rounded-lg bg-slate-100 px-1.5 py-0.5 font-mono text-[11px] font-bold text-slate-500">
+                                {r.shelf}
+                              </span>
+                            )}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+
+                  {/*
+                    등급 완료증 — 다 읽은 등급마다 한 장. 잃어버려 다시 뽑는 일이 있으므로 인쇄
+                    화면이 발급 기록을 남깁니다(「최초 / 재발급」).
+                  */}
+                  {ladder.finished.length > 0 && (
+                    <div className="mt-3 flex flex-wrap gap-1.5">
+                      {ladder.finished.map((lv) => (
+                        <a
+                          key={lv}
+                          href={`/print/reading-cert?no=${encodeURIComponent(
+                            student.student.student_no
+                          )}&level=${lv}`}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="rounded-xl bg-gia-navy px-2.5 py-1.5 text-xs font-black text-white hover:bg-gia-navy-2"
+                        >
+                          🏅 {t("{n}등급 완료증 인쇄", { n: lv })}
+                        </a>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
 
               <div className="rounded-2xl bg-slate-50 px-4 py-3">
                 <div className="flex items-baseline gap-2">

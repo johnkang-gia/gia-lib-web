@@ -355,6 +355,38 @@ const EN_MANUAL: Record<string, string> = {
   "지금 빌린 책이 없네요. 오늘은 어떤 책을 만나볼까요?":
     "Nothing borrowed right now. What shall we read today?",
   "이번 달 목표까지 {n}권 남았어요.": "{n} more books to hit this month's goal.",
+
+  // ── 독서 등급 사다리 · 등급 완료증 ────────────────────────────────────
+  // 라벨 등급(책장 색)으로 세는 사다리입니다. 「다음 등급까지 2권」은 서가에서 확인되는
+  // 약속이라 숫자를 흐리지 않고 그대로 옮겼습니다.
+  "잎새 독서가": "Leaf Reader",
+  "{n}등급 책": "Level {n} books",
+  "이 등급 다 읽었어요 🎉": "Level complete 🎉",
+  "다음 등급까지 {n}권": "{n} to the next level",
+  "이 등급에서 {a} / {b}권": "{a} / {b} at this level",
+  "다음에 읽으면 좋아요": "Good next reads",
+  "{n}등급 완료증 인쇄": "Print Level {n} certificate",
+
+  // 추천 이유 - 책 이름은 그대로 두고 틀만 바꿉니다.
+  "읽던 「{s}」 {n}권": "«{s}» #{n} — the next one",
+  "「{s}」 {n}권 — 읽던 시리즈": "«{s}» #{n} — series you're reading",
+  "「{s}」 — 읽던 시리즈": "«{s}» — series you're reading",
+  "{a} — 읽어 본 작가": "{a} — an author you've read",
+  "「{s}」 시리즈 — 1권부터": "«{s}» series — start with book 1",
+  "{c} — 자주 읽는 분류": "{c} — a kind you read often",
+  "이 등급에서 읽기 좋은 책": "A good read at this level",
+
+  // 증명서
+  "등급 완료증": "Reading Level Certificate",
+  "이 증서를 받는 사람": "Awarded to",
+  "{color} 라벨 · {n}등급": "{color} label · Level {n}",
+  "(이 등급에서 반납된 책이 아직 없습니다 — 대출 기록이 쌓이면 여기에 적힙니다)":
+    "(No returned books at this level yet — they appear here as loans build up.)",
+  "학생과 등급이 필요합니다. 대출·반납 화면에서 학생을 띄운 뒤 「등급 완료증」을 눌러주세요.":
+    "A student and a level are needed. Open a student on the checkout screen, then press «Reading Level Certificate».",
+  "그 학생이나 등급을 찾지 못했습니다.": "That student or level could not be found.",
+  "인쇄 설정에서 배율 100% · 여백 없음 · 용지 A4 세로로 맞춰주세요. 읽은 책 {n}권이 함께 적힙니다. 발급 기록은 이 화면을 열 때 남습니다.":
+    "In the print dialog use 100% scale, no margins, A4 portrait. The {n} books read are listed on it. Opening this screen records the issue.",
 };
 
 /**
