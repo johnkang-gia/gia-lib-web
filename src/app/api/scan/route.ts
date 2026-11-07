@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/server";
+import { getT } from "@/lib/i18n/server";
 import { addDaysKst, addDaysToDate, overdueDays, todayKst } from "@/lib/dates";
 import { isExtraCard, isIsbn, isItemCode, isStudentCode, normalizeScan } from "@/lib/scan";
 import {
@@ -47,6 +48,12 @@ export async function POST(request: Request) {
     안 한 사람에게 무언가를 흘리지는 않습니다 - 표마다 걸린 RLS 가 그대로 막습니다.
   */
   const authPromise = supabase.auth.getUser();
+  /*
+    창구 글귀도 사전을 지납니다 — 찍을 때마다 뜨는 큰 띠가 영문 화면에서 한국어로 남으면 그
+    화면은 영어가 아닙니다. 값이 끼어든 글귀는 {이름} 자리로 넘겨 어순을 각 말에 맡깁니다.
+    (상태 값 「대출중 / 보유」는 표에 적히는 값이라 번역하지 않습니다.)
+  */
+  const t = await getT();
 
   let body: {
     code?: string;
@@ -80,7 +87,7 @@ export async function POST(request: Request) {
     body = await request.json();
   } catch {
     return NextResponse.json<ScanResult>(
-      { kind: "error", message: "잘못된 요청입니다." },
+      { kind: "error", message: t("잘못된 요청입니다.") },
       { status: 400 }
     );
   }
@@ -90,7 +97,7 @@ export async function POST(request: Request) {
   const studentNo = body.studentNo ? normalizeScan(body.studentNo) : null;
   if (!code) {
     return NextResponse.json<ScanResult>(
-      { kind: "error", message: "읽힌 값이 없습니다." },
+      { kind: "error", message: t("읽힌 값이 없습니다.") },
       { status: 400 }
     );
   }
@@ -109,15 +116,15 @@ export async function POST(request: Request) {
     if (!student) {
       return NextResponse.json<ScanResult>({
         kind: "error",
-        message: "등록되지 않은 학생카드입니다.",
-        detail: `${code} - 운영앱 학생 명부에 없는 번호입니다.`,
+        message: t("등록되지 않은 학생카드입니다."),
+        detail: t("{code} - 운영앱 학생 명부에 없는 번호입니다.", { code }),
       });
     }
     if (student.status !== "active") {
       return NextResponse.json<ScanResult>({
         kind: "error",
-        message: `${student.name} 학생은 현재 재학중이 아닙니다.`,
-        detail: "운영앱 학생 명부에서 상태를 확인해 주세요.",
+        message: t("{name} 학생은 현재 재학중이 아닙니다.", { name: student.name }),
+        detail: t("운영앱 학생 명부에서 상태를 확인해 주세요."),
       });
     }
 
@@ -138,7 +145,7 @@ export async function POST(request: Request) {
       overdueCount: overdue,
       stats,
       photoUrl: photos[student.student_no] ?? null,
-      message: `${student.name} 학생 · 빌린 책 ${activeLoans.length}권`,
+      message: `${student.name} ${t("학생 · 빌린 책 {n}권", { n: activeLoans.length })}`,
     });
   }
 
@@ -167,13 +174,13 @@ export async function POST(request: Request) {
           kind: "book_choices",
           query: raw,
           books,
-          message: `'${raw}' 책 ${books.length}권을 찾았습니다`,
+          message: t("'{q}' 책 {n}권을 찾았습니다", { q: raw, n: books.length }),
         });
       }
       return NextResponse.json<ScanResult>({
         kind: "error",
-        message: `'${raw}' 책을 찾지 못했습니다.`,
-        detail: "제목이나 지은이의 일부만 입력해도 됩니다. 학생을 찾으시려면 위에서 「학생」으로 바꿔주세요.",
+        message: t("'{q}' 책을 찾지 못했습니다.", { q: raw }),
+        detail: t("제목이나 지은이의 일부만 입력해도 됩니다. 학생을 찾으시려면 위에서 「학생」으로 바꿔주세요."),
       });
     }
 
@@ -198,8 +205,8 @@ export async function POST(request: Request) {
       if (body.as === "student") {
         return NextResponse.json<ScanResult>({
           kind: "error",
-          message: `'${raw}' 학생을 찾지 못했습니다.`,
-          detail: "이름의 일부만 입력해도 됩니다. 책을 찾으시려면 위에서 「책」으로 바꿔주세요.",
+          message: t("'{q}' 학생을 찾지 못했습니다.", { q: raw }),
+          detail: t("이름의 일부만 입력해도 됩니다. 책을 찾으시려면 위에서 「책」으로 바꿔주세요."),
         });
       }
       const books = await searchBooks(supabase, raw);
@@ -213,8 +220,8 @@ export async function POST(request: Request) {
       }
       return NextResponse.json<ScanResult>({
         kind: "error",
-        message: `'${raw}' 을(를) 찾지 못했습니다.`,
-        detail: "학생 이름이나 책 제목의 일부만 입력해도 됩니다.",
+        message: t("'{q}' 을(를) 찾지 못했습니다.", { q: raw }),
+        detail: t("학생 이름이나 책 제목의 일부만 입력해도 됩니다."),
       });
     }
 
@@ -235,7 +242,7 @@ export async function POST(request: Request) {
         overdueCount: overdue,
         stats,
         photoUrl: photos[student.student_no] ?? null,
-        message: `${student.name} 학생 · 빌린 책 ${activeLoans.length}권`,
+        message: `${student.name} ${t("학생 · 빌린 책 {n}권", { n: activeLoans.length })}`,
       });
     }
 
@@ -243,7 +250,7 @@ export async function POST(request: Request) {
       kind: "student_choices",
       query: raw,
       students: found,
-      message: `'${raw}' 학생이 ${found.length}명 있습니다 — 골라주세요`,
+      message: t("'{q}' 학생이 {n}명 있습니다 — 골라주세요", { q: raw, n: found.length }),
     });
   }
 
@@ -259,7 +266,9 @@ export async function POST(request: Request) {
     */
     return NextResponse.json<ScanResult>({
       kind: "error",
-      message: `책을 조회하지 못했습니다 — ${e instanceof Error ? e.message : "알 수 없는 오류"}`,
+      message: t("책을 조회하지 못했습니다 — {why}", {
+          why: e instanceof Error ? e.message : t("알 수 없는 오류"),
+        }),
     });
   }
 
@@ -287,7 +296,7 @@ export async function POST(request: Request) {
         kind: "book_choices",
         query: code,
         books: sameIsbn.map((b) => ({ ...b, onLoan: 0 })),
-        message: `같은 책이 등급별로 ${sameIsbn.length}줄 있습니다 — 어느 쪽인지 골라주세요`,
+        message: t("같은 책이 등급별로 {n}줄 있습니다 — 어느 쪽인지 골라주세요", { n: sameIsbn.length }),
       });
     }
   }
@@ -299,7 +308,9 @@ export async function POST(request: Request) {
         kind: "book_choices",
         query: code,
         books: candidates.map((b) => ({ ...b, onLoan: 0 })),
-        message: `이 바코드는 ${candidates.length}권이 함께 쓰는 상품코드입니다 — 어느 책인지 골라주세요`,
+        message: t("이 바코드는 {n}권이 함께 쓰는 상품코드입니다 — 어느 책인지 골라주세요", {
+        n: candidates.length,
+      }),
       });
     }
     if (candidates.length === 1) book = candidates[0];
@@ -310,7 +321,7 @@ export async function POST(request: Request) {
       kind: "unknown_book",
       code,
       isIsbn: isIsbn(code),
-      message: "아직 등록되지 않은 책입니다.",
+      message: t("아직 등록되지 않은 책입니다."),
     });
   }
 
@@ -350,21 +361,24 @@ export async function POST(request: Request) {
     if (!student) {
       return NextResponse.json<ScanResult>({
         kind: "error",
-        message: "학생카드를 다시 찍어주세요.",
+        message: t("학생카드를 다시 찍어주세요."),
       });
     }
     if (book.status !== "보유") {
       return NextResponse.json<ScanResult>({
         kind: "error",
-        message: `이 책은 '${book.status}' 상태라 대출할 수 없습니다.`,
+        message: t("이 책은 '{status}' 상태라 대출할 수 없습니다.", { status: book.status ?? "" }),
         detail: book.title,
       });
     }
     if (bookLoans.length >= book.total_copies) {
       return NextResponse.json<ScanResult>({
         kind: "error",
-        message: "이 책은 보유한 권수가 모두 대출중입니다.",
-        detail: `${book.title} · 보유 ${book.total_copies}권 / 대출중 ${bookLoans.length}권`,
+        message: t("이 책은 보유한 권수가 모두 대출중입니다."),
+        detail: `${book.title} · ${t("보유 {a}권 / 대출중 {b}권", {
+          a: book.total_copies,
+          b: bookLoans.length,
+        })}`,
       });
     }
 
@@ -372,8 +386,8 @@ export async function POST(request: Request) {
     if (myLoans.length >= settings.max_books) {
       return NextResponse.json<ScanResult>({
         kind: "error",
-        message: `한 사람이 빌릴 수 있는 최대 ${settings.max_books}권을 채웠습니다.`,
-        detail: `${student.name} 학생 · 먼저 반납해야 새로 빌릴 수 있습니다.`,
+        message: t("한 사람이 빌릴 수 있는 최대 {n}권을 채웠습니다.", { n: settings.max_books }),
+        detail: `${student.name} ${t("학생 · 먼저 반납해야 새로 빌릴 수 있습니다.")}`,
       });
     }
     const today = todayKst();
@@ -381,8 +395,8 @@ export async function POST(request: Request) {
     if (settings.block_when_overdue && overdue.length > 0) {
       return NextResponse.json<ScanResult>({
         kind: "error",
-        message: "연체 중인 책이 있어 대출할 수 없습니다.",
-        detail: `${student.name} 학생 · 연체 ${overdue.length}권 (${overdue
+        message: t("연체 중인 책이 있어 대출할 수 없습니다."),
+        detail: `${student.name} ${t("학생 · 연체 {n}권", { n: overdue.length })} (${overdue
           .map((loan) => loan.book?.title ?? "")
           .filter(Boolean)
           .join(", ")})`,
@@ -413,14 +427,14 @@ export async function POST(request: Request) {
     if (error || !created) {
       return NextResponse.json<ScanResult>({
         kind: "error",
-        message: "대출 기록을 저장하지 못했습니다.",
+        message: t("대출 기록을 저장하지 못했습니다."),
         detail: error?.message,
       });
     }
 
     return NextResponse.json<ScanResult>({
       kind: "borrowed",
-      message: "대출 완료",
+      message: t("대출 완료"),
       book,
       loan: created as LibLoan,
       student,
@@ -433,7 +447,7 @@ export async function POST(request: Request) {
     if (bookLoans.length === 0) {
       return NextResponse.json<ScanResult>({
         kind: "error",
-        message: "지금 대출중이 아닌 책입니다.",
+        message: t("지금 대출중이 아닌 책입니다."),
         detail: book.title,
       });
     }
@@ -447,7 +461,7 @@ export async function POST(request: Request) {
     if (bookLoans.length === 0) {
       return NextResponse.json<ScanResult>({
         kind: "error",
-        message: "지금 대출중이 아닌 책입니다.",
+        message: t("지금 대출중이 아닌 책입니다."),
         detail: book.title,
       });
     }
@@ -546,14 +560,15 @@ async function renewLoan(
   book: LibBookWithShelf,
   settings: LibSettings
 ): Promise<ScanResult> {
+  const t = await getT();
   if (!settings.allow_renew) {
-    return { kind: "error", message: "연장이 허용되어 있지 않습니다." };
+    return { kind: "error", message: t("연장이 허용되어 있지 않습니다.") };
   }
   if (loan.renew_count >= settings.max_renew) {
     return {
       kind: "error",
-      message: `연장은 최대 ${settings.max_renew}회까지입니다`,
-      detail: `${loan.student_name} · ${book.title} — 오늘 반납해 주세요`,
+      message: t("연장은 최대 {n}회까지입니다", { n: settings.max_renew }),
+      detail: `${loan.student_name} · ${book.title} ${t("— 오늘 반납해 주세요")}`,
     };
   }
 
@@ -570,13 +585,13 @@ async function renewLoan(
     .single();
 
   if (error || !updated) {
-    return { kind: "error", message: "연장을 저장하지 못했습니다.", detail: error?.message };
+    return { kind: "error", message: t("연장을 저장하지 못했습니다."), detail: error?.message };
   }
 
   const next = updated as LibLoan;
   return {
     kind: "renewed",
-    message: `${next.due_date}까지 연장`,
+    message: t("{day}까지 연장", { day: next.due_date }),
     book,
     loan: next,
     student: { name: next.student_name, class_name: next.student_class },
@@ -624,6 +639,7 @@ async function returnLoan(
   book: LibBookWithShelf,
   email: string
 ): Promise<ScanResult> {
+  const t = await getT();
   const late = overdueDays(loan.due_date);
   const { data: updated, error } = await supabase
     .from("lib_loans")
@@ -635,12 +651,12 @@ async function returnLoan(
     .single();
 
   if (error || !updated) {
-    return { kind: "error", message: "반납 처리를 저장하지 못했습니다.", detail: error?.message };
+    return { kind: "error", message: t("반납 처리를 저장하지 못했습니다."), detail: error?.message };
   }
 
   return {
     kind: "returned",
-    message: late > 0 ? `반납 완료 (${late}일 연체)` : "반납 완료",
+    message: late > 0 ? t("반납 완료 ({n}일 연체)", { n: late }) : t("반납 완료"),
     book,
     loan: updated as LibLoan,
     overdueDays: Math.max(0, late),

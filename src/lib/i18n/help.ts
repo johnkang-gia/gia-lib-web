@@ -10,6 +10,130 @@
  * 말이 한국어와 같은 자리에 있을 이유가 없습니다.
  */
 export const EN_HELP: Record<string, string> = {
+  "잘못된 요청입니다.":
+    "That request was not valid.",
+  "읽힌 값이 없습니다.":
+    "Nothing was read.",
+  "등록되지 않은 학생카드입니다.":
+    "This student card is not registered.",
+  "{code} - 운영앱 학생 명부에 없는 번호입니다.":
+    "{code} — this number is not on the admin app's student roll.",
+  "{name} 학생은 현재 재학중이 아닙니다.":
+    "{name} is not currently enrolled.",
+  "운영앱 학생 명부에서 상태를 확인해 주세요.":
+    "Please check their status on the admin app's student roll.",
+  "'{q}' 책 {n}권을 찾았습니다":
+    "Found {n} books for ‘{q}’",
+  "'{q}' 책을 찾지 못했습니다.":
+    "No book found for ‘{q}’.",
+  "제목이나 지은이의 일부만 입력해도 됩니다. 학생을 찾으시려면 위에서 「학생」으로 바꿔주세요.":
+    "Part of a title or author is enough. To look for a student, switch to «Student» above.",
+  "'{q}' 학생을 찾지 못했습니다.":
+    "No student found for ‘{q}’.",
+  "이름의 일부만 입력해도 됩니다. 책을 찾으시려면 위에서 「책」으로 바꿔주세요.":
+    "Part of a name is enough. To look for a book, switch to «Book» above.",
+  "'{q}' 을(를) 찾지 못했습니다.":
+    "Nothing found for ‘{q}’.",
+  "학생 이름이나 책 제목의 일부만 입력해도 됩니다.":
+    "Part of a student's name or a book's title is enough.",
+  "'{q}' 학생이 {n}명 있습니다 — 골라주세요":
+    "{n} students match ‘{q}’ — please pick one",
+  "책을 조회하지 못했습니다 — {why}":
+    "The book lookup failed — {why}",
+  "알 수 없는 오류":
+    "unknown error",
+  "같은 책이 등급별로 {n}줄 있습니다 — 어느 쪽인지 골라주세요":
+    "This book has {n} rows, one per level — please pick which one",
+  "이 바코드는 {n}권이 함께 쓰는 상품코드입니다 — 어느 책인지 골라주세요":
+    "This barcode is a product code shared by {n} books — please pick which one",
+  "아직 등록되지 않은 책입니다.":
+    "This book is not registered yet.",
+  "학생카드를 다시 찍어주세요.":
+    "Please scan the student card again.",
+  "이 책은 '{status}' 상태라 대출할 수 없습니다.":
+    "This book is marked ‘{status}’, so it cannot go out.",
+  "이 책은 보유한 권수가 모두 대출중입니다.":
+    "Every copy of this book is on loan.",
+  "보유 {a}권 / 대출중 {b}권":
+    "{a} held / {b} on loan",
+  "한 사람이 빌릴 수 있는 최대 {n}권을 채웠습니다.":
+    "They have reached the limit of {n} books per person.",
+  "학생 · 먼저 반납해야 새로 빌릴 수 있습니다.":
+    "— something must come back before anything else goes out.",
+  "연체 중인 책이 있어 대출할 수 없습니다.":
+    "There is an overdue book, so nothing can go out.",
+  "학생 · 연체 {n}권":
+    "— {n} overdue",
+  "대출 기록을 저장하지 못했습니다.":
+    "The loan could not be saved.",
+  "대출 완료":
+    "Checked out",
+  "지금 대출중이 아닌 책입니다.":
+    "This book is not on loan right now.",
+  "연장이 허용되어 있지 않습니다.":
+    "Renewals are not allowed.",
+  "연장은 최대 {n}회까지입니다":
+    "Renewals are limited to {n}",
+  "— 오늘 반납해 주세요":
+    "— please return it today",
+  "연장을 저장하지 못했습니다.":
+    "The renewal could not be saved.",
+  "{day}까지 연장":
+    "Renewed until {day}",
+  "반납 처리를 저장하지 못했습니다.":
+    "The return could not be saved.",
+  "반납 완료 ({n}일 연체)":
+    "Returned ({n} days overdue)",
+  "반납 완료":
+    "Returned",
+  "학생 · 빌린 책 {n}권":
+    "— {n} books out",
+  "로그인이 필요합니다.":
+    "Please sign in.",
+  "학생카드를 먼저 찍어주세요.":
+    "Scan the student card first.",
+  "대출할 책이 없습니다.":
+    "There are no books to check out.",
+  "학생을 찾지 못했습니다.":
+    "That student could not be found.",
+  "한 사람이 빌릴 수 있는 최대 {n}권을 이미 채웠습니다.":
+    "They have already reached the limit of {n} books per person.",
+  "{n}권은 많습니다 — {room}권까지 빌릴 수 있습니다.":
+    "{n} is too many — up to {room} can go out.",
+  "학생 · 지금 빌린 책 {a}권 / 최대 {b}권":
+    "— {a} books out now / limit {b}",
+  "장서에서 찾지 못했습니다":
+    "Not found in the catalog",
+  "(없어진 책)":
+    "(missing book)",
+  "'{status}' 상태입니다":
+    "Marked ‘{status}’",
+  "보유 {n}권이 모두 대출중입니다":
+    "All {n} copies are on loan",
+  "저장하지 못했습니다":
+    "Could not be saved",
+  "학생 · {day}까지 반납":
+    "— due back {day}",
+  "{a}권 대출 · {b}권은 못 빌렸습니다":
+    "{a} checked out · {b} could not go out",
+  "대출 중 오류가 생겼습니다":
+    "Something went wrong during checkout",
+  "학생을 골라주세요":
+    "Please pick a student",
+  "빌릴 수 있는 권수가 없습니다":
+    "No copies available",
+  "어느 책인지 눌러주세요":
+    "Press the one you mean",
+  "등록되지 않은 책입니다":
+    "This book is not registered",
+  "처리 중 오류가 생겼습니다":
+    "Something went wrong",
+  "다시 찍어주세요.":
+    "Please scan it again.",
+  "대출하지 못했습니다":
+    "Could not check out",
+  "(삭제된 책)":
+    "(deleted book)",
   "{zone} 칸으로 모음":
     "gathered into slot {zone}",
   "합치는 중…":

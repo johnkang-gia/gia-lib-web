@@ -395,7 +395,7 @@ export default function ScanClient({
 
         if (result.kind === "student_choices") {
           setChoices(result.students);
-          show("info", "학생을 골라주세요", result.message);
+          show("info", t("학생을 골라주세요"), result.message);
           beep("info");
           return;
         }
@@ -433,7 +433,7 @@ export default function ScanClient({
           }
 
           if (result.available <= 0) {
-            show("warn", "빌릴 수 있는 권수가 없습니다", result.book.title);
+            show("warn", t("빌릴 수 있는 권수가 없습니다"), result.book.title);
             beep("warn");
             return;
           }
@@ -454,7 +454,7 @@ export default function ScanClient({
 
         if (result.kind === "book_choices") {
           setHits({ query: result.query, books: result.books });
-          show("info", result.message, "어느 책인지 눌러주세요");
+          show("info", result.message, t("어느 책인지 눌러주세요"));
           beep("info");
           return;
         }
@@ -463,7 +463,7 @@ export default function ScanClient({
           setDialogIsbn(result.isIsbn ? result.code : null);
           setDialogCode(result.isIsbn ? null : result.code);
           setDialogOpen(true);
-          show("warn", "등록되지 않은 책입니다", result.isIsbn ? formatIsbn(result.code) : result.code);
+          show("warn", t("등록되지 않은 책입니다"), result.isIsbn ? formatIsbn(result.code) : result.code);
           beep("warn");
           return;
         }
@@ -475,7 +475,7 @@ export default function ScanClient({
         );
         beep("error");
       } catch {
-        show("error", "처리 중 오류가 생겼습니다", "다시 찍어주세요.");
+        show("error", t("처리 중 오류가 생겼습니다"), t("다시 찍어주세요."));
         beep("error");
       } finally {
         setBusy(false);
@@ -539,7 +539,7 @@ export default function ScanClient({
       };
 
       if (!res.ok) {
-        show("error", json.error ?? "대출하지 못했습니다", json.detail ?? "");
+        show("error", json.error ?? t("대출하지 못했습니다"), json.detail ?? "");
         beep("error");
         return;
       }
@@ -553,14 +553,19 @@ export default function ScanClient({
       if (bad.length === 0) {
         show(
           "ok",
-          `${json.borrowed}권 대출 완료 🎉`,
-          `${me.student.name} 학생 · ${json.dueDate ? formatDay(json.dueDate) : ""}까지 반납`
+          t("{n}권 대출 완료 🎉", { n: json.borrowed ?? 0 }),
+          `${me.student.name} ${t("학생 · {day}까지 반납", {
+            day: json.dueDate ? formatDay(json.dueDate) : "",
+          })}`
         );
         beep("ok");
       } else {
         show(
           "warn",
-          `${json.borrowed}권 대출 · ${bad.length}권은 못 빌렸습니다`,
+          t("{a}권 대출 · {b}권은 못 빌렸습니다", {
+            a: json.borrowed ?? 0,
+            b: bad.length,
+          }),
           bad.map((l) => `${l.title} — ${l.reason}`).join(" / ")
         );
         beep("warn");
@@ -568,7 +573,7 @@ export default function ScanClient({
       void loadStudent(me.student.student_no);
       router.refresh();
     } catch {
-      show("error", "대출 중 오류가 생겼습니다");
+      show("error", t("대출 중 오류가 생겼습니다"));
       beep("error");
     } finally {
       setChecking(false);
@@ -1171,7 +1176,7 @@ export default function ScanClient({
                         }`}
                       >
                         <span className="min-w-0 flex-1 truncate font-semibold">
-                          {loan.book?.title ?? "(삭제된 책)"}
+                          {loan.book?.title ?? t("(삭제된 책)")}
                         </span>
                         <span
                           className={`shrink-0 text-xs font-bold ${
