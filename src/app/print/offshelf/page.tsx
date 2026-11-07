@@ -1,6 +1,8 @@
 import { createClient } from "@/lib/supabase/server";
 import PrintButton from "@/components/PrintButton";
 import { TranslateOverlay } from "@/lib/i18n/overlay";
+import { getT } from "@/lib/i18n/server";
+import { rich } from "@/lib/i18n/rich";
 import { getLocations } from "@/lib/server/library";
 import { todayKst } from "@/lib/dates";
 import { hasProductCodeAsId, labelCode } from "@/lib/scan";
@@ -37,6 +39,8 @@ export const dynamic = "force-dynamic";
  * 됩니다.
  */
 export default async function OffShelfListPage() {
+  /* 설명 글은 `**굵게**` 를 품은 글귀 하나로 두고 rich() 로 그립니다(토막나지 않게). */
+  const t = await getT();
   const supabase = await createClient();
 
   const [books, checks, loans, locations] = await Promise.all([
@@ -185,10 +189,11 @@ export default async function OffShelfListPage() {
           </div>
 
           <p className="mb-4 bg-amber-50 px-3 py-2 text-xs leading-relaxed text-amber-900">
-            책장등록은 칸을 하나씩 비워 가며 <b>책을 한 권씩 손에 들고 찍은</b> 기록입니다. 그러니 장서에 있는데
-            책장등록에 안 나온 책은 <b>지금 책장 밖에 있는 책</b>입니다 — 없어진 것이 아니라 상품코드 더미, 라벨 없는
-            더미, 책상 위에 있습니다. 이 종이는 그 책들을 찾아 <b>재등록 · 라벨 뽑기</b> 화면에서 마무리하기 위한
-            목록입니다. 한 권 끝낼 때마다 왼쪽 네모에 표시하세요.
+            {rich(
+              t(
+                "책장등록은 칸을 하나씩 비워 가며 **책을 한 권씩 손에 들고 찍은** 기록입니다. 그러니 장서에 있는데 책장등록에 안 나온 책은 **지금 책장 밖에 있는 책**입니다 — 없어진 것이 아니라 상품코드 더미, 라벨 없는 더미, 책상 위에 있습니다. 이 종이는 그 책들을 찾아 **재등록 · 라벨 뽑기** 화면에서 마무리하기 위한 목록입니다. 한 권 끝낼 때마다 왼쪽 네모에 표시하세요."
+              )
+            )}
           </p>
 
           {never.length > 0 && (
@@ -200,8 +205,11 @@ export default async function OffShelfListPage() {
                 </span>
               </h3>
               <p className="mb-2 text-xs leading-relaxed text-slate-600">
-                책장등록에 <b>한 번도</b> 나오지 않았습니다. 더미에서 찾아야 합니다 — 「상품코드」 표가 붙은 책은
-                상품코드 더미에 있습니다.
+                {rich(
+                  t(
+                    "책장등록에 **한 번도** 나오지 않았습니다. 더미에서 찾아야 합니다 — 「상품코드」 표가 붙은 책은 상품코드 더미에 있습니다."
+                  )
+                )}
               </p>
               {table(never, "never")}
             </section>
@@ -216,16 +224,23 @@ export default async function OffShelfListPage() {
                 </span>
               </h3>
               <p className="mb-2 text-xs leading-relaxed text-slate-600">
-                장서 권수보다 책장에서 적게 찍혔습니다. 적힌 칸에 가서 <b>실제로 몇 권인지</b> 세어 보세요 — 기록이
-                부풀어 있던 것일 수도 있고, 정말 한 권이 밖에 있는 것일 수도 있습니다.
+                {rich(
+                  t(
+                    "장서 권수보다 책장에서 적게 찍혔습니다. 적힌 칸에 가서 **실제로 몇 권인지** 세어 보세요 — 기록이 부풀어 있던 것일 수도 있고, 정말 한 권이 밖에 있는 것일 수도 있습니다."
+                  )
+                )}
               </p>
               {table(partly, "partly")}
             </section>
           )}
 
           <p className="mt-6 border-t border-slate-300 pt-2 text-xs leading-relaxed text-slate-500">
-            이 숫자는 <b>{today} 기준</b>입니다. 재등록을 하면 그만큼 줄어듭니다. 정리가 끝나고 이 책들을 책장에 꽂아
-            찍고 나면, 그때는 책장등록이 곧 장서가 됩니다.
+            {rich(
+              t(
+                "이 숫자는 **{day} 기준**입니다. 재등록을 하면 그만큼 줄어듭니다. 정리가 끝나고 이 책들을 책장에 꽂아 찍고 나면, 그때는 책장등록이 곧 장서가 됩니다.",
+                { day: today }
+              )
+            )}
           </p>
         </div>
       )}

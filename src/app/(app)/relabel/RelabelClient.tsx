@@ -7,6 +7,8 @@ import CoverShot from "@/components/CoverShot";
 import { beep, setSoundOn, soundOn } from "@/lib/beep";
 import { canonicalIsbn, isIsbn, isValidIsbn, normalizeIsbn, normalizeScan } from "@/lib/scan";
 import type { LibBook } from "@/lib/types";
+import { useT } from "@/lib/i18n/client";
+import { rich } from "@/lib/i18n/rich";
 
 /**
  * 재등록 — 상품코드로 들어가 있는 책을 ISBN 으로 바꿔 적고 라벨을 담습니다.
@@ -171,6 +173,8 @@ const WHAT_KO: Record<string, string> = {
 };
 
 export default function RelabelClient() {
+  /* 설명 글은 `**굵게**` 를 품은 글귀 하나로 두고 rich() 로 그립니다(토막나지 않게). */
+  const t = useT();
   const [scan, setScan] = useState("");
   const [found, setFound] = useState<Found | null>(null);
   const [scanned, setScanned] = useState("");
@@ -983,9 +987,11 @@ export default function RelabelClient() {
         </button>
       </div>
       <p className="mt-2 text-sm leading-relaxed text-slate-600">
-        책에 인쇄된 바코드를 찍으세요. 상품코드로 등록된 책이면 <b>표지의 ISBN</b>을 적는 자리가 나오고, 적으면 그 정보로
-        바꿔 적은 뒤 <b>모아뽑기</b>에 라벨을 담습니다. 바꾼 결과는 아래에 <b>전 → 후</b>로 펼쳐 둡니다 — 제목·권수·라벨 번호를
-        눈으로 대보고 다음 책을 찍으세요.
+        {rich(
+          t(
+            "책에 인쇄된 바코드를 찍으세요. 상품코드로 등록된 책이면 **표지의 ISBN**을 적는 자리가 나오고, 적으면 그 정보로 바꿔 적은 뒤 **모아뽑기**에 라벨을 담습니다. 바꾼 결과는 아래에 **전 → 후**로 펼쳐 둡니다 — 제목·권수·라벨 번호를 눈으로 대보고 다음 책을 찍으세요."
+          )
+        )}
       </p>
       <p className="mt-1 text-xs leading-relaxed text-slate-500">
         상품코드는 &lsquo;책 한 권&rsquo;이 아니라 &lsquo;상품 한 줄&rsquo;을 가리켜서, 전집은 열두 권이 같은 번호입니다. 어느 권인지는 표지를
@@ -996,14 +1002,19 @@ export default function RelabelClient() {
       {prog && (
         <div className="mt-5 rounded-xl border border-slate-200 bg-white p-4">
           <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
-            <span className="text-sm text-slate-600">상품코드로 등록된 책</span>
-            <span className="text-lg font-bold text-gia-navy">{prog.totalCopies}권</span>
-            <span className="text-sm text-slate-400">중</span>
-            <span className="text-lg font-bold text-emerald-700">{prog.doneCopies}권</span>
-            <span className="text-sm text-slate-600">바꿨습니다</span>
+            <span className="text-sm text-slate-600">
+              {rich(
+                t("상품코드로 등록된 책 **{total}권** 중 **{done}권** 바꿨습니다", {
+                  total: prog.totalCopies,
+                  done: prog.doneCopies,
+                }),
+                "text-lg text-gia-navy"
+              )}
+            </span>
             <span className="ml-auto text-sm font-semibold text-amber-700">
-              남은 {prog.leftCopies}권
-              {prog.leftRows > 0 && <span className="font-normal text-slate-500"> ({prog.leftRows}줄)</span>}
+              {prog.leftRows > 0
+                ? t("남은 {n}권 ({rows}줄)", { n: prog.leftCopies, rows: prog.leftRows })
+                : t("남은 {n}권", { n: prog.leftCopies })}
             </span>
           </div>
           <div className="mt-2.5 h-2.5 w-full overflow-hidden rounded-full bg-slate-100">
@@ -1042,8 +1053,9 @@ export default function RelabelClient() {
             </p>
           )}
           <p className="mt-2 text-xs leading-relaxed text-slate-500">
-            한 권 재등록할 때마다 남은 권수가 하나 줄어듭니다. 같은 상품코드에 여러 권이 묶여 있으면 그 줄은
-            권수만 줄고 남아 있다가, 마지막 한 권까지 바꾸면 사라집니다.
+            {t(
+              "한 권 재등록할 때마다 남은 권수가 하나 줄어듭니다. 같은 상품코드에 여러 권이 묶여 있으면 그 줄은 권수만 줄고 남아 있다가, 마지막 한 권까지 바꾸면 사라집니다."
+            )}
           </p>
           {prog.leftCopies === 0 ? (
             <p className="mt-2 rounded-lg bg-emerald-50 px-3 py-2 text-sm font-semibold text-emerald-800">
@@ -1144,9 +1156,11 @@ export default function RelabelClient() {
             </button>
           </div>
           <p className="mt-1.5 text-xs leading-relaxed text-slate-500">
-            번호를 치고 <b>등록</b>을 누르면 어떤 책인지 보여주고 등록할지 묻습니다(이미 등록된 책이면 그 책이
-            뜹니다). 번호가 아예 없으면 표지를 찍으세요 — 후보를 고르면 <b>ISBN까지</b> 붙고, 맞는 후보가 없으면
-            읽어낸 제목으로 등록하면서 <b>도서관 라벨 번호</b>를 발급합니다.
+            {rich(
+              t(
+                "번호를 치고 **등록**을 누르면 어떤 책인지 보여주고 등록할지 묻습니다(이미 등록된 책이면 그 책이 뜹니다). 번호가 아예 없으면 표지를 찍으세요 — 후보를 고르면 **ISBN까지** 붙고, 맞는 후보가 없으면 읽어낸 제목으로 등록하면서 **도서관 라벨 번호**를 발급합니다."
+              )
+            )}
           </p>
 
           {(shooting || shotTitle || shotBooks.length > 0) && (
@@ -1266,8 +1280,11 @@ export default function RelabelClient() {
                 </button>
               </div>
               <p className="mt-1.5 text-xs text-slate-500">
-                ISBN 바코드가 아니라 <b>숫자</b>를 보고 적으세요. 체크숫자가 맞지 않으면 받지 않습니다 — 한 자리 잘못 적힌 책은
-                나중에 바코드로도 제목으로도 찾히지 않습니다.
+                {rich(
+                  t(
+                    "ISBN 바코드가 아니라 **숫자**를 보고 적으세요. 체크숫자가 맞지 않으면 받지 않습니다 — 한 자리 잘못 적힌 책은 나중에 바코드로도 제목으로도 찾히지 않습니다."
+                  )
+                )}
               </p>
 
               {/*
@@ -1520,8 +1537,12 @@ export default function RelabelClient() {
                   {found.codes.sameIsbn && found.codes.scanned !== found.codes.isbn && (
                     <span className="text-slate-500">
                       {" "}
-                      — 찍은 <b>{found.codes.scanned}</b> 과 <b>같은 번호</b>입니다(ISBN 10자리 ↔ 13자리: 앞에
-                      978 을 붙이고 맨 끝 검사 숫자를 다시 계산합니다)
+                      {rich(
+                        t(
+                          "— 찍은 **{code}** 과 **같은 번호**입니다(ISBN 10자리 ↔ 13자리: 앞에 978 을 붙이고 맨 끝 검사 숫자를 다시 계산합니다)",
+                          { code: found.codes.scanned }
+                        )
+                      )}
                     </span>
                   )}
                 </p>
@@ -1535,10 +1556,12 @@ export default function RelabelClient() {
                 {found.codes.productCode ? (
                   <div className="rounded-md bg-amber-50 px-2 py-1.5">
                     <p className="text-amber-900">
-                      <span className="font-bold">상품코드 </span>
-                      <b className="text-sm">{found.codes.productCode}</b> 가 아직 이 줄에 남아 있습니다 —{" "}
-                      <b>일부러 남겨 둔 것</b>입니다. 책에는 아직 상품코드 바코드가 붙어 있으니 그 번호를 찍어도
-                      이 줄이 걸려야 합니다. <b>라벨을 책에 붙인 뒤</b>에 떼면 번호가 하나로 정리됩니다.
+                      {rich(
+                        t(
+                          "**상품코드 {code}**가 아직 이 줄에 남아 있습니다 — **일부러 남겨 둔 것**입니다. 책에는 아직 상품코드 바코드가 붙어 있으니 그 번호를 찍어도 이 줄이 걸려야 합니다. **라벨을 책에 붙인 뒤**에 떼면 번호가 하나로 정리됩니다.",
+                          { code: found.codes.productCode }
+                        )
+                      )}
                     </p>
                     {/*
                       버튼이 여기 있었습니다. 누르면 그 자리에서 떼 주는 대신 **다음 책으로
@@ -1546,8 +1569,11 @@ export default function RelabelClient() {
                       찍기만 해야 합니다 - 떼는 일은 「라벨 인쇄 완료」가 합니다.
                     */}
                     <p className="mt-1 text-[11px] font-semibold text-amber-800">
-                      라벨을 담아 두고 <b>「✓ 뽑았습니다 — 기록으로 넘기기」</b>를 누르면, 그 묶음에 든 상품코드를
-                      그때 함께 뗍니다 — 지금은 그냥 담으시면 됩니다.
+                      {rich(
+                        t(
+                          "라벨을 담아 두고 **「✓ 뽑았습니다 — 기록으로 넘기기」**를 누르면, 그 묶음에 든 상품코드를 그때 함께 뗍니다 — 지금은 그냥 담으시면 됩니다."
+                        )
+                      )}
                     </p>
                   </div>
                 ) : (
@@ -1620,20 +1646,25 @@ export default function RelabelClient() {
                     */}
                     <div className="mt-2 rounded-lg border border-gia-navy/30 bg-white px-3 py-2.5">
                       <p className="text-sm leading-relaxed text-slate-700">
-                        장서 {found.counts.copies}권이 책장에서 모두 찍혔습니다 — 손에 든 이 책은 그 위에 더 있는 한
-                        권으로 보입니다.
+                        {t(
+                          "장서 {n}권이 책장에서 모두 찍혔습니다 — 손에 든 이 책은 그 위에 더 있는 한 권으로 보입니다.",
+                          { n: found.counts.copies }
+                        )}
                       </p>
                       {where ? (
                         <p className="mt-1 text-sm text-slate-700">
-                          책장에서 찍힌 그 {found.counts.shelf}권은{" "}
-                          <b className="text-base text-gia-navy">{where}</b> 에 있습니다 —{" "}
-                          <b>가서 같은 책이 꽂혀 있는지 보고</b> 눌러주세요. 거기 있으면 손에 든 이 책은 또 한 권이
-                          맞습니다.
+                          {rich(
+                            t(
+                              "책장에서 찍힌 그 {n}권은 **{where}** 에 있습니다 — **가서 같은 책이 꽂혀 있는지 보고** 눌러주세요. 거기 있으면 손에 든 이 책은 또 한 권이 맞습니다.",
+                              { n: found.counts.shelf, where }
+                            )
+                          )}
                         </p>
                       ) : (
                         <p className="mt-1 text-xs text-slate-500">
-                          찍힌 칸이 기록되어 있지 않습니다 — 칸을 확인할 수 없으니 「넘기기」로 두고 나중에 보시는
-                          편이 안전합니다.
+                          {t(
+                            "찍힌 칸이 기록되어 있지 않습니다 — 칸을 확인할 수 없으니 「넘기기」로 두고 나중에 보시는 편이 안전합니다."
+                          )}
                         </p>
                       )}
                     </div>
@@ -1644,10 +1675,16 @@ export default function RelabelClient() {
                         onClick={() => void doAddCopy(found.book)}
                         className="rounded-lg border-2 border-gia-navy bg-white px-3 py-2.5 text-left text-sm font-semibold text-gia-navy disabled:opacity-50"
                       >
-                        장서에 <b>없던 한 권</b>입니다
+                        {rich(t("장서에 **없던 한 권**입니다"))}
                         <div className="mt-0.5 text-xs font-normal text-slate-600">
-                          장서를 {found.counts.copies}권 → <b>{found.counts.copies + 1}권</b>으로{" "}
-                          {wantLabel ? "하고 라벨 담기" : "하기 (라벨 없음)"}
+                          {rich(
+                            t(
+                              wantLabel
+                                ? "장서를 {a}권 → **{b}권**으로 하고 라벨 담기"
+                                : "장서를 {a}권 → **{b}권**으로 하기 (라벨 없음)",
+                              { a: found.counts.copies, b: found.counts.copies + 1 }
+                            )
+                          )}
                         </div>
                       </button>
                       <button
@@ -1656,10 +1693,14 @@ export default function RelabelClient() {
                         onClick={() => void doLabelOnly(found.book)}
                         className="rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-left text-sm font-semibold text-slate-700 disabled:opacity-50"
                       >
-                        아니요 — <b>장서에 이미 있는 그 책</b>입니다
+                        {rich(t("아니요 — **장서에 이미 있는 그 책**입니다"))}
                         <div className="mt-0.5 text-xs font-normal text-slate-600">
-                          장서 {found.counts.copies}권 그대로 두고{" "}
-                          {wantLabel ? "라벨만 담기" : "넘어가기 (라벨 없음)"}
+                          {t(
+                            wantLabel
+                              ? "장서 {a}권 그대로 두고 라벨만 담기"
+                              : "장서 {a}권 그대로 두고 넘어가기 (라벨 없음)",
+                            { a: found.counts.copies }
+                          )}
                         </div>
                       </button>
                     </div>
@@ -1834,8 +1875,11 @@ export default function RelabelClient() {
             */}
             {result.titleKept && (
               <p className="mt-2 rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-900">
-                조회처에서 이 ISBN을 찾지 못해 <b>원래 줄의 제목을 그대로</b> 두었습니다. 상품코드 한 줄에 여러 권이
-                묶여 있던 제목이라 이 책의 제목이 아닐 수 있습니다 — 표지를 보고 적어주세요.
+                {rich(
+                  t(
+                    "조회처에서 이 ISBN을 찾지 못해 **원래 줄의 제목을 그대로** 두었습니다. 상품코드 한 줄에 여러 권이 묶여 있던 제목이라 이 책의 제목이 아닐 수 있습니다 — 표지를 보고 적어주세요."
+                  )
+                )}
               </p>
             )}
 
@@ -2094,8 +2138,9 @@ export default function RelabelClient() {
               </div>
             </div>
             <p className="mt-1.5 text-xs text-slate-500">
-              잘못 담긴 것만 빼면 됩니다 — 전부 비우지 않아도 됩니다. 복본은 권수만큼 여러 장이 들어 있는 것이
-              정상입니다.
+              {t(
+                "잘못 담긴 것만 빼면 됩니다 — 전부 비우지 않아도 됩니다. 복본은 권수만큼 여러 장이 들어 있는 것이 정상입니다."
+              )}
             </p>
           </div>
         )}
@@ -2229,15 +2274,19 @@ export default function RelabelClient() {
             </div>
           )}
           <p className="mt-2 text-xs leading-relaxed text-slate-500">
-            되돌리기는 <b>나중에 한 것부터</b>입니다. 같은 상품코드에서 한 권을 뗀 뒤 또 한 권을 떼었다면, 첫 번째를
-            되돌리는 것은 두 번째를 지우는 일이 되므로 거절합니다 — 조용히 어긋나게 만드는 것보다 낫습니다.
+            {rich(
+              t(
+                "되돌리기는 **나중에 한 것부터**입니다. 같은 상품코드에서 한 권을 뗀 뒤 또 한 권을 떼었다면, 첫 번째를 되돌리는 것은 두 번째를 지우는 일이 되므로 거절합니다 — 조용히 어긋나게 만드는 것보다 낫습니다."
+              )
+            )}
           </p>
         </section>
       )}
 
       <p className="mt-8 text-xs leading-relaxed text-slate-500">
-        라벨에는 그 책의 ISBN이 바코드로 들어갑니다. 붙인 뒤에는 그 라벨을 찍으면 바로 그 책이 나옵니다 — 상품코드처럼 열두 권이
-        한꺼번에 걸리지 않습니다. 찍었던 상품코드도 함께 적어 두므로, 라벨을 붙이기 전에 그 책을 또 찍어도 같은 책으로 찾힙니다.
+        {t(
+          "라벨에는 그 책의 ISBN이 바코드로 들어갑니다. 붙인 뒤에는 그 라벨을 찍으면 바로 그 책이 나옵니다 — 상품코드처럼 열두 권이 한꺼번에 걸리지 않습니다. 찍었던 상품코드도 함께 적어 두므로, 라벨을 붙이기 전에 그 책을 또 찍어도 같은 책으로 찾힙니다."
+        )}
       </p>
     </div>
   );

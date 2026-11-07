@@ -17,6 +17,8 @@ import {
 import { orderMoves, type Hop, type MoveBook, type MoveStep } from "@/lib/moveOrder";
 import { createClient } from "@/lib/supabase/client";
 import type { LibLocation, LibMap, LibSettings } from "@/lib/types";
+import { useT } from "@/lib/i18n/client";
+import { rich } from "@/lib/i18n/rich";
 
 /**
  * 도서정리 계획 화면.
@@ -41,6 +43,11 @@ export default function PlanClient({
   settings: LibSettings;
 }) {
   const router = useRouter();
+  /*
+    설명 글은 문장 가운데를 굵게 씁니다. 굵게를 `**` 로 적고 t() 를 지나게 하면 **글귀 하나가
+    사전 열쇠 하나**가 되어, 영문으로 바꿀 때 문장이 토막으로 쪼개지지 않습니다.
+  */
+  const t = useT();
   /*
     칸 목록을 화면 안에서 고칩니다 - 「이 칸에 몇 권 더 들어갑니다」(정원 적기)와 「칸 추가」를
     여기서 하면 계획이 그 자리에서 다시 계산되어야 하니까요. 저장은 데이터베이스에도 함께
@@ -988,8 +995,9 @@ export default function PlanClient({
         <p className="text-4xl">🗂️</p>
         <h1 className="mt-3 text-lg font-bold">정리해 넣을 칸이 아직 없습니다</h1>
         <p className="mx-auto mt-2 max-w-lg text-sm leading-relaxed text-slate-500">
-          구역 관리에서 책장 칸을 먼저 만들어 주세요. 지금 쓰고 있는 임시구역을 그대로
-          정리 대상으로 쓸 수 있습니다.
+          {t(
+            "구역 관리에서 책장 칸을 먼저 만들어 주세요. 지금 쓰고 있는 임시구역을 그대로 정리 대상으로 쓸 수 있습니다."
+          )}
         </p>
         <button
           type="button"
@@ -1008,9 +1016,11 @@ export default function PlanClient({
       <div className={card}>
         <h1 className="text-lg font-bold">도서정리 계획</h1>
         <p className="mt-1 text-sm leading-relaxed text-slate-500">
-          지금 임시로 꽂아둔 책들을 어디로 옮길지 한 번에 계산합니다. 계획을 확정해도 책이{" "}
-          <b>지금 꽂혀 있는 자리는 바뀌지 않습니다</b> — 실제로 책을 옮기고 스캔했을 때 바뀝니다.
-          그래서 정리하는 며칠 동안에도 학생이 찾는 책의 위치를 정확히 알려줄 수 있습니다.
+          {rich(
+            t(
+              "지금 임시로 꽂아둔 책들을 어디로 옮길지 한 번에 계산합니다. 계획을 확정해도 책이 **지금 꽂혀 있는 자리는 바뀌지 않습니다** — 실제로 책을 옮기고 스캔했을 때 바뀝니다. 그래서 정리하는 며칠 동안에도 학생이 찾는 책의 위치를 정확히 알려줄 수 있습니다."
+            )
+          )}
         </p>
         {/*
           임시구역을 그대로 쓸지.
@@ -1052,8 +1062,9 @@ export default function PlanClient({
             ))}
             {levelsOnZones.length === 0 && (
               <span className="text-xs text-slate-500">
-                칸에 등급이 아직 안 적혀 있습니다 — 「① 구역 관리」에서 칸마다 등급을 골라 두면
-                등급별로 나눠서 정리할 수 있습니다.
+                {t(
+                  "칸에 등급이 아직 안 적혀 있습니다 — 「① 구역 관리」에서 칸마다 등급을 골라 두면 등급별로 나눠서 정리할 수 있습니다."
+                )}
               </span>
             )}
           </div>
@@ -1064,22 +1075,24 @@ export default function PlanClient({
                 levelReady ? "bg-emerald-50 text-emerald-900" : "bg-amber-50 text-amber-900"
               }`}
             >
-              {levelReady ? (
-                <>
-                  <b>{onlyLevel}등급 칸 {levelZones.length}개가 모두 「다 찍음」입니다.</b> 지금
-                  정리해도 됩니다 — 아직 안 꺼낸 책이 계획에서 빠질 걱정이 없습니다.
-                </>
-              ) : (
-                <>
-                  <b>
-                    {onlyLevel}등급 칸 {levelZones.length}개 중 {levelZones.length - levelPending.length}개
-                    끝났습니다.
-                  </b>{" "}
-                  남은 칸: {levelPending.map((l) => l.code).join(" · ") || "없음"} — 그 칸들을 다
-                  찍고 자리 등록 화면에서 <b>「이 칸 다 찍었습니다」</b>를 눌러주세요. 끝나지 않은
-                  칸으로 계획을 세우면 아직 안 꺼낸 책들이 통째로 빠진 채 책장을 다시 짜게 됩니다.
-                </>
-              )}
+              {levelReady
+                ? rich(
+                    t(
+                      "**{lv}등급 칸 {z}개가 모두 「다 찍음」입니다.** 지금 정리해도 됩니다 — 아직 안 꺼낸 책이 계획에서 빠질 걱정이 없습니다.",
+                      { lv: onlyLevel ?? 0, z: levelZones.length }
+                    )
+                  )
+                : rich(
+                    t(
+                      "**{lv}등급 칸 {z}개 중 {d}개 끝났습니다.** 남은 칸: {rest} — 그 칸들을 다 찍고 자리 등록 화면에서 **「이 칸 다 찍었습니다」**를 눌러주세요. 끝나지 않은 칸으로 계획을 세우면 아직 안 꺼낸 책들이 통째로 빠진 채 책장을 다시 짜게 됩니다.",
+                      {
+                        lv: onlyLevel ?? 0,
+                        z: levelZones.length,
+                        d: levelZones.length - levelPending.length,
+                        rest: levelPending.map((l) => l.code).join(" · ") || t("없음"),
+                      }
+                    )
+                  )}
             </p>
           )}
         </div>
@@ -1131,23 +1144,36 @@ export default function PlanClient({
             중간에 자리가 모자란 것을 알게 됩니다 - 그 전에 말해야 합니다.
           */}
           <p className="w-full rounded-lg bg-slate-50 px-3 py-2 text-xs leading-relaxed text-slate-600">
-            {targetZones.length > 0 ? (
-              <>
-                {onlyLevel != null ? `${onlyLevel}등급 ` : ""}책 <b>{targetBooks.length}권</b> ÷ 칸{" "}
-                <b>{targetZones.length}개</b> ={" "}
-                <b className="text-gia-navy">
-                  한 칸 약 {Math.ceil(targetBooks.length / targetZones.length)}권
-                </b>
-                씩 고르게 나눕니다. <b>시리즈는 한 칸에 통째로</b> 넣고, 남은 자리를 낱권으로 채웁니다 — 어느 칸이든
-                같은 만큼 여유가 남습니다.
-              </>
-            ) : (
-              <>이 등급에 쓸 칸이 없습니다 — 구역 관리에서 칸을 만들거나 등급을 확인해주세요.</>
-            )}
+            {targetZones.length > 0
+              ? rich(
+                  onlyLevel != null
+                    ? t(
+                        "{lv}등급 책 **{n}권** ÷ 칸 **{z}개** = **한 칸 약 {each}권**씩 고르게 나눕니다. **시리즈는 한 칸에 통째로** 넣고, 남은 자리를 낱권으로 채웁니다 — 어느 칸이든 같은 만큼 여유가 남습니다.",
+                        {
+                          lv: onlyLevel,
+                          n: targetBooks.length,
+                          z: targetZones.length,
+                          each: Math.ceil(targetBooks.length / targetZones.length),
+                        }
+                      )
+                    : t(
+                        "책 **{n}권** ÷ 칸 **{z}개** = **한 칸 약 {each}권**씩 고르게 나눕니다. **시리즈는 한 칸에 통째로** 넣고, 남은 자리를 낱권으로 채웁니다 — 어느 칸이든 같은 만큼 여유가 남습니다.",
+                        {
+                          n: targetBooks.length,
+                          z: targetZones.length,
+                          each: Math.ceil(targetBooks.length / targetZones.length),
+                        }
+                      )
+                )
+              : t("이 등급에 쓸 칸이 없습니다 — 구역 관리에서 칸을 만들거나 등급을 확인해주세요.")}
             {measuredZones === 0 && (
               <>
-                {" "}칸 정원은 아직 적혀 있지 않아서 <b>지금 그 칸에 꽂혀 있는 권수</b>를 한계로 봅니다(책장등록으로 한
-                권씩 센 숫자라 실제로 그만큼 들어간다는 증거입니다). 구역 관리에서 정원을 적어 두면 그 값이 우선입니다.
+                {" "}
+                {rich(
+                  t(
+                    "칸 정원은 아직 적혀 있지 않아서 **지금 그 칸에 꽂혀 있는 권수**를 한계로 봅니다(책장등록으로 한 권씩 센 숫자라 실제로 그만큼 들어간다는 증거입니다). 구역 관리에서 정원을 적어 두면 그 값이 우선입니다."
+                  )
+                )}
               </>
             )}
           </p>
@@ -1276,8 +1302,11 @@ export default function PlanClient({
                   </button>
                 )}
                 <span className="text-[11px] text-slate-500">
-                  책장 칸 크기가 다 같으니 한 번만 재시면 됩니다 — 책이 꽂히는 <b>안쪽 가로 길이</b>를 재 주세요.
-                  한 번 적으면 고칠 때까지 그 값을 씁니다.
+                  {rich(
+                    t(
+                      "책장 칸 크기가 다 같으니 한 번만 재시면 됩니다 — 책이 꽂히는 **안쪽 가로 길이**를 재 주세요. 한 번 적으면 고칠 때까지 그 값을 씁니다."
+                    )
+                  )}
                 </span>
               </>
             )}
@@ -1395,8 +1424,12 @@ export default function PlanClient({
 
         {plan.seriesCount > 0 && (
           <p className="mt-3 rounded-xl bg-slate-50 px-4 py-3 text-sm leading-relaxed text-slate-600">
-            시리즈 <b>{plan.seriesCount}종 {plan.seriesBooks}권</b>은 같은 칸에 1권부터 차례로
-            붙여서 놓습니다. 시리즈에 속하지 않는 낱권은 그 뒤에 작가순으로 놓입니다.
+            {rich(
+              t(
+                "시리즈 **{k}종 {b}권**은 같은 칸에 1권부터 차례로 붙여서 놓습니다. 시리즈에 속하지 않는 낱권은 그 뒤에 작가순으로 놓입니다.",
+                { k: plan.seriesCount, b: plan.seriesBooks }
+              )
+            )}
           </p>
         )}
 
@@ -1423,8 +1456,12 @@ export default function PlanClient({
 
         {plan.leftover.length > 0 && (
           <div className="mt-3 rounded-xl bg-red-50 px-4 py-3 text-sm leading-relaxed text-red-800">
-            칸이 모자라 <b>{plan.leftover.length}권</b>이 자리를 못 받았습니다. 정식 구역을 더
-            만들거나, 칸 용량을 늘려 주세요.
+            {rich(
+              t(
+                "칸이 모자라 **{n}권**이 자리를 못 받았습니다. 정식 구역을 더 만들거나, 칸 용량을 늘려 주세요.",
+                { n: plan.leftover.length }
+              )
+            )}
           </div>
         )}
 
@@ -1606,11 +1643,11 @@ export default function PlanClient({
               </div>
             </div>
             <p className="mt-1 text-xs leading-relaxed text-slate-500">
-              <b>1번 칸부터</b> 한 칸씩 합니다. ①그대로 둘 책 → ②빼 둔 책 꽂기 → ③칸마다 한 번만 다녀오기
-              (보낼 책·받을 책을 함께) 차례로 하시면, 같은 칸을 두 번 가지 않고 바닥에도 책이 쌓이지 않습니다.
-              다 꽂으면 아래에서{" "}
-              <b>「딱 맞음 · 더 남음 · 꽉 참」</b>을 눌러 주세요 — 그 답이 이 칸의 <b>실측값</b>이 되어 남은 칸들의
-              몫이 다시 계산됩니다.
+              {rich(
+                t(
+                  "**1번 칸부터** 한 칸씩 합니다. ①그대로 둘 책 → ②빼 둔 책 꽂기 → ③칸마다 한 번만 다녀오기(보낼 책·받을 책을 함께) 차례로 하시면, 같은 칸을 두 번 가지 않고 바닥에도 책이 쌓이지 않습니다. 다 꽂으면 아래에서 **「딱 맞음 · 더 남음 · 꽉 참」**을 눌러 주세요 — 그 답이 이 칸의 **실측값**이 되어 남은 칸들의 몫이 다시 계산됩니다."
+                )
+              )}
             </p>
 
             <div className="mt-2 flex flex-wrap items-center gap-2">
@@ -1662,8 +1699,11 @@ export default function PlanClient({
                     ③ 칸마다 한 번만 갑니다 — 칸 {partners.length}곳 · 보낼 {sendTotal}권 · 받을 {takeTotal}권
                   </p>
                   <p className="mt-0.5 text-[11px] leading-relaxed text-slate-500">
-                    보낼 책과 받을 책을 <b>그 칸 하나로 묶었습니다.</b> 보낼 책을 들고 가서 꽂고, 받을 책을 빼서
-                    돌아오면 그 칸은 끝입니다 — 같은 칸을 두 번 가지 않습니다.
+                    {rich(
+                      t(
+                        "보낼 책과 받을 책을 **그 칸 하나로 묶었습니다.** 보낼 책을 들고 가서 꽂고, 받을 책을 빼서 돌아오면 그 칸은 끝입니다 — 같은 칸을 두 번 가지 않습니다."
+                      )
+                    )}
                   </p>
                   <ol className="mt-2 space-y-2">
                     {partners.map((pt) => {
@@ -1734,10 +1774,11 @@ export default function PlanClient({
               )}
 
               <p className="text-[11px] leading-relaxed text-slate-500">
-                <b>적용한 기준(차례대로)</b>: ① <b>묶기</b> — 시리즈 → 같은 제목 → 같은 작가(2권+) → 같은
-                출판사(3권+) ② <b>세우기</b> — 세트는 세트 이름, 낱권은 작가 이름의 가나다·ABC 순 ③ <b>세트 안</b>{" "}
-                — 권 번호순, 번호가 없으면 <b>렉사일(쉬운 책 → 어려운 책)</b>, 렉사일을 모르면 쪽수. 그래서 6-1
-                부터 왼쪽 위 → 오른쪽 아래로 읽으면 늘 같은 차례이고, 반납된 책도 그 차례로 제자리를 찾습니다.
+                {rich(
+                  t(
+                    "**적용한 기준(차례대로)**: ① **묶기** — 시리즈 → 같은 제목 → 같은 작가(2권+) → 같은 출판사(3권+) ② **세우기** — 세트는 세트 이름, 낱권은 작가 이름의 가나다·ABC 순 ③ **세트 안** — 권 번호순, 번호가 없으면 **렉사일(쉬운 책 → 어려운 책)**, 렉사일을 모르면 쪽수. 그래서 6-1부터 왼쪽 위 → 오른쪽 아래로 읽으면 늘 같은 차례이고, 반납된 책도 그 차례로 제자리를 찾습니다."
+                  )
+                )}
               </p>
             </div>
 
@@ -1860,8 +1901,9 @@ export default function PlanClient({
                   </button>
                 </div>
                 <p className="mt-1 text-[11px] leading-relaxed text-slate-500">
-                  다른 등급 칸의 책도 넣을 수 있습니다 — 세트 이름이 같아지면 그 등급 정리에서 같은 칸으로
-                  모입니다. 라벨 등급은 바뀌지 않습니다.
+                  {t(
+                    "다른 등급 칸의 책도 넣을 수 있습니다 — 세트 이름이 같아지면 그 등급 정리에서 같은 칸으로 모입니다. 라벨 등급은 바뀌지 않습니다."
+                  )}
                 </p>
               </div>
             )}
@@ -1934,8 +1976,11 @@ export default function PlanClient({
                   </button>
                 </div>
                 <p className="mt-1 text-[11px] leading-relaxed text-amber-900">
-                  목록에서 <b>몇 번째 책까지</b> 들어갔는지 적어 주세요. 나머지는 다음 칸으로 넘기고, 남은 칸들의
-                  몫을 다시 계산합니다.
+                  {rich(
+                    t(
+                      "목록에서 **몇 번째 책까지** 들어갔는지 적어 주세요. 나머지는 다음 칸으로 넘기고, 남은 칸들의 몫을 다시 계산합니다."
+                    )
+                  )}
                 </p>
               </div>
             </div>
@@ -1947,10 +1992,11 @@ export default function PlanClient({
       <section className={card}>
         <h2 className="text-sm font-bold text-slate-500">③ 어떤 순서로 옮길까요</h2>
         <p className="mt-1 text-xs leading-relaxed text-slate-500">
-          책장은 꽉 차 있습니다. 빈 자리가 없는 칸에 꽂으려면 먼저 한 권을 빼야 하고, 그 책을 또 어딘가에 꽂으려면
-          거기서 또 한 권을 빼야 합니다 — 세 번만 하면 바닥에 더미가 생기고 「이거 어디서 뺐지」가 됩니다. 그래서{" "}
-          <b>서로 한 권씩 맞바꾸는 것부터</b>, 그다음 <b>방금 자리가 생긴 칸으로</b>, 꼭 필요할 때만{" "}
-          <b>한 권만 들고 빙 도는</b> 순서로 세웠습니다 — <b>손에 드는 책은 언제나 한 권뿐입니다.</b>
+          {rich(
+            t(
+              "책장은 꽉 차 있습니다. 빈 자리가 없는 칸에 꽂으려면 먼저 한 권을 빼야 하고, 그 책을 또 어딘가에 꽂으려면 거기서 또 한 권을 빼야 합니다 — 세 번만 하면 바닥에 더미가 생기고 「이거 어디서 뺐지」가 됩니다. 그래서 **서로 한 권씩 맞바꾸는 것부터**, 그다음 **방금 자리가 생긴 칸으로**, 꼭 필요할 때만 **한 권만 들고 빙 도는** 순서로 세웠습니다 — **손에 드는 책은 언제나 한 권뿐입니다.**"
+            )
+          )}
         </p>
 
         {mergedSteps.length === 0 ? (
@@ -2113,16 +2159,21 @@ export default function PlanClient({
                               </>
                             ) : (
                               <p className="text-xs text-amber-800">
-                                <b>이 등급에 여유 있는 칸이 없습니다.</b> 다른 칸에서도 받을 자리가 없으니, 칸을
-                                하나 더 쓰는 수밖에 없습니다.
+                                {rich(
+                                  t(
+                                    "**이 등급에 여유 있는 칸이 없습니다.** 다른 칸에서도 받을 자리가 없으니, 칸을 하나 더 쓰는 수밖에 없습니다."
+                                  )
+                                )}
                               </p>
                             )}
                             {second.stillLeft > 0 && level != null && (
                               <div className="mt-2 rounded-lg bg-slate-50 px-2.5 py-2">
                                 <p className="text-[11px] leading-relaxed text-slate-600">
-                                  책장을 더 놓을 자리가 <b>실제로 있을 때만</b> 칸을 추가해 주세요. 공간은 한계가
-                                  있어서, 모자랄 때마다 칸을 늘리면 나중에 둘 곳이 없어집니다 — 먼저 위의 정원을
-                                  재어 적는 쪽이 대개 맞습니다.
+                                  {rich(
+                                    t(
+                                      "책장을 더 놓을 자리가 **실제로 있을 때만** 칸을 추가해 주세요. 공간은 한계가 있어서, 모자랄 때마다 칸을 늘리면 나중에 둘 곳이 없어집니다 — 먼저 위의 정원을 재어 적는 쪽이 대개 맞습니다."
+                                    )
+                                  )}
                                 </p>
                                 <button
                                   type="button"
@@ -2184,8 +2235,11 @@ export default function PlanClient({
               아직 갈 곳이 없는 책 {stillLeftover.length}권
             </p>
             <p className="mt-0.5 text-xs leading-relaxed text-amber-900">
-              이 등급 칸의 정원을 다 합쳐도 책이 더 많습니다. <b>정원이 실제보다 작게 잡혀 있을</b> 가능성이
-              큽니다 — 칸마다 몇 권 더 들어가는지 위에서 적어 주시면 그만큼 들어갑니다.
+              {rich(
+                t(
+                  "이 등급 칸의 정원을 다 합쳐도 책이 더 많습니다. **정원이 실제보다 작게 잡혀 있을** 가능성이 큽니다 — 칸마다 몇 권 더 들어가는지 위에서 적어 주시면 그만큼 들어갑니다."
+                )
+              )}
             </p>
             {(() => {
               const hops: Hop[] = stillLeftover.map((b) => ({
@@ -2374,16 +2428,19 @@ export default function PlanClient({
                 <span className="font-normal text-slate-400">(지금 정리를 막지 않습니다)</span>
               </summary>
             <p className="mt-1 text-xs leading-relaxed text-slate-500">
-              계획은 <b>시리즈 → 같은 제목 → 같은 작가(2권 이상) → 같은 출판사(3권 이상)</b> 순으로 책을 묶어
-              한 칸에 넣습니다. 그런데 <b>시리즈가 적힌 줄은 전체 1,230줄 중 37줄</b>뿐입니다. 셋 다 비어 있는
-              책은 어디에도 붙지 못해 낱권으로 흩어집니다 — 이 등급에 <b className="text-amber-700">{noneCount}권</b>{" "}
-              있습니다(예: Brisingr 는 시리즈·작가·출판사가 모두 비어 있어서 Eldest 와 같은 시리즈라는 것을 알
-              길이 없습니다).
+              {rich(
+                t(
+                  "계획은 **시리즈 → 같은 제목 → 같은 작가(2권 이상) → 같은 출판사(3권 이상)** 순으로 책을 묶어 한 칸에 넣습니다. 그런데 **시리즈가 적힌 줄은 전체 1,230줄 중 37줄**뿐입니다. 셋 다 비어 있는 책은 어디에도 붙지 못해 낱권으로 흩어집니다 — 이 등급에 **{n}권** 있습니다(예: Brisingr 는 시리즈·작가·출판사가 모두 비어 있어서 Eldest 와 같은 시리즈라는 것을 알 길이 없습니다).",
+                  { n: noneCount }
+                )
+              )}
             </p>
             <p className="mt-1 text-xs leading-relaxed text-slate-500">
-              <b>한 번에 다 하지 않아도 됩니다.</b> 정리하다 「이 둘은 같은 세트인데」가 눈에 띄면 그때 아래
-              ③ 목록에서 <b>＋세트</b>로 골라 이름을 적어 주세요. 한 번 적으면 다음 계획부터 늘 같은 칸으로
-              묶입니다. 지금 당장은 이 책들도 작가·제목 순으로 제자리를 받아 정리됩니다.
+              {rich(
+                t(
+                  "**한 번에 다 하지 않아도 됩니다.** 정리하다 「이 둘은 같은 세트인데」가 눈에 띄면 그때 아래 ③ 목록에서 **＋세트**로 골라 이름을 적어 주세요. 한 번 적으면 다음 계획부터 늘 같은 칸으로 묶입니다. 지금 당장은 이 책들도 작가·제목 순으로 제자리를 받아 정리됩니다."
+                )
+              )}
             </p>
 
             {/*
@@ -2405,8 +2462,9 @@ export default function PlanClient({
                 </button>
                 {aiReady === false && (
                   <span className="rounded-lg bg-amber-100 px-2 py-1 text-[11px] font-bold text-amber-900">
-                    아직 꺼져 있습니다 — Vercel의 gia-lib-web → Settings → Environment Variables 에
-                    ANTHROPIC_API_KEY 를 넣고 다시 배포해 주세요
+                    {t(
+                      "아직 꺼져 있습니다 — Vercel의 gia-lib-web → Settings → Environment Variables 에 ANTHROPIC_API_KEY 를 넣고 다시 배포해 주세요"
+                    )}
                   </span>
                 )}
                 {aiReady === true && (
@@ -2415,9 +2473,11 @@ export default function PlanClient({
                   </span>
                 )}
                 <span className="text-[11px] text-slate-500">
-                  제목으로 <b>시리즈·작가·분류·대상·렉사일</b>을 채웁니다. <b>분류·대상·렉사일은 비워 두지
-                  않습니다</b>(정리에 쓰는 값이라 비면 순서에서 빠집니다 — 짐작한 값은 「확실하지 않음」으로
-                  표시). 시리즈·작가는 <b>확실할 때만</b> 채웁니다. 저장은 확인하고 누를 때만 합니다.
+                  {rich(
+                    t(
+                      "제목으로 **시리즈·작가·분류·대상·렉사일**을 채웁니다. **분류·대상·렉사일은 비워 두지 않습니다**(정리에 쓰는 값이라 비면 순서에서 빠집니다 — 짐작한 값은 「확실하지 않음」으로 표시). 시리즈·작가는 **확실할 때만** 채웁니다. 저장은 확인하고 누를 때만 합니다."
+                    )
+                  )}
                 </span>
               </div>
 
@@ -2614,24 +2674,36 @@ export default function PlanClient({
           */}
           <ul className="mt-2 space-y-1 text-xs leading-relaxed text-slate-600">
             <li>
-              · 책마다 <b>「가야 할 자리」</b>가 적힙니다(3-4로 갈 책 → 3-4). 그것뿐입니다.
+              ·{" "}
+              {rich(
+                t("책마다 **「가야 할 자리」**가 적힙니다(3-4로 갈 책 → 3-4). 그것뿐입니다.")
+              )}
             </li>
             <li>
-              · <b>지금 꽂혀 있는 자리는 바뀌지 않습니다.</b> 실제로 책을 옮기고 자리 등록에서 찍었을 때 바뀝니다 —
-              정리하는 며칠 동안에도 「그 책 어디 있어요?」에 답할 수 있습니다.
+              ·{" "}
+              {rich(
+                t(
+                  "**지금 꽂혀 있는 자리는 바뀌지 않습니다.** 실제로 책을 옮기고 자리 등록에서 찍었을 때 바뀝니다 — 정리하는 며칠 동안에도 「그 책 어디 있어요?」에 답할 수 있습니다."
+                )
+              )}
             </li>
             <li>
               · 확정해야 <b>이동 목록 인쇄</b>가 채워집니다(지금 비어 있는 이유입니다). 위의 정리 순서는 확정하지
               않아도 보입니다.
             </li>
             <li>
-              · 마음에 안 들면 <b>「계획 지우기」</b>로 적어 둔 자리를 전부 지웁니다. 책은 그대로입니다.
+              ·{" "}
+              {rich(
+                t("마음에 안 들면 **「계획 지우기」**로 적어 둔 자리를 전부 지웁니다. 책은 그대로입니다.")
+              )}
             </li>
           </ul>
           <p className="mt-2 text-xs leading-relaxed text-slate-500">
-            <b>정리하는 법:</b> 위 ③의 ①번부터 차례대로 — <b>↔</b> 는 두 칸 사이에서 한 권씩 맞바꾸고,{" "}
-            <b>→</b> 는 방금 자리가 생긴 칸에 그냥 꽂으면 됩니다. 꽂은 뒤 <b>「자리 등록」에서 그 칸을 찍으면</b>{" "}
-            그때 자리가 바뀝니다.
+            {rich(
+              t(
+                "**정리하는 법:** 위 ③의 ①번부터 차례대로 — **↔** 는 두 칸 사이에서 한 권씩 맞바꾸고, **→** 는 방금 자리가 생긴 칸에 그냥 꽂으면 됩니다. 꽂은 뒤 **「자리 등록」에서 그 칸을 찍으면** 그때 자리가 바뀝니다."
+              )
+            )}
           </p>
         </div>
         <div className="ml-auto flex flex-wrap gap-2">
@@ -2667,16 +2739,22 @@ export default function PlanClient({
         <section className={card}>
           <h2 className="text-sm font-bold text-slate-500">⑤ 정리를 마쳤으면 — 정식 책장으로 등록</h2>
           <p className="mt-1 text-xs leading-relaxed text-slate-500">
-            지금 이 칸들은 <b>임시</b>입니다 — 「무작정 꽂아 둔 칸」이라는 뜻이고, 그래서 자리를 알려줄 때도
-            「아마 거기」였습니다. 실제로 다 옮기고 <b>자리 등록에서 찍어</b> 넣었다면 그 자리가 이제 그 책의
-            <b> 제자리</b>입니다. 그 사실을 적는 것이 이 걸음입니다.
+            {rich(
+              t(
+                "지금 이 칸들은 **임시**입니다 — 「무작정 꽂아 둔 칸」이라는 뜻이고, 그래서 자리를 알려줄 때도 「아마 거기」였습니다. 실제로 다 옮기고 **자리 등록에서 찍어** 넣었다면 그 자리가 이제 그 책의 **제자리**입니다. 그 사실을 적는 것이 이 걸음입니다."
+              )
+            )}
           </p>
           <ul className="mt-2 space-y-1 text-xs leading-relaxed text-slate-600">
             <li>· {onlyLevel}등급 칸이 <b>정식</b>이 됩니다 — <b>구역 라벨</b>을 뽑아 코팅해 붙일 수 있습니다</li>
             <li>· 칸마다 <b>정리를 마친 시각</b>이 남습니다</li>
             <li>
-              · 그 등급 책의 <b>「가야 할 자리」를 비웁니다</b> — 이제 가야 할 곳이 아니라 <b>있는 곳</b>이
-              답입니다. 책을 찍거나 검색하면 그 자리가 나오고, 반납 정리도 그 자리로 묶입니다
+              ·{" "}
+              {rich(
+                t(
+                  "그 등급 책의 **「가야 할 자리」를 비웁니다** — 이제 가야 할 곳이 아니라 **있는 곳**이 답입니다. 책을 찍거나 검색하면 그 자리가 나오고, 반납 정리도 그 자리로 묶입니다"
+                )
+              )}
             </li>
           </ul>
 
@@ -2694,8 +2772,11 @@ export default function PlanClient({
               {fin.notPlacedCount > 0 ? (
                 <>
                   <p className="mt-0.5 text-xs leading-relaxed text-amber-900">
-                    밖에 있는 책은 <b>제자리 없는 책</b>으로 남습니다. 꽂은 뒤 <b>자리 등록</b>에서 찍으면
-                    제자리가 됩니다 — 몇 권 일부러 빼 두신 것이면 그대로 진행하셔도 됩니다.
+                    {rich(
+                      t(
+                        "밖에 있는 책은 **제자리 없는 책**으로 남습니다. 꽂은 뒤 **자리 등록**에서 찍으면 제자리가 됩니다 — 몇 권 일부러 빼 두신 것이면 그대로 진행하셔도 됩니다."
+                      )
+                    )}
                   </p>
                   <ul className="mt-1.5 max-h-44 space-y-0.5 overflow-auto text-sm">
                     {fin.notPlaced.map((b) => (
@@ -2754,8 +2835,9 @@ export default function PlanClient({
             </button>
           </div>
           <p className="mt-1.5 text-[11px] text-slate-500">
-            점검을 한 번 눌러 숫자를 본 뒤에 등록할 수 있게 해 두었습니다 — 모르고 끝맺으면 밖에 있는 책이
-            조용히 제자리를 잃습니다.
+            {t(
+              "점검을 한 번 눌러 숫자를 본 뒤에 등록할 수 있게 해 두었습니다 — 모르고 끝맺으면 밖에 있는 책이 조용히 제자리를 잃습니다."
+            )}
           </p>
         </section>
       )}

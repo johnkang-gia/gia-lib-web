@@ -6,6 +6,8 @@ import { formatIsbn } from "@/lib/scan";
 import { levelColor } from "@/lib/bookLevels";
 import { mergeBlocker, mergedCopies, sortGroups } from "@/lib/mergeBooks";
 import type { LibBookWithShelf, LibLocation } from "@/lib/types";
+import { useT } from "@/lib/i18n/client";
+import { rich } from "@/lib/i18n/rich";
 
 /** 이 책이 어느 칸에 몇 권 세어져 있는지(자리 등록 결과). */
 export type ShelfBit = { code: string; color: string; copies: number; sort: number };
@@ -38,6 +40,8 @@ export default function DuplicatesClient({
   locations: LibLocation[];
   totalBooks: number;
 }) {
+  /* 설명 글은 `**굵게**` 를 품은 글귀 하나로 두고 rich() 로 그립니다(토막나지 않게). */
+  const t = useT();
   const router = useRouter();
   const [order, setOrder] = useState<"title" | "copies">("title");
   /**
@@ -160,14 +164,17 @@ export default function DuplicatesClient({
           <b>{groups.length}묶음</b> · 합치면 {extraRows}줄이 줄어듭니다.
         </p>
         <p className="mt-2 rounded-xl bg-slate-50 px-3 py-2 text-xs leading-relaxed text-slate-600">
-          같은 책인데 두 줄이 되는 건, 한 번은 <b>손으로 제목을 적어</b> 넣고 한 번은{" "}
-          <b>바코드를 찍어</b> 넣었기 때문입니다. 손으로 적은 줄에는 ISBN이 없어서 나중에 바코드를
-          찍어도 서로를 알아볼 길이 없습니다.
+          {rich(
+            t(
+              "같은 책인데 두 줄이 되는 건, 한 번은 **손으로 제목을 적어** 넣고 한 번은 **바코드를 찍어** 넣었기 때문입니다. 손으로 적은 줄에는 ISBN이 없어서 나중에 바코드를 찍어도 서로를 알아볼 길이 없습니다."
+            )
+          )}
           <br />
-          묶음마다 <b>가지러 갈 곳</b>이 적혀 있습니다. 그 칸들에서 책을 모두 꺼내 와 나란히 놓고
-          비교한 뒤, 정말 같은 책일 때만 합쳐주세요.{" "}
-          <b className="text-slate-700">제목이 같다고 같은 책은 아닙니다.</b> 합치면 되돌릴 수
-          없습니다.
+          {rich(
+            t(
+              "묶음마다 **가지러 갈 곳**이 적혀 있습니다. 그 칸들에서 책을 모두 꺼내 와 나란히 놓고 비교한 뒤, 정말 같은 책일 때만 합쳐주세요. **제목이 같다고 같은 책은 아닙니다.** 합치면 되돌릴 수 없습니다."
+            )
+          )}
         </p>
       </div>
 

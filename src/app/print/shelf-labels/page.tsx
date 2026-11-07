@@ -1,6 +1,8 @@
 import Barcode from "@/components/Barcode";
 import PrintButton from "@/components/PrintButton";
 import { TranslateOverlay } from "@/lib/i18n/overlay";
+import { getT } from "@/lib/i18n/server";
+import { rich } from "@/lib/i18n/rich";
 import { createClient } from "@/lib/supabase/server";
 import { locationBarcode } from "@/lib/scan";
 import type { LibLocation } from "@/lib/types";
@@ -20,6 +22,8 @@ export default async function PrintShelfLabelsPage({
   searchParams: Promise<{ ids?: string }>;
 }) {
   const { ids } = await searchParams;
+  /* 설명 글은 `**굵게**` 를 품은 글귀 하나로 두고 rich() 로 그립니다(토막나지 않게). */
+  const t = await getT();
   const idList = (ids ?? "").split(",").map((v) => v.trim()).filter(Boolean);
 
   const supabase = await createClient();
@@ -119,14 +123,17 @@ export default async function PrintShelfLabelsPage({
               </p>
             )}
             <p className="mt-1 text-xs leading-relaxed text-slate-500">
-              인쇄 설정에서 <b>배율 100%</b>, <b>여백 없음</b>으로 맞춰주세요. <b>코팅해서</b> 책장 칸
-              앞면이나 선반 모서리에 붙이면 오래 씁니다. 위쪽 색 띠는 <b>라벨 등급 색</b>이고, 가운데
-              줄은 <b>그 칸에 꽂히는 범위</b>(세트 이름·작가 이름 순)입니다 — 학생이 책을 찾고, 반납된
-              책을 제자리에 꽂을 때 그 줄을 봅니다. 아래 바코드를 찍고 책을 이어서 찍으면 그 칸으로
-              한꺼번에 배정됩니다.
+              {rich(
+                t(
+                  "인쇄 설정에서 **배율 100%**, **여백 없음**으로 맞춰주세요. **코팅해서** 책장 칸 앞면이나 선반 모서리에 붙이면 오래 씁니다. 위쪽 색 띠는 **라벨 등급 색**이고, 가운데 줄은 **그 칸에 꽂히는 범위**(세트 이름·작가 이름 순)입니다 — 학생이 책을 찾고, 반납된 책을 제자리에 꽂을 때 그 줄을 봅니다. 아래 바코드를 찍고 책을 이어서 찍으면 그 칸으로 한꺼번에 배정됩니다."
+                )
+              )}
               <br />
-              범위는 <b>확정한 정리 계획</b>에서 가져옵니다(확정 전이면 지금 꽂혀 있는 책 기준) — 정리를
-              끝내고 확정한 뒤에 뽑으시면 그대로 맞습니다.
+              {rich(
+                t(
+                  "범위는 **확정한 정리 계획**에서 가져옵니다(확정 전이면 지금 꽂혀 있는 책 기준) — 정리를 끝내고 확정한 뒤에 뽑으시면 그대로 맞습니다."
+                )
+              )}
             </p>
           </div>
           <PrintButton />

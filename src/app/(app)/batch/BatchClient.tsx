@@ -13,6 +13,8 @@ import type { Box } from "@/lib/coverBox";
 import { cropImage, refineBox } from "@/lib/cropImage";
 import { addToPile, clearPile, fetchPile, type Pile } from "@/lib/pileClient";
 import { useScanFocus } from "@/lib/useScanFocus";
+import { useT } from "@/lib/i18n/client";
+import { rich } from "@/lib/i18n/rich";
 import HealthBanner from "@/components/HealthBanner";
 
 type Status = "찾는중" | "준비" | "제목필요" | "ISBN필요" | "복본" | "실패";
@@ -72,6 +74,8 @@ type Item = {
  * USB 스캐너(도서관 노트북)와 휴대폰 카메라 둘 다 됩니다.
  */
 export default function BatchClient({ locations }: { locations: LibLocation[] }) {
+  /* 설명 글은 `**굵게**` 를 품은 글귀 하나로 두고 rich() 로 그립니다(토막나지 않게). */
+  const t = useT();
   const router = useRouter();
   const supabase = createClient();
   const [locationId, setLocationId] = useState("");
@@ -934,9 +938,11 @@ export default function BatchClient({ locations }: { locations: LibLocation[] })
       <section className="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200">
         <h1 className="text-lg font-bold">여러 권 한꺼번에 등록</h1>
         <p className="mt-1 text-sm leading-relaxed text-slate-500">
-          구역을 먼저 고르고 바코드를 주르륵 찍으세요. 책 정보는 찍는 즉시 자동으로 채워지고,
-          마지막에 한 번만 누르면 전부 그 구역으로 등록됩니다. <b>같은 책을 또 찍으면</b> 새로
-          만들지 않고 <b>보유 권수를 한 권 올립니다</b>.
+          {rich(
+            t(
+              "구역을 먼저 고르고 바코드를 주르륵 찍으세요. 책 정보는 찍는 즉시 자동으로 채워지고, 마지막에 한 번만 누르면 전부 그 구역으로 등록됩니다. **같은 책을 또 찍으면** 새로 만들지 않고 **보유 권수를 한 권 올립니다**."
+            )
+          )}
         </p>
 
         <div className="mt-4 flex flex-wrap items-center gap-2">
@@ -1220,8 +1226,9 @@ export default function BatchClient({ locations }: { locations: LibLocation[] })
                 {cover.candidates.length > 0 && (
                   <>
                     <p className="mt-4 text-xs font-semibold text-slate-500">
-                      이 중에 손에 든 책이 있나요? 고르면 ISBN·출판사·표지까지 함께 등록되고,
-                      라벨에 그 ISBN 바코드가 찍혀 다음부터는 스캐너로 그냥 읽힙니다.
+                      {t(
+                        "이 중에 손에 든 책이 있나요? 고르면 ISBN·출판사·표지까지 함께 등록되고, 라벨에 그 ISBN 바코드가 찍혀 다음부터는 스캐너로 그냥 읽힙니다."
+                      )}
                     </p>
                     <ul className="mt-2 space-y-2">
                       {cover.candidates.map((book, i) => (

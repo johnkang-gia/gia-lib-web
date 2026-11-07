@@ -7,6 +7,8 @@ import { CARD, computeLayout, type CardSize, type Orientation, type PaperName } 
 import { createClient } from "@/lib/supabase/client";
 import { formatDay } from "@/lib/dates";
 import { CARD_NAME_STYLES, type CardNameStyle, type LibSettings, type LibStudent } from "@/lib/types";
+import { useT } from "@/lib/i18n/client";
+import { rich } from "@/lib/i18n/rich";
 
 const TEXT_COLORS = ["#10203a", "#ffffff", "#0f766e", "#7c2d12", "#4c1d95"];
 
@@ -34,6 +36,8 @@ export default function CardsClient({
   /** 아이마다 따로 정해 둔 이름 표기. 없는 아이는 학교 기본값을 씁니다. */
   nameStyles: Record<string, CardNameStyle>;
 }) {
+  /* 설명 글은 `**굵게**` 를 품은 글귀 하나로 두고 rich() 로 그립니다(토막나지 않게). */
+  const t = useT();
   const supabase = createClient();
   const [department, setDepartment] = useState("전체");
   const [className, setClassName] = useState("전체");
@@ -702,9 +706,11 @@ export default function CardsClient({
                     ))}
                   </div>
                   <p className="mt-1.5 text-[11px] leading-relaxed text-amber-700">
-                    여기서 바꾸면 <b>실제 대출 규칙도 함께 바뀝니다.</b> 이미 뽑아 둔 카드에는
-                    옛 숫자가 그대로 적혀 있으니, 크게 바꾸실 때는 카드를 다시 뽑는 편이
-                    낫습니다.
+                    {rich(
+                      t(
+                        "여기서 바꾸면 **실제 대출 규칙도 함께 바뀝니다.** 이미 뽑아 둔 카드에는 옛 숫자가 그대로 적혀 있으니, 크게 바꾸실 때는 카드를 다시 뽑는 편이 낫습니다."
+                      )
+                    )}
                   </p>
                 </div>
 
@@ -821,10 +827,10 @@ export default function CardsClient({
                 title={opt.hint}
                 className="rounded bg-slate-100 px-1.5 py-0.5 font-bold text-slate-600 transition hover:bg-slate-800 hover:text-white"
               >
-                {opt.key === "ko" ? "한글" : opt.key === "en" ? "영어+한글" : "영어만"}
+                {opt.key === "ko" ? t("한글") : opt.key === "en" ? t("영어+한글") : t("영어만")}
               </button>
             ))}
-            <span className="text-slate-400">로</span>
+            <span className="text-slate-400">{t("로")}</span>
           </span>
         )}
 
@@ -861,8 +867,11 @@ export default function CardsClient({
       {selectedList.length > 0 && (
         <div className="flex flex-wrap items-center gap-2 rounded-2xl bg-slate-900 px-4 py-3 text-white">
           <span className="text-sm">
-            인쇄를 마치셨으면 <b>발급 기록</b>을 남겨 주세요 — 누가 카드를 받았는지, 잃어버려
-            다시 뽑았는지가 남습니다.
+            {rich(
+              t(
+                "인쇄를 마치셨으면 **발급 기록**을 남겨 주세요 — 누가 카드를 받았는지, 잃어버려 다시 뽑았는지가 남습니다."
+              )
+            )}
           </span>
           <input
             value={issueNote}
@@ -887,9 +896,12 @@ export default function CardsClient({
 
       {noPhotoCount > 0 && (view === "전체" || view === "사진없음") && (
         <p className="rounded-lg bg-amber-50 px-4 py-3 text-sm leading-relaxed text-amber-900">
-          이 목록에서 <b>{noPhotoCount}명</b>은 아직 사진이 없어 카드를 뽑을 수 없습니다.
-          운영앱 학생 관리에서 사진을 올리면 바로 뽑을 수 있고, 사진 칸의 <b>+사진</b>을 눌러
-          도서관에서 직접 올릴 수도 있습니다.
+          {rich(
+            t(
+              "이 목록에서 **{n}명**은 아직 사진이 없어 카드를 뽑을 수 없습니다. 운영앱 학생 관리에서 사진을 올리면 바로 뽑을 수 있고, 사진 칸의 **+사진**을 눌러 도서관에서 직접 올릴 수도 있습니다.",
+              { n: noPhotoCount }
+            )
+          )}
         </p>
       )}
 

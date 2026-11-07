@@ -6,6 +6,8 @@ import ShelfMap from "@/components/ShelfMap";
 import { createClient } from "@/lib/supabase/client";
 import { formatTime } from "@/lib/dates";
 import type { LibLoanWithBook, LibLocation, LibMap, ShelveResult } from "@/lib/types";
+import { useT } from "@/lib/i18n/client";
+import { rich } from "@/lib/i18n/rich";
 
 type Tab = "assign" | "return";
 
@@ -27,6 +29,8 @@ export default function ShelveClient({
   counts: Record<string, number>;
   pending: LibLoanWithBook[];
 }) {
+  /* 설명 글은 `**굵게**` 를 품은 글귀 하나로 두고 rich() 로 그립니다(토막나지 않게). */
+  const t = useT();
   const router = useRouter();
   const [tab, setTab] = useState<Tab>("return");
   const [current, setCurrent] = useState<LibLocation | null>(null);
@@ -220,8 +224,11 @@ export default function ShelveClient({
 
               {locations.length === 0 && (
                 <p className="mt-4 rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-800">
-                  아직 구역이 없습니다. 관리 메뉴의 <b>구역 관리</b>에서 먼저 만들고 책장 라벨을
-                  인쇄해 붙여주세요.
+                  {rich(
+                    t(
+                      "아직 구역이 없습니다. 관리 메뉴의 **구역 관리**에서 먼저 만들고 책장 라벨을 인쇄해 붙여주세요."
+                    )
+                  )}
                 </p>
               )}
             </>
@@ -307,10 +314,13 @@ export default function ShelveClient({
             />
           ) : (
             <p className="py-12 text-center text-sm text-slate-400">
-              아직 배치도가 없습니다.
+              {t("아직 배치도가 없습니다.")}
               <br />
-              관리 메뉴 → <b>구역 관리</b>에서 구역을 만들고 끌어다 놓으면 여기에 도서관 모양이
-              그려집니다.
+              {rich(
+                t(
+                  "관리 메뉴 → **구역 관리**에서 구역을 만들고 끌어다 놓으면 여기에 도서관 모양이 그려집니다."
+                )
+              )}
             </p>
           )}
         </section>

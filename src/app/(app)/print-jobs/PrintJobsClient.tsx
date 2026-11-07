@@ -5,6 +5,8 @@ import { useRouter } from "next/navigation";
 import { PILE_SIGNATURE, printUrl } from "@/lib/printJob";
 import { dayTimeLabel } from "@/lib/registerBatches";
 import type { LibPrintJob } from "@/lib/types";
+import { useT } from "@/lib/i18n/client";
+import { rich } from "@/lib/i18n/rich";
 
 /**
  * 뽑으려고 골라 둔 목록들.
@@ -25,6 +27,8 @@ export default function PrintJobsClient({
   jobs: LibPrintJob[];
   loadError: string | null;
 }) {
+  /* 설명 글은 `**굵게**` 를 품은 글귀 하나로 두고 rich() 로 그립니다(토막나지 않게). */
+  const t = useT();
   const router = useRouter();
   const [busy, setBusy] = useState<string | null>(null);
   const [editing, setEditing] = useState<string | null>(null);
@@ -83,9 +87,11 @@ export default function PrintJobsClient({
       <header>
         <h1 className="text-2xl font-bold text-gia-navy">인쇄 기록</h1>
         <p className="mt-1.5 text-sm leading-relaxed text-slate-500">
-          라벨이나 도서카드 인쇄 화면을 열면 그 목록이 여기 자동으로 남습니다. 지금 쓰는
-          컴퓨터에 프린터가 없으면, <b>프린터가 있는 컴퓨터에서 도서관 앱에 로그인해</b> 여기서
-          인쇄를 누르세요. 같은 종이가 그대로 나옵니다.
+          {rich(
+            t(
+              "라벨이나 도서카드 인쇄 화면을 열면 그 목록이 여기 자동으로 남습니다. 지금 쓰는 컴퓨터에 프린터가 없으면, **프린터가 있는 컴퓨터에서 도서관 앱에 로그인해** 여기서 인쇄를 누르세요. 같은 종이가 그대로 나옵니다."
+            )
+          )}
         </p>
       </header>
 
@@ -103,8 +109,11 @@ export default function PrintJobsClient({
 
       {!loadError && jobs.length === 0 && (
         <p className="rounded-2xl bg-white px-6 py-12 text-center text-sm text-slate-400 shadow-sm ring-1 ring-slate-200">
-          아직 기록이 없습니다. 장서 관리에서 책을 골라 <b>라벨 인쇄</b>를 누르거나, 도서카드
-          인쇄 화면을 한 번 열면 여기에 남습니다.
+          {rich(
+            t(
+              "아직 기록이 없습니다. 장서 관리에서 책을 골라 **라벨 인쇄**를 누르거나, 도서카드 인쇄 화면을 한 번 열면 여기에 남습니다."
+            )
+          )}
         </p>
       )}
 

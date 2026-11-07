@@ -2,6 +2,8 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { useT } from "@/lib/i18n/client";
+import { rich } from "@/lib/i18n/rich";
 
 /**
  * 지금 붙어 있는 색 라벨 그대로 임시구역을 한꺼번에 만드는 상자.
@@ -25,6 +27,8 @@ export const DEFAULT_LEVELS: LevelRow[] = [
 ];
 
 export default function LabelZoneSetup({ hasZones }: { hasZones: boolean }) {
+  /* 설명 글은 `**굵게**` 를 품은 글귀 하나로 두고 rich() 로 그립니다(토막나지 않게). */
+  const t = useT();
   const router = useRouter();
   const [rows, setRows] = useState<LevelRow[]>(DEFAULT_LEVELS);
   const [open, setOpen] = useState(!hasZones);
@@ -84,9 +88,11 @@ export default function LabelZoneSetup({ hasZones }: { hasZones: boolean }) {
       {open && (
         <>
           <p className="mt-2 text-sm leading-relaxed text-slate-500">
-            지금 책에 붙어 있는 색 라벨과, 그 라벨 책이 <b>몇 칸에 들어 있는지</b>를 적으면
-            <b> 2-1 … 6-6</b> 처럼 칸마다 임시구역을 만들어 둡니다. 한 칸씩 책을 빼서 등록할 때
-            그 칸을 고르기만 하면 됩니다. 지금은 임시라 나중에 자유롭게 바꾸거나 지울 수 있습니다.
+            {rich(
+              t(
+                "지금 책에 붙어 있는 색 라벨과, 그 라벨 책이 **몇 칸에 들어 있는지**를 적으면 **2-1 … 6-6** 처럼 칸마다 임시구역을 만들어 둡니다. 한 칸씩 책을 빼서 등록할 때 그 칸을 고르기만 하면 됩니다. 지금은 임시라 나중에 자유롭게 바꾸거나 지울 수 있습니다."
+              )
+            )}
           </p>
 
           <ul className="mt-4 space-y-2">
@@ -119,7 +125,7 @@ export default function LabelZoneSetup({ hasZones }: { hasZones: boolean }) {
                     onChange={(e) => patch(row.level, { count: Number(e.target.value) })}
                     className="w-16 rounded-lg border border-slate-300 px-2 py-1.5 text-center text-sm"
                   />
-                  칸
+                  {t("칸")}
                 </span>
                 <span className="font-mono text-xs text-slate-400">
                   {row.count > 0 ? `${row.level}-1 ~ ${row.level}-${row.count}` : "만들지 않음"}

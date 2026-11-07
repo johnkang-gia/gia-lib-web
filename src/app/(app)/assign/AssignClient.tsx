@@ -3,6 +3,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { beep, soundOn } from "@/lib/beep";
 import { normalizeScan } from "@/lib/scan";
+import { useT } from "@/lib/i18n/client";
+import { rich } from "@/lib/i18n/rich";
 
 /**
  * **책장에 넣기 · 칸 추천** — 찍으면 어디에 꽂으면 좋은지 말해 줍니다.
@@ -57,6 +59,8 @@ type Scanned = {
 };
 
 export default function AssignClient() {
+  /* 설명 글은 `**굵게**` 를 품은 글귀 하나로 두고 rich() 로 그립니다(토막나지 않게). */
+  const t = useT();
   const [levels, setLevels] = useState<number[]>([]);
   const [level, setLevel] = useState<number | null>(null);
   const [locs, setLocs] = useState<{ id: string; code: string; level: number | null; copies: number; capacity: number | null }[]>([]);
@@ -172,12 +176,18 @@ export default function AssignClient() {
     <div className="mx-auto max-w-5xl px-4 py-6">
       <h1 className="text-xl font-bold text-gia-navy">책장에 넣기 · 칸 추천</h1>
       <p className="mt-2 text-sm leading-relaxed text-slate-600">
-        등급을 먼저 고르고 책을 찍으면, <b>어느 칸에 꽂으면 좋은지</b>를 책마다 말해 줍니다. 추천은 <b>같은 시리즈가
-        있는 칸</b>이 우선입니다 — 아이는 시리즈로 찾고, 1권과 7권이 다른 칸에 있으면 그 시리즈는 흩어진 것입니다.
+        {rich(
+          t(
+            "등급을 먼저 고르고 책을 찍으면, **어느 칸에 꽂으면 좋은지**를 책마다 말해 줍니다. 추천은 **같은 시리즈가 있는 칸**이 우선입니다 — 아이는 시리즈로 찾고, 1권과 7권이 다른 칸에 있으면 그 시리즈는 흩어진 것입니다."
+          )
+        )}
       </p>
       <p className="mt-1 text-xs leading-relaxed text-slate-500">
-        추천은 말해 줄 뿐 넣지 않습니다. 책장 여유와 높이는 보시는 분이 압니다 — 「추천에 넣기」를 누르거나 옆
-        드롭다운에서 칸을 고르세요. 누르는 순간 <b>책장등록</b>이 됩니다.
+        {rich(
+          t(
+            "추천은 말해 줄 뿐 넣지 않습니다. 책장 여유와 높이는 보시는 분이 압니다 — 「추천에 넣기」를 누르거나 옆 드롭다운에서 칸을 고르세요. 누르는 순간 **책장등록**이 됩니다."
+          )
+        )}
       </p>
 
       {/* ── ① 등급 고르기 ────────────────────────────────────────────── */}
@@ -281,8 +291,12 @@ export default function AssignClient() {
 
                 {row.levelMismatch && (
                   <p className="mt-1.5 rounded bg-amber-50 px-2 py-1 text-xs text-amber-900">
-                    이 책은 <b>{row.book.level}등급</b>입니다 — 지금 고른 등급과 다릅니다. 그래도 넣으시려면 아래에서
-                    칸을 고르세요.
+                    {rich(
+                      t(
+                        "이 책은 **{lv}등급**입니다 — 지금 고른 등급과 다릅니다. 그래도 넣으시려면 아래에서 칸을 고르세요.",
+                        { lv: row.book.level ?? "?" }
+                      )
+                    )}
                   </p>
                 )}
 
@@ -377,9 +391,11 @@ export default function AssignClient() {
       )}
 
       <p className="mt-8 text-xs leading-relaxed text-slate-500">
-        추천 순서: ① 그 책이 이미 있는 칸(복본은 한자리에) → ② 같은 시리즈가 있는 칸 → ③ 같은 지은이가 있는 칸 →
-        ④ 그 등급에서 가장 덜 찬 칸. 「넣기」를 누르면 그 칸에 꽂은 것으로 <b>책장등록</b>되고, 「책장 미등록 장서」
-        목록에서도 빠집니다.
+        {rich(
+          t(
+            "추천 순서: ① 그 책이 이미 있는 칸(복본은 한자리에) → ② 같은 시리즈가 있는 칸 → ③ 같은 지은이가 있는 칸 → ④ 그 등급에서 가장 덜 찬 칸. 「넣기」를 누르면 그 칸에 꽂은 것으로 **책장등록**되고, 「책장 미등록 장서」 목록에서도 빠집니다."
+          )
+        )}
       </p>
     </div>
   );

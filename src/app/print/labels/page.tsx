@@ -3,6 +3,8 @@ import Barcode from "@/components/Barcode";
 import { code128Modules } from "@/lib/code128";
 import PrintButton from "@/components/PrintButton";
 import { TranslateOverlay } from "@/lib/i18n/overlay";
+import { getT } from "@/lib/i18n/server";
+import { rich } from "@/lib/i18n/rich";
 import RecordPrintJob from "@/components/RecordPrintJob";
 import { createClient } from "@/lib/supabase/server";
 import type { LibBook } from "@/lib/types";
@@ -100,6 +102,8 @@ export default async function PrintLabelsPage({
   searchParams: Promise<{ ids?: string; job?: string; per?: string }>;
 }) {
   const { ids, job, per } = await searchParams;
+  /* 설명 글은 `**굵게**` 를 품은 글귀 하나로 두고 rich() 로 그립니다(토막나지 않게). */
+  const t = await getT();
   const perRow = Number(per) === 2 ? 2 : PER_ROW_DEFAULT;
   const LABEL_W = SHEET_W / perRow;
 
@@ -158,18 +162,25 @@ export default async function PrintLabelsPage({
           <div>
             <p className="font-bold">책 바코드 라벨 {books.length}장</p>
             <p className="mt-1 text-xs leading-relaxed text-slate-500">
-              인쇄 설정에서 <b>배율 100%</b>, <b>여백 없음</b>으로 맞춰주세요. 책 뒤표지 안쪽이나
-              책등 아래에 붙이면 스캐너로 바로 읽힙니다.
+              {rich(
+                t(
+                  "인쇄 설정에서 **배율 100%**, **여백 없음**으로 맞춰주세요. 책 뒤표지 안쪽이나 책등 아래에 붙이면 스캐너로 바로 읽힙니다."
+                )
+              )}
             </p>
             <p className="mt-1 text-xs leading-relaxed text-slate-500">
-              라벨이 <b>맞붙어</b> 나옵니다. 이웃한 두 장이 선 하나를 함께 쓰므로, 그 선을
-              <b> 한 번만 자르면 두 장이 동시에 떨어집니다</b>. 긴 선부터 쭉 자른 뒤 세로로
-              자르면 가장 빠릅니다.
+              {rich(
+                t(
+                  "라벨이 **맞붙어** 나옵니다. 이웃한 두 장이 선 하나를 함께 쓰므로, 그 선을 **한 번만 자르면 두 장이 동시에 떨어집니다**. 긴 선부터 쭉 자른 뒤 세로로 자르면 가장 빠릅니다."
+                )
+              )}
             </p>
             <p className="mt-1 text-xs leading-relaxed text-slate-500">
-              라벨에는 <b>책 이름</b>만 찍습니다. 책장 자리는 아직 임시라 계속 바뀌는데, 라벨은
-              책에 붙어서 몇 년을 갑니다 — 오늘 찍은 자리가 다음 달이면 거짓말이 됩니다.
-              <b> 고른 순서 그대로</b> 나오니, 책을 빼 놓은 순서와 맞춰 붙이시면 됩니다.
+              {rich(
+                t(
+                  "라벨에는 **책 이름**만 찍습니다. 책장 자리는 아직 임시라 계속 바뀌는데, 라벨은 책에 붙어서 몇 년을 갑니다 — 오늘 찍은 자리가 다음 달이면 거짓말이 됩니다. **고른 순서 그대로** 나오니, 책을 빼 놓은 순서와 맞춰 붙이시면 됩니다."
+                )
+              )}
             </p>
           </div>
           <div className="flex shrink-0 flex-col items-end gap-2">

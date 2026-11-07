@@ -272,12 +272,14 @@ export default async function ReadingCertPage({
                 completing this reading level.
               </>
             ) : (
+              /* i18n-ok:start — 상장 문구는 두 말을 따로 적습니다(위 영어 가지). */
               <>
                 위 학생은 {libraryName}의 <b style={{ color: GOLD_SOFT }}>{badge}</b> 단계 도서를
                 <br />
                 <b style={{ color: "#ffffff", fontSize: "5.4mm" }}>{books.length}권</b> 읽어
                 <br />이 등급을 마쳤음을 증명합니다.
               </>
+              /* i18n-ok:end */
             )}
           </p>
 

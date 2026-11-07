@@ -6,6 +6,8 @@ import { levelColor } from "@/lib/bookLevels";
 import { beep, soundOn, setSoundOn } from "@/lib/beep";
 import type { LibLabelLevel } from "@/lib/types";
 import type { TidyAudit } from "@/app/api/tidy/route";
+import { useT } from "@/lib/i18n/client";
+import { rich } from "@/lib/i18n/rich";
 
 /**
  * **등급별 책장 정리** — 한 등급씩 「다시 찍고 → 장서와 대조하고 → 정리」.
@@ -43,6 +45,11 @@ type FindRes =
 const card = "rounded-3xl bg-white p-5 shadow-sm ring-1 ring-slate-200";
 
 export default function TidyClient({ levels }: { levels: LibLabelLevel[] }) {
+  /*
+    설명 글은 문장 가운데를 굵게 씁니다. 굵게를 `**` 로 적고 t() 를 지나게 하면 **글귀 하나가
+    사전 열쇠 하나**가 되어, 영문으로 바꿀 때 문장이 토막으로 쪼개지지 않습니다.
+  */
+  const t = useT();
   const [level, setLevel] = useState<number | null>(null);
   const [mode, setMode] = useState<"ask" | "asis" | "rescan">("ask");
   const [audit, setAudit] = useState<TidyAudit | null>(null);
@@ -216,9 +223,11 @@ export default function TidyClient({ levels }: { levels: LibLabelLevel[] }) {
       <header>
         <h1 className="text-xl font-black text-gia-navy">🧹 등급별 책장 정리</h1>
         <p className="mt-1 text-xs leading-relaxed text-slate-500">
-          아이들이 쉬는 시간에 빼서 읽고 아무 데나 끼워 놓으면 기록은 금세 「한때 거기 있었던 책들」이 됩니다.
-          전부 다시 찍는 데는 며칠이 걸리니 <b>등급 하나씩</b> 끊어서 돕니다 — 6등급은 맨 위라 손이 덜 닿으니
-          가장 적게 어긋나 있습니다.
+          {rich(
+            t(
+              "아이들이 쉬는 시간에 빼서 읽고 아무 데나 끼워 놓으면 기록은 금세 「한때 거기 있었던 책들」이 됩니다. 전부 다시 찍는 데는 며칠이 걸리니 **등급 하나씩** 끊어서 돕니다 — 6등급은 맨 위라 손이 덜 닿으니 가장 적게 어긋나 있습니다."
+            )
+          )}
         </p>
       </header>
 
@@ -289,8 +298,11 @@ export default function TidyClient({ levels }: { levels: LibLabelLevel[] }) {
             {mode === "asis" && (
               <div className="mt-3 rounded-xl bg-slate-50 px-3 py-2.5">
                 <p className="text-xs leading-relaxed text-slate-600">
-                  지금 적혀 있는 자리를 그대로 믿고 정리합니다. 최근에 찍은 칸이면 이게 빠릅니다 — 다만 아이들이
-                  빼 간 책은 <b>옛 칸에 그대로 적혀 있어</b> 정리 목록에서 「그 칸에 있다」고 나옵니다.
+                  {rich(
+                    t(
+                      "지금 적혀 있는 자리를 그대로 믿고 정리합니다. 최근에 찍은 칸이면 이게 빠릅니다 — 다만 아이들이 빼 간 책은 **옛 칸에 그대로 적혀 있어** 정리 목록에서 「그 칸에 있다」고 나옵니다."
+                    )
+                  )}
                 </p>
                 <Link
                   href={`/plan?level=${level}`}
@@ -307,8 +319,11 @@ export default function TidyClient({ levels }: { levels: LibLabelLevel[] }) {
             <section className={card}>
               <h2 className="text-sm font-bold text-slate-500">③ 칸을 하나 골라 다시 찍습니다</h2>
               <p className="mt-1 text-xs leading-relaxed text-slate-500">
-                한 칸을 다 찍고 <b>「이 칸 다 찍었습니다」</b>를 누르면 그 칸 기록이 <b>찍은 것으로 통째로
-                바뀝니다</b> — 떠난 책은 그 자리에서 사라집니다. 안 찍은 칸은 옛 기록 그대로 둡니다.
+                {rich(
+                  t(
+                    "한 칸을 다 찍고 **「이 칸 다 찍었습니다」**를 누르면 그 칸 기록이 **찍은 것으로 통째로 바뀝니다** — 떠난 책은 그 자리에서 사라집니다. 안 찍은 칸은 옛 기록 그대로 둡니다."
+                  )
+                )}
               </p>
 
               {message && (
@@ -516,8 +531,12 @@ export default function TidyClient({ levels }: { levels: LibLabelLevel[] }) {
                     {diff === 0 ? " → 다 맞습니다" : ` → ${Math.abs(diff)}권 ${diff > 0 ? "모자랍니다" : "더 나왔습니다"}`}
                     {audit.strangerCopies > 0 && (
                       <span className="mt-1 block text-xs font-medium opacity-80">
-                        이 등급 칸에는 <b>남의 등급 책 {audit.strangerCopies}권</b>도 함께 꽂혀 있습니다 — 위의 칸
-                        목록에 보이는 권수에는 그것까지 들어 있습니다.
+                        {rich(
+                          t(
+                            "이 등급 칸에는 **남의 등급 책 {n}권**도 함께 꽂혀 있습니다 — 위의 칸 목록에 보이는 권수에는 그것까지 들어 있습니다.",
+                            { n: audit.strangerCopies }
+                          )
+                        )}
                       </span>
                     )}
                   </p>
@@ -530,9 +549,11 @@ export default function TidyClient({ levels }: { levels: LibLabelLevel[] }) {
                     이 등급 칸에서 안 나온 책 {audit.notFound.length}종
                   </h3>
                   <p className="mt-0.5 text-[11px] leading-relaxed text-slate-500">
-                    <b>다른 칸</b>이 적혀 있으면 아이가 거기에 끼워 놓은 것입니다 — 가져와서 이 등급 칸에 꽂고
-                    찍으면 맞습니다. 아무 자리도 없으면 아직 안 찍은 칸에 있거나, 손에 모아 둔 책이거나, 없어진
-                    것입니다.
+                    {rich(
+                      t(
+                        "**다른 칸**이 적혀 있으면 아이가 거기에 끼워 놓은 것입니다 — 가져와서 이 등급 칸에 꽂고 찍으면 맞습니다. 아무 자리도 없으면 아직 안 찍은 칸에 있거나, 손에 모아 둔 책이거나, 없어진 것입니다."
+                      )
+                    )}
                   </p>
                   <ul className="mt-1.5 max-h-72 space-y-0.5 overflow-auto text-sm">
                     {audit.notFound.map((b) => (
@@ -558,8 +579,9 @@ export default function TidyClient({ levels }: { levels: LibLabelLevel[] }) {
                     이 등급 칸에 꽂혀 있는 남의 등급 책 {audit.strangers.length}종
                   </h3>
                   <p className="mt-0.5 text-[11px] leading-relaxed text-slate-500">
-                    라벨은 다른 등급인데 이 칸에 있습니다. 그 등급 칸으로 옮기고, 자리 등록에서 찍으면 기록도
-                    따라옵니다.
+                    {t(
+                      "라벨은 다른 등급인데 이 칸에 있습니다. 그 등급 칸으로 옮기고, 자리 등록에서 찍으면 기록도 따라옵니다."
+                    )}
                   </p>
                   <ul className="mt-1.5 max-h-72 space-y-0.5 overflow-auto text-sm">
                     {audit.strangers.map((b) => (

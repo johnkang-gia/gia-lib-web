@@ -1,6 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useT } from "@/lib/i18n/client";
+import { rich } from "@/lib/i18n/rich";
 import Link from "next/link";
 
 /**
@@ -38,6 +40,8 @@ type State = {
 };
 
 export default function RetitleClient() {
+  /* 설명 글은 `**굵게**` 를 품은 글귀 하나로 두고 rich() 로 그립니다(토막나지 않게). */
+  const t = useT();
   const [state, setState] = useState<State | null>(null);
   const [scanning, setScanning] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -146,9 +150,11 @@ export default function RetitleClient() {
     <div className="mx-auto max-w-5xl px-4 py-6">
       <h1 className="text-xl font-bold text-gia-navy">제목 다시 채우기</h1>
       <p className="mt-2 text-sm leading-relaxed text-slate-600">
-        ISBN 으로 조회처 네 곳(국립중앙도서관 · 카카오 · Google Books · OpenLibrary)에 <b>모두</b> 물어 제목을 다시 받아옵니다.
-        등록할 때는 먼저 답한 곳을 쓰는데, 수입 영어 전집은 국내 조회처가 <b>세트 이름</b>으로 등록해 두어서 여러 권이 한
-        제목으로 들어왔습니다. 손으로 적어 둔 제목도 여기서 함께 맞춥니다.
+        {rich(
+          t(
+            "ISBN 으로 조회처 네 곳(국립중앙도서관 · 카카오 · Google Books · OpenLibrary)에 **모두** 물어 제목을 다시 받아옵니다. 등록할 때는 먼저 답한 곳을 쓰는데, 수입 영어 전집은 국내 조회처가 **세트 이름**으로 등록해 두어서 여러 권이 한 제목으로 들어왔습니다. 손으로 적어 둔 제목도 여기서 함께 맞춥니다."
+          )
+        )}
       </p>
 
       {/* ── 진행률 ─────────────────────────────────────────────────────── */}
@@ -220,8 +226,11 @@ export default function RetitleClient() {
             ① 덜 적힌 제목 {more.length}종 — 묶어서 바꿔도 됩니다
           </h2>
           <p className="mt-1 text-xs leading-relaxed text-slate-600">
-            지금 제목이 <b>틀린 게 아니라 덜 적힌</b> 경우입니다. 조회된 제목이 지금 제목을 그대로 품고 있으면서 권 제목이
-            더 붙어 있습니다. 그래서 한 줄씩 볼 필요가 없습니다.
+            {rich(
+              t(
+                "지금 제목이 **틀린 게 아니라 덜 적힌** 경우입니다. 조회된 제목이 지금 제목을 그대로 품고 있으면서 권 제목이 더 붙어 있습니다. 그래서 한 줄씩 볼 필요가 없습니다."
+              )
+            )}
           </p>
           <button
             type="button"
@@ -251,8 +260,11 @@ export default function RetitleClient() {
         <section className="mt-8">
           <h2 className="text-base font-bold text-gia-navy">② 지금 제목과 겹치지 않는 것 {diff.length}종 — 하나씩 봐주세요</h2>
           <p className="mt-1 text-xs leading-relaxed text-slate-600">
-            손으로 적어 둔 제목이 맞을 수도 있고, 조회처가 엉뚱한 책을 준 것일 수도 있습니다. <b>책을 보고</b> 정해주세요.
-            바꿀 것만 골라서 눌러도 되고, 칸을 직접 고쳐 써도 됩니다.
+            {rich(
+              t(
+                "손으로 적어 둔 제목이 맞을 수도 있고, 조회처가 엉뚱한 책을 준 것일 수도 있습니다. **책을 보고** 정해주세요. 바꿀 것만 골라서 눌러도 되고, 칸을 직접 고쳐 써도 됩니다."
+              )
+            )}
           </p>
           <div className="mt-3 flex gap-2">
             <button
@@ -296,11 +308,13 @@ export default function RetitleClient() {
       {state && state.applied.length > 0 && (
         <section className="mt-8">
           <h2 className="text-base font-bold text-gia-navy">바꾼 제목 (최근 {state.applied.length}종)</h2>
-          <p className="mt-1 text-xs text-slate-600">바꾸기 전 제목을 남겨 두었습니다. 돌리고 싶으면 그 줄의 「되돌리기」를 누르세요.</p>
+          <p className="mt-1 text-xs text-slate-600">
+            {t("바꾸기 전 제목을 남겨 두었습니다. 돌리고 싶으면 그 줄의 「되돌리기」를 누르세요.")}
+          </p>
           <div className="mt-3 divide-y divide-slate-100 rounded-xl border border-slate-200 bg-white text-sm">
             {state.applied.map((a) => (
               <div key={a.bookId} className="flex flex-wrap items-center gap-2 px-3 py-2">
-                <span className="text-slate-400 line-through">{a.from || "(비어 있었음)"}</span>
+                <span className="text-slate-400 line-through">{a.from || t("(비어 있었음)")}</span>
                 <span className="text-slate-400">→</span>
                 <span className="font-semibold text-slate-800">{a.to}</span>
                 <button
@@ -309,7 +323,7 @@ export default function RetitleClient() {
                   onClick={() => void revert([a.bookId])}
                   className="ml-auto rounded border border-slate-300 px-2 py-1 text-xs text-slate-600 disabled:opacity-50"
                 >
-                  되돌리기
+                  {t("되돌리기")}
                 </button>
               </div>
             ))}
@@ -318,8 +332,13 @@ export default function RetitleClient() {
       )}
 
       <p className="mt-8 text-xs text-slate-500">
-        제목만 바뀝니다. 권수·자리·등급은 건드리지 않습니다. 같은 ISBN 이 등급별로 여러 줄이면 그 줄들은 따로 고칩니다 —
-        줄을 합치거나 나누는 일은 <Link href="/duplicates" className="underline">겹치는 책 합치기</Link>에서 합니다.
+        {t(
+          "제목만 바뀝니다. 권수·자리·등급은 건드리지 않습니다. 같은 ISBN 이 등급별로 여러 줄이면 그 줄들은 따로 고칩니다 — 줄을 합치거나 나누는 일은"
+        )}{" "}
+        <Link href="/duplicates" className="underline">
+          {t("겹치는 책 합치기")}
+        </Link>
+        {t("에서 합니다.")}
       </p>
     </div>
   );

@@ -1,5 +1,7 @@
 import PrintButton from "@/components/PrintButton";
 import { TranslateOverlay } from "@/lib/i18n/overlay";
+import { getT } from "@/lib/i18n/server";
+import { rich } from "@/lib/i18n/rich";
 import StudentCard from "@/components/StudentCard";
 import StudentCardBack from "@/components/StudentCardBack";
 import { createClient } from "@/lib/supabase/server";
@@ -199,6 +201,8 @@ export default async function PrintCardsPage({
     orient?: string;
   }>;
 }) {
+  /* 설명 글은 `**굵게**` 를 품은 글귀 하나로 두고 rich() 로 그립니다(토막나지 않게). */
+  const t = await getT();
   const sp = await searchParams;
   let idList = (sp.ids ?? "").split(",").map((v) => v.trim()).filter(Boolean);
   const wantPhoto = sp.photo === "1";
@@ -346,10 +350,18 @@ export default async function PrintCardsPage({
 
       {!lay.fits && (
         <p className="no-print mx-auto mb-6 max-w-[210mm] rounded-xl bg-amber-50 px-5 py-4 text-sm leading-relaxed text-amber-900 ring-1 ring-amber-200">
-          <b>{CARD[size].label}</b>를 접이식으로 뽑으려면 한 조각이{" "}
-          {CARD[size].h * 2}mm인데 {paper} {orientation === "landscape" ? "가로" : "세로"}는 그만큼
-          길지 않습니다. 용지를 <b>{orientation === "landscape" ? "세로" : "가로"}</b>로 돌리거나
-          A3로 바꿔주세요.
+          {rich(
+            t(
+              "**{card}**를 접이식으로 뽑으려면 한 조각이 {mm}mm인데 {paper} {dir}는 그만큼 길지 않습니다. 용지를 **{turn}**로 돌리거나 A3로 바꿔주세요.",
+              {
+                card: t(CARD[size].label),
+                mm: CARD[size].h * 2,
+                paper,
+                dir: orientation === "landscape" ? t("가로") : t("세로"),
+                turn: orientation === "landscape" ? t("세로") : t("가로"),
+              }
+            )
+          )}
         </p>
       )}
 
@@ -362,27 +374,36 @@ export default async function PrintCardsPage({
               {wantPhoto ? " · 사진 포함" : ""} · {fold ? "접이식(앞뒤 한 장)" : "양면(따로 두 장)"}
             </p>
             <p className="mt-1 text-xs leading-relaxed text-slate-500">
-              인쇄 설정에서 <b>배율 100%(실제 크기)</b>, <b>여백 없음</b>, 그리고{" "}
-              <b>&lsquo;배경 그래픽&rsquo;</b>을 켜주세요. 두꺼운 종이(160~200g)가 알맞습니다.
-              용지는 <b>{paper}</b>로 맞춰져 있습니다(한 장에 {lay.perPage}명분).
+              {rich(
+                t(
+                  "인쇄 설정에서 **배율 100%(실제 크기)**, **여백 없음**, 그리고 **「배경 그래픽」**을 켜주세요. 두꺼운 종이(160~200g)가 알맞습니다. 용지는 **{paper}**로 맞춰져 있습니다(한 장에 {per}명분).",
+                  { paper, per: lay.perPage }
+                )
+              )}
               {lay.mixed && (
                 <>
-                  {" "}종이를 아끼려고 일부 조각은 <b>옆으로 눕혀</b> 넣었습니다. 자르는 선은
-                  모두 직선이라 재단기로 그대로 자르실 수 있습니다.
+                  {" "}
+                  {rich(
+                    t(
+                      "종이를 아끼려고 일부 조각은 **옆으로 눕혀** 넣었습니다. 자르는 선은 모두 직선이라 재단기로 그대로 자르실 수 있습니다."
+                    )
+                  )}
                 </>
               )}
             </p>
             {fold ? (
               <p className="mt-1 text-xs leading-relaxed text-slate-500">
-                자른 뒤 <b>가운데 표시선을 따라 반으로 접고</b>(뒷면이 뒤로 가게), 접힌 쪽
-                모서리 두 곳을 <b>점선을 따라 둥글게</b> 잘라주세요. 접은 상태에서 두 겹을 함께
-                잘라야 앞뒤가 똑같이 둥글어집니다. 그다음 코팅하면 네 모서리가 모두 둥근 앞뒤
-                남색 카드가 됩니다.
+                {rich(
+                  t(
+                    "자른 뒤 **가운데 표시선을 따라 반으로 접고**(뒷면이 뒤로 가게), 접힌 쪽 모서리 두 곳을 **점선을 따라 둥글게** 잘라주세요. 접은 상태에서 두 겹을 함께 잘라야 앞뒤가 똑같이 둥글어집니다. 그다음 코팅하면 네 모서리가 모두 둥근 앞뒤 남색 카드가 됩니다."
+                  )
+                )}
               </p>
             ) : (
               <p className="mt-1 text-xs leading-relaxed text-slate-500">
-                앞면 시트와 뒷면 시트가 번갈아 나옵니다. 양면 인쇄를 쓰시거나, 앞면을 뽑은
-                종이를 뒤집어 다시 넣어 뒷면을 뽑으세요.
+                {t(
+                  "앞면 시트와 뒷면 시트가 번갈아 나옵니다. 양면 인쇄를 쓰시거나, 앞면을 뽑은 종이를 뒤집어 다시 넣어 뒷면을 뽑으세요."
+                )}
               </p>
             )}
             {missingPhoto > 0 && (

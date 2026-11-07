@@ -10,6 +10,8 @@ import { APP_VERSION } from "@/lib/version";
 import { addToPile, fetchPile, type Pile } from "@/lib/pileClient";
 import type { LibBook, LibBookWithShelf, LibLocation, ShelfCheckResult } from "@/lib/types";
 import type { ShelfListRow } from "@/app/api/shelf-check/list/route";
+import { useT } from "@/lib/i18n/client";
+import { rich } from "@/lib/i18n/rich";
 
 /** 검사 중에 걸려서 **아직 끝내지 못한** 한 가지. 알림이 아니라 할 일입니다. */
 type AuditTodo =
@@ -58,6 +60,8 @@ export default function PlaceClient({
   locations: LibLocation[];
   checked: Record<string, { titles: number; copies: number }>;
 }) {
+  /* 설명 글은 `**굵게**` 를 품은 글귀 하나로 두고 rich() 로 그립니다(토막나지 않게). */
+  const t = useT();
   const router = useRouter();
   /*
     ── 칸 누적 숫자는 여기서 고쳐 씁니다 ─────────────────────────────────────
@@ -910,14 +914,18 @@ export default function PlaceClient({
         <div className="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200">
           <h1 className="text-lg font-bold">자리 등록</h1>
           <p className="mt-1 text-sm text-slate-500">
-            책장 한 칸을 통째로 빼서 하나씩 찍으면, 그 책들의 자리가 이 칸으로 바뀝니다.
-            <b className="text-slate-700"> 새로 등록하는 화면이 아닙니다</b> — 이미 등록된 책의
-            자리를 고치는 화면입니다.
+            {rich(
+              t(
+                "책장 한 칸을 통째로 빼서 하나씩 찍으면, 그 책들의 자리가 이 칸으로 바뀝니다. **새로 등록하는 화면이 아닙니다** — 이미 등록된 책의 자리를 고치는 화면입니다."
+              )
+            )}
           </p>
           <p className="mt-2 rounded-xl bg-slate-50 px-3 py-2 text-xs leading-relaxed text-slate-600">
-            시리즈별 정렬은 여기서 하지 않습니다. <b>자리가 다 잡힌 뒤</b> 「② 정리 계획」에서
-            분류해 옮길 자리를 정하고 「③ 정리 실행」으로 옮기면 됩니다. 지금은 무엇이 어디에
-            있는지만 사실대로 적는 단계입니다.
+            {rich(
+              t(
+                "시리즈별 정렬은 여기서 하지 않습니다. **자리가 다 잡힌 뒤** 「② 정리 계획」에서 분류해 옮길 자리를 정하고 「③ 정리 실행」으로 옮기면 됩니다. 지금은 무엇이 어디에 있는지만 사실대로 적는 단계입니다."
+              )
+            )}
           </p>
         </div>
 
@@ -925,7 +933,7 @@ export default function PlaceClient({
           <p className="mb-3 text-sm font-bold text-slate-500">지금 비울 칸을 고르세요</p>
           {locations.length === 0 ? (
             <p className="py-8 text-center text-sm text-slate-400">
-              아직 만든 칸이 없습니다. 「① 구역 관리」에서 칸을 먼저 만들어주세요.
+              {t("아직 만든 칸이 없습니다. 「① 구역 관리」에서 칸을 먼저 만들어주세요.")}
             </p>
           ) : (
             <ul className="grid gap-2 sm:grid-cols-3 lg:grid-cols-4">
@@ -1012,8 +1020,9 @@ export default function PlaceClient({
           <span className="min-w-0 flex-1 text-sm font-bold">
             새 버전 v{stale} 이 나왔습니다 — 이 화면은 v{APP_VERSION} 입니다.
             <span className="block text-xs font-normal opacity-90">
-              새로고침하기 전에는 새로 생긴 버튼이 안 보입니다. 찍은 것은 이미 저장돼 있으니
-              지금 눌러도 잃는 것은 없습니다.
+              {t(
+                "새로고침하기 전에는 새로 생긴 버튼이 안 보입니다. 찍은 것은 이미 저장돼 있으니 지금 눌러도 잃는 것은 없습니다."
+              )}
             </span>
           </span>
           <button

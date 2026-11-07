@@ -7,6 +7,8 @@ import LabelZoneSetup from "@/components/LabelZoneSetup";
 import { createClient } from "@/lib/supabase/client";
 import { levelColor } from "@/lib/bookLevels";
 import type { LibLocation, LibMap } from "@/lib/types";
+import { useT } from "@/lib/i18n/client";
+import { rich } from "@/lib/i18n/rich";
 
 const COLORS = ["#1d4ed8", "#0f766e", "#b45309", "#9333ea", "#be123c", "#0369a1", "#4d7c0f", "#475569"];
 
@@ -30,6 +32,8 @@ export default function LocationsClient({
   /** 이 도서관이 실제로 쓰는 라벨 등급(lib_label_levels). 화면마다 손으로 적지 않습니다. */
   levels: number[];
 }) {
+  /* 설명 글은 `**굵게**` 를 품은 글귀 하나로 두고 rich() 로 그립니다(토막나지 않게). */
+  const t = useT();
   const router = useRouter();
   const supabase = createClient();
   const [rows, setRows] = useState(locations);
@@ -355,15 +359,18 @@ export default function LocationsClient({
       <div className="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200">
         <h1 className="text-lg font-bold">구역(책장 위치) 관리</h1>
         <p className="mt-1 text-sm leading-relaxed text-slate-500">
-          구역 이름은 자유롭게 정하세요 — <b>A-1</b>처럼 책장·칸 번호도 되고 <b>그림책</b>처럼
-          분류 이름도 됩니다. 아래 배치도에서 네모를 <b>끌어서</b> 실제 도서관 모양대로 놓으면,
-          책을 찾을 때와 반납한 책을 제자리에 꽂을 때 그 자리가 반짝입니다.
+          {rich(
+            t(
+              "구역 이름은 자유롭게 정하세요 — **A-1**처럼 책장·칸 번호도 되고 **그림책**처럼 분류 이름도 됩니다. 아래 배치도에서 네모를 **끌어서** 실제 도서관 모양대로 놓으면, 책을 찾을 때와 반납한 책을 제자리에 꽂을 때 그 자리가 반짝입니다."
+            )
+          )}
         </p>
         <p className="mt-2 rounded-xl bg-slate-50 px-4 py-3 text-sm leading-relaxed text-slate-500">
-          <b>임시</b>는 지금 무작정 꽂아둔 칸이고, <b>정식</b>은 정리를 마친 뒤에 쓸 칸입니다.
-          도서정리 계획은 정식 칸에만 책을 배정하고 임시 칸은 비웁니다. 임시 칸에 책을 다
-          등록했으면 <b>&lsquo;등록된 권수를 용량으로&rsquo;</b>를 눌러 두세요 — 그 칸에 실제로
-          몇 권이 들어가는지가 기록되어, 정리할 때 넘치지 않게 나눠 담습니다.
+          {rich(
+            t(
+              "**임시**는 지금 무작정 꽂아둔 칸이고, **정식**은 정리를 마친 뒤에 쓸 칸입니다. 도서정리 계획은 정식 칸에만 책을 배정하고 임시 칸은 비웁니다. 임시 칸에 책을 다 등록했으면 **「등록된 권수를 용량으로」**를 눌러 두세요 — 그 칸에 실제로 몇 권이 들어가는지가 기록되어, 정리할 때 넘치지 않게 나눠 담습니다."
+            )
+          )}
         </p>
       </div>
 
@@ -413,8 +420,11 @@ export default function LocationsClient({
           className="w-full rounded-xl"
         />
         <p className="mt-2 text-xs leading-relaxed text-slate-400">
-          빈 곳을 <b>끌면</b> 사각형 안의 구역이 한꺼번에 골라집니다. Shift(또는 ⌘)를 누른 채
-          누르면 하나씩 담거나 뺄 수 있고, 고른 것 중 하나를 끌면 <b>전부 같이 움직입니다</b>.
+          {rich(
+            t(
+              "빈 곳을 **끌면** 사각형 안의 구역이 한꺼번에 골라집니다. Shift(또는 ⌘)를 누른 채 누르면 하나씩 담거나 뺄 수 있고, 고른 것 중 하나를 끌면 **전부 같이 움직입니다**."
+            )
+          )}
         </p>
 
         {unplaced.length > 0 && (
@@ -612,7 +622,7 @@ export default function LocationsClient({
               <input
                 type="number"
                 min={0}
-                placeholder="권"
+                placeholder={t("권")}
                 onKeyDown={(e) => {
                   if (e.key !== "Enter") return;
                   const v = (e.target as HTMLInputElement).value;

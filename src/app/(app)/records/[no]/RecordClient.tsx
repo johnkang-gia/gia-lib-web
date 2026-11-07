@@ -6,6 +6,8 @@ import { formatDay, todayKst } from "@/lib/dates";
 import { categoryOf } from "@/lib/categories";
 import { groupLoans, kstDay, summarize, type GroupBy, type RecordLoan, type RecordTerm } from "@/lib/readingRecord";
 import type { LibStudent } from "@/lib/types";
+import { useT } from "@/lib/i18n/client";
+import { rich } from "@/lib/i18n/rich";
 
 const TABS: { key: GroupBy; label: string; hint: string }[] = [
   { key: "month", label: "월별", hint: "요즘 읽고 있는지 보기 좋습니다" },
@@ -35,6 +37,8 @@ export default function RecordClient({
   terms: RecordTerm[];
   termsError: boolean;
 }) {
+  /* 설명 글은 `**굵게**` 를 품은 글귀 하나로 두고 rich() 로 그립니다(토막나지 않게). */
+  const t = useT();
   const [by, setBy] = useState<GroupBy>("term");
   const groups = useMemo(() => groupLoans(loans, by, terms), [loans, by, terms]);
   const all = useMemo(() => summarize(loans), [loans]);
@@ -71,8 +75,9 @@ export default function RecordClient({
 
       {termsError && by === "term" && (
         <p className="no-print rounded-xl bg-amber-50 px-4 py-3 text-sm text-amber-900 ring-1 ring-amber-200">
-          학기 목록을 읽지 못했습니다 — 운영앱에 등록된 학기를 따라가는데, 아직 연결되지
-          않았거나 등록된 학기가 없습니다. 월별·연도별은 그대로 쓸 수 있습니다.
+          {t(
+            "학기 목록을 읽지 못했습니다 — 운영앱에 등록된 학기를 따라가는데, 아직 연결되지 않았거나 등록된 학기가 없습니다. 월별·연도별은 그대로 쓸 수 있습니다."
+          )}
         </p>
       )}
 

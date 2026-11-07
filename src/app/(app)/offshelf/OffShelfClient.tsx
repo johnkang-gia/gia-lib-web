@@ -1,6 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { useT } from "@/lib/i18n/client";
+import { rich } from "@/lib/i18n/rich";
 import Link from "next/link";
 
 /**
@@ -45,6 +47,8 @@ type Data = {
 };
 
 export default function OffShelfClient() {
+  /* 설명 글은 `**굵게**` 를 품은 글귀 하나로 두고 rich() 로 그립니다(토막나지 않게). */
+  const t = useT();
   const [data, setData] = useState<Data | null>(null);
   const [busy, setBusy] = useState("");
   const [note, setNote] = useState<string | null>(null);
@@ -106,13 +110,18 @@ export default function OffShelfClient() {
     <div className="mx-auto max-w-5xl px-4 py-6">
       <h1 className="text-xl font-bold text-gia-navy">책장 미등록 장서</h1>
       <p className="mt-2 text-sm leading-relaxed text-slate-600">
-        장서에는 있다고 적혀 있는데 <b>책장등록에서 나오지 않은</b> 책들입니다. 책장등록은 칸을 하나씩 비워 가며 한
-        권씩 손에 들고 찍은 기록이라, 거기 없는 책은 지금 <b>책장 밖에 있는 책</b>입니다 — 없어진 것이 아니라 더미나
-        책상 위에 있습니다.
+        {rich(
+          t(
+            "장서에는 있다고 적혀 있는데 **책장등록에서 나오지 않은** 책들입니다. 책장등록은 칸을 하나씩 비워 가며 한 권씩 손에 들고 찍은 기록이라, 거기 없는 책은 지금 **책장 밖에 있는 책**입니다 — 없어진 것이 아니라 더미나 책상 위에 있습니다."
+          )
+        )}
       </p>
       <p className="mt-1 text-xs leading-relaxed text-slate-500">
-        재등록 화면에서 「라벨 담고 넘기기」를 누른 책은 <b>맨 위</b>로 올라옵니다. 책을 꽂은 다음 여기서 칸과 권수를
-        고르면 그 자리에서 책장등록이 됩니다 — 「자리 등록」 화면을 다시 열지 않아도 됩니다.
+        {rich(
+          t(
+            "재등록 화면에서 「라벨 담고 넘기기」를 누른 책은 **맨 위**로 올라옵니다. 책을 꽂은 다음 여기서 칸과 권수를 고르면 그 자리에서 책장등록이 됩니다 — 「자리 등록」 화면을 다시 열지 않아도 됩니다."
+          )
+        )}
       </p>
 
       {data && (
@@ -223,7 +232,7 @@ export default function OffShelfClient() {
                   onChange={(e) => setHowMany((h) => ({ ...h, [r.id]: Number(e.target.value) }))}
                   className="w-16 rounded-lg border border-slate-300 px-2 py-1.5 text-sm"
                 />
-                <span className="text-xs text-slate-500">권</span>
+                <span className="text-xs text-slate-500">{t("권")}</span>
                 <button
                   type="button"
                   disabled={busy === r.id || !place[r.id]}
@@ -266,10 +275,11 @@ export default function OffShelfClient() {
       )}
 
       <p className="mt-8 text-xs leading-relaxed text-slate-500">
-        장서 권수는 등록할 때마다 올라간 숫자라 아무도 세어 본 적이 없습니다. 책장등록은 한 권씩 손에 들고 찍은
-        기록입니다. 그래서 둘이 다르면 <b>책장등록 쪽이 맞을 때가 많습니다</b> — 다만 지금은 상품코드 책과 라벨 없는
-        책을 책장에서 빼내어 두었으므로, 그 차이는 틀린 것이 아니라 <b>아직 책장에 없는 권수</b>입니다. 이 목록이
-        비면 그때 둘이 같아집니다.
+        {rich(
+          t(
+            "장서 권수는 등록할 때마다 올라간 숫자라 아무도 세어 본 적이 없습니다. 책장등록은 한 권씩 손에 들고 찍은 기록입니다. 그래서 둘이 다르면 **책장등록 쪽이 맞을 때가 많습니다** — 다만 지금은 상품코드 책과 라벨 없는 책을 책장에서 빼내어 두었으므로, 그 차이는 틀린 것이 아니라 **아직 책장에 없는 권수**입니다. 이 목록이 비면 그때 둘이 같아집니다."
+          )
+        )}
       </p>
     </div>
   );

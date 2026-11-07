@@ -3,6 +3,8 @@
 import { useState } from "react";
 import PrintButton from "@/components/PrintButton";
 import { levelColor } from "@/lib/bookLevels";
+import { useT } from "@/lib/i18n/client";
+import { rich } from "@/lib/i18n/rich";
 
 type Months = { month: string; count: number }[];
 type Top = { id: string; title: string; count: number; level: number | null }[];
@@ -92,6 +94,8 @@ export default function StatsClient({
   totals: Totals;
   today: string;
 }) {
+  /* 설명 글은 `**굵게**` 를 품은 글귀 하나로 두고 rich() 로 그립니다(토막나지 않게). */
+  const t = useT();
   const [showSleeping, setShowSleeping] = useState(false);
   const monthMax = Math.max(1, ...months.map((m) => m.count));
   const topMax = Math.max(1, ...top.map((t) => t.count));
@@ -220,8 +224,9 @@ export default function StatsClient({
           )}
         </p>
         <p className="mt-1 text-xs text-slate-400">
-          최근 반년 안에 들어온 책은 뺐습니다 — 아직 기회가 없었으니까요. 책장 자리가 모자랄 때
-          먼저 들여다볼 목록입니다.
+          {t(
+            "최근 반년 안에 들어온 책은 뺐습니다 — 아직 기회가 없었으니까요. 책장 자리가 모자랄 때 먼저 들여다볼 목록입니다."
+          )}
         </p>
         {sleeping.sample.length > 0 && (
           <>

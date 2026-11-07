@@ -5,6 +5,8 @@ import ShelfMap from "@/components/ShelfMap";
 import { createClient } from "@/lib/supabase/client";
 import { levelColor } from "@/lib/bookLevels";
 import type { LibBookWithShelf, LibLocation, LibMap } from "@/lib/types";
+import { useT } from "@/lib/i18n/client";
+import { rich } from "@/lib/i18n/rich";
 
 type Row = LibBookWithShelf & { borrowed: number };
 
@@ -32,6 +34,8 @@ export default function KioskClient({
   locations: LibLocation[];
   libraryName: string;
 }) {
+  /* 설명 글은 `**굵게**` 를 품은 글귀 하나로 두고 rich() 로 그립니다(토막나지 않게). */
+  const t = useT();
   const [keyword, setKeyword] = useState("");
   const [rows, setRows] = useState<Row[] | null>(null);
   const [loading, setLoading] = useState(false);
@@ -110,7 +114,7 @@ export default function KioskClient({
 
       {rows && rows.length === 0 && !loading && (
         <p className="rounded-3xl bg-white/10 px-6 py-10 text-center text-lg font-semibold text-white/70">
-          그런 책은 없습니다. 글자를 조금만 쳐보세요 — 「해리」처럼 앞부분만 쳐도 찾습니다.
+          {t("그런 책은 없습니다. 글자를 조금만 쳐보세요 — 「해리」처럼 앞부분만 쳐도 찾습니다.")}
         </p>
       )}
 
@@ -180,7 +184,7 @@ export default function KioskClient({
                 <span className="text-2xl font-black" style={{ color: picked.shelf.color }}>
                   {picked.shelf.code}
                 </span>
-                <span className="text-slate-500"> 칸</span>
+                <span className="text-slate-500"> {t("칸")}</span>
               </p>
               <ShelfMap map={map} locations={locations} highlightId={picked.shelf.id} />
             </div>

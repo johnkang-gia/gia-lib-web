@@ -13,6 +13,7 @@
  * 띄어쓰기·문장부호까지 똑같아야 찾힙니다. 왼쪽을 고칠 때는 화면 쪽도 함께 고쳐야 합니다.
  */
 import { EN_GENERATED } from "@/lib/i18n/generated";
+import { EN_HELP } from "@/lib/i18n/help";
 
 /**
  * 손으로 적은 말. **일괄 번역분(generated.ts)보다 이쪽이 먼저입니다** - 기계가 옮긴 말이
@@ -392,4 +393,4 @@ const EN_MANUAL: Record<string, string> = {
 /**
  * 화면이 쓰는 사전. 일괄 번역분 위에 손으로 적은 말을 덮습니다.
  */
-export const EN: Record<string, string> = { ...EN_GENERATED, ...EN_MANUAL };
+export const EN: Record<string, string> = { ...EN_GENERATED, ...EN_HELP, ...EN_MANUAL };

@@ -2,6 +2,8 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { useT } from "@/lib/i18n/client";
+import { rich } from "@/lib/i18n/rich";
 
 export type ExtraCard = {
   id: string;
@@ -33,6 +35,8 @@ export default function StaffCardsClient({
   cards: ExtraCard[];
   error: string | null;
 }) {
+  /* 설명 글은 `**굵게**` 를 품은 글귀 하나로 두고 rich() 로 그립니다(토막나지 않게). */
+  const t = useT();
   const router = useRouter();
   const [name, setName] = useState("");
   const [kind, setKind] = useState<"개발" | "교직원">("교직원");
@@ -80,11 +84,15 @@ export default function StaffCardsClient({
           학생이 아닌 사람에게 주는 도서카드입니다. 찍으면 학생 카드와 똑같이 동작합니다.
         </p>
         <p className="mt-2 rounded-xl bg-slate-50 px-3 py-2 text-xs leading-relaxed text-slate-600">
-          번호의 <b>연도 자리</b>만 다릅니다 — 점검용은 <b>9000</b>, 교직원은 <b>9001</b>.
-          9000년도 입학생은 없으니 학생 번호와 영원히 겹치지 않고, 번호만 봐도 사람 카드가 아닌
-          걸 알 수 있습니다. 번호는 직접 적지 않고 다음 번호로 이어 붙습니다.
+          {rich(
+            t(
+              "번호의 **연도 자리**만 다릅니다 — 점검용은 **9000**, 교직원은 **9001**. 9000년도 입학생은 없으니 학생 번호와 영원히 겹치지 않고, 번호만 봐도 사람 카드가 아닌 걸 알 수 있습니다. 번호는 직접 적지 않고 다음 번호로 이어 붙습니다."
+            )
+          )}
           <br />
-          만든 카드는 <b>도서카드 인쇄</b> 화면에 함께 나옵니다 — 거기서 뽑아 코팅하면 됩니다.
+          {rich(
+            t("만든 카드는 **도서카드 인쇄** 화면에 함께 나옵니다 — 거기서 뽑아 코팅하면 됩니다.")
+          )}
         </p>
       </div>
 

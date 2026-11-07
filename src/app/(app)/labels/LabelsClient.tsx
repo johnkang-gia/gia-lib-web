@@ -4,6 +4,8 @@ import { useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { AUDIENCES, type Audience } from "@/lib/audience";
 import type { LibLabelLevel } from "@/lib/types";
+import { useT } from "@/lib/i18n/client";
+import { rich } from "@/lib/i18n/rich";
 
 export type LabelBook = {
   id: string;
@@ -34,6 +36,8 @@ export default function LabelsClient({
   levels: LibLabelLevel[];
   books: LabelBook[];
 }) {
+  /* 설명 글은 `**굵게**` 를 품은 글귀 하나로 두고 rich() 로 그립니다(토막나지 않게). */
+  const t = useT();
   const supabase = createClient();
   const [rows, setRows] = useState(levels);
   const [error, setError] = useState<string | null>(null);
@@ -94,9 +98,11 @@ export default function LabelsClient({
       <div className={card}>
         <h1 className="text-lg font-bold">지금 라벨 점검</h1>
         <p className="mt-1 text-sm leading-relaxed text-slate-500">
-          책에 이미 붙어 있는 색 라벨을 등급별로 모아 봅니다. 등록할 때 라벨 번호를 함께 넣어두면
-          여기서 <b>몇 번부터 몇 번까지 있는지</b>와 <b>중간에 빠진 번호</b>가 그대로 보입니다.
-          빠진 번호는 잃어버린 책이거나 아직 등록하지 않은 책입니다.
+          {rich(
+            t(
+              "책에 이미 붙어 있는 색 라벨을 등급별로 모아 봅니다. 등록할 때 라벨 번호를 함께 넣어두면 여기서 **몇 번부터 몇 번까지 있는지**와 **중간에 빠진 번호**가 그대로 보입니다. 빠진 번호는 잃어버린 책이거나 아직 등록하지 않은 책입니다."
+            )
+          )}
         </p>
         <p className="mt-3 text-sm text-slate-500">
           라벨이 적힌 책 <b>{totalLabeled}종</b>

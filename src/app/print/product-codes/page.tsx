@@ -1,6 +1,8 @@
 import { createClient } from "@/lib/supabase/server";
 import PrintButton from "@/components/PrintButton";
 import { TranslateOverlay } from "@/lib/i18n/overlay";
+import { getT } from "@/lib/i18n/server";
+import { rich } from "@/lib/i18n/rich";
 import { getLocations } from "@/lib/server/library";
 import { todayKst } from "@/lib/dates";
 import { hasProductCodeAsId } from "@/lib/scan";
@@ -49,6 +51,8 @@ export default async function ProductCodeListPage({
   searchParams: Promise<{ zone?: string }>;
 }) {
   const params = await searchParams;
+  /* 설명 글은 `**굵게**` 를 품은 글귀 하나로 두고 rich() 로 그립니다(토막나지 않게). */
+  const t = await getT();
   const supabase = await createClient();
 
   // 1000줄씩 끊어서 끝까지 가져옵니다 - 확인 목록에서 빠진 책이 생기면 그 책은 영영 안 보고
@@ -134,23 +138,28 @@ export default async function ProductCodeListPage({
             책상에서 발견된 종이도 그때 쓸 수 있어야 합니다.
           */}
           <p className="mb-2 bg-amber-50 px-3 py-2 text-xs leading-relaxed text-amber-900">
-            이 책들은 <b>상품코드</b>로 등록되어 있습니다. 상품코드는 시리즈 전체가 같은 번호를
-            쓰므로 책 한 권을 가리키지 못합니다. 책을 손에 들고 <b>이 줄이 정말 같은 책 몇 권인지</b>
-            확인해 주세요. 다른 책이 섞여 있으면 오른쪽에 적어 두고, 돌아와서 장서 관리의
-            <b> 따로 떼기</b>로 나누면 각각 도서관 라벨이 발급됩니다.
+            {rich(
+              t(
+                "이 책들은 **상품코드**로 등록되어 있습니다. 상품코드는 시리즈 전체가 같은 번호를 쓰므로 책 한 권을 가리키지 못합니다. 책을 손에 들고 **이 줄이 정말 같은 책 몇 권인지** 확인해 주세요. 다른 책이 섞여 있으면 오른쪽에 적어 두고, 돌아와서 장서 관리의 **따로 떼기**로 나누면 각각 도서관 라벨이 발급됩니다."
+              )
+            )}
           </p>
           {/*
             이 한 문단이 없으면 종이가 거짓말을 합니다. 2-1 앞에서 12권을 찾다가 못 찾고
             "없어졌다"고 적게 됩니다.
           */}
           <p className="mb-4 border-l-4 border-slate-400 bg-slate-50 px-3 py-2 text-xs leading-relaxed text-slate-700">
-            <b>자리는 책 한 줄에 하나만 적혀 있습니다.</b> 권마다 자리를 적는 칸이 아직 없어서,
-            <b> 「2-1 · 12권」은 12권이 모두 2-1에 있다는 뜻이 아닙니다.</b> 이 줄에 적어 둔 자리가
-            2-1이고 기록상 권수가 12라는 뜻입니다. 특히 상품코드 줄은 애초에 서로 다른 책이 한
-            줄로 합쳐진 것일 수 있어, 여러 칸에 흩어져 있는 편이 보통입니다.
+            {rich(
+              t(
+                "**자리는 책 한 줄에 하나만 적혀 있습니다.** 권마다 자리를 적는 칸이 아직 없어서, **「2-1 · 12권」은 12권이 모두 2-1에 있다는 뜻이 아닙니다.** 이 줄에 적어 둔 자리가 2-1이고 기록상 권수가 12라는 뜻입니다. 특히 상품코드 줄은 애초에 서로 다른 책이 한 줄로 합쳐진 것일 수 있어, 여러 칸에 흩어져 있는 편이 보통입니다."
+              )
+            )}
             <br />
-            여러 권인 줄에는 <b>⚠</b> 를 붙여 두었습니다. 그 칸에서 <b>실제로 찾은 권수</b>를
-            적어 주세요 — 기록과 다른 것이 곧 고쳐야 할 내용입니다.
+            {rich(
+              t(
+                "여러 권인 줄에는 **⚠** 를 붙여 두었습니다. 그 칸에서 **실제로 찾은 권수**를 적어 주세요 — 기록과 다른 것이 곧 고쳐야 할 내용입니다."
+              )
+            )}
           </p>
 
           {ordered.map(({ zone, list }) => (
